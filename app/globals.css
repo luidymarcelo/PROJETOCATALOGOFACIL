@@ -491,6 +491,17 @@ img {
   font-size: 1.05rem;
 }
 
+.price-stack {
+  display: grid;
+  gap: 2px;
+}
+
+.price-stack small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
 .add-button,
 .quantity-stepper button,
 .cart-stepper button,

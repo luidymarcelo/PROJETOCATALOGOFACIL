@@ -224,48 +224,100 @@ const merchants: Merchant[] = [
   },
   {
     id: "construmais",
-    name: "Construmais Materiais",
+    name: "Construmais Obras",
     segment: "Material de construcao",
-    tagline: "Acabamento, ferramentas, eletrica e entrega no bairro.",
-    rating: 4.7,
+    tagline:
+      "Cimento, areia, tijolo, hidraulica, eletrica e acabamento com entrega por rota.",
+    rating: 4.6,
     distance: "2,4 km",
-    deliveryTime: "60-90 min",
-    minimumOrder: 40,
-    deliveryFee: 12,
+    deliveryTime: "2-4 h",
+    minimumOrder: 80,
+    deliveryFee: 18,
     whatsapp: "5599999990003",
-    address: "BR 010, Quadra 12",
+    address: "Av. Filadelfia, 1280 - Setor Industrial",
     cover:
-      "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1400&q=80",
+      "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1400&q=80",
     icon: "hammer",
-    palette: "#2563eb",
-    categories: ["Mais pedidos", "Cimento", "Ferramentas", "Eletrica"],
+    palette: "#d97706",
+    categories: [
+      "Mais pedidos",
+      "Obra grossa",
+      "Hidraulica",
+      "Eletrica",
+      "Tintas",
+      "Ferramentas",
+    ],
     integration: {
       mode: "Banco legado",
       status: "Pendente",
-      cadence: "Agendado 06:00 e 18:00",
-      source: "ODBC/SQL interno",
+      cadence: "Agendado 06:00, 12:00 e 18:00",
+      source: "SQL interno + tabela de estoque",
       lastSync: "Ontem, 18:00",
     },
     products: [
       {
         id: "cimento-cp2",
         name: "Cimento CP II 50 kg",
-        description: "Saco fechado, retirada ou entrega local.",
-        category: "Cimento",
-        price: 38.5,
-        badge: "Estoque alto",
-        unit: "saco",
+        description: "Saco fechado para alvenaria, reboco e pequenos reparos.",
+        category: "Obra grossa",
+        price: 37.9,
+        badge: "Entrega hoje",
+        unit: "saco 50 kg",
+        image:
+          "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "argamassa-ac2",
+        name: "Argamassa ACII 20 kg",
+        description: "Indicada para piso ceramico e parede interna ou externa.",
+        category: "Obra grossa",
+        price: 24.9,
+        badge: "Piso e parede",
+        unit: "saco 20 kg",
+        image:
+          "https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "tijolo-8-furos",
+        name: "Tijolo Ceramico 8 Furos",
+        description: "Produto vendido por unidade, ideal para fechamento de paredes.",
+        category: "Obra grossa",
+        price: 0.89,
+        badge: "Acima de 100 un",
+        unit: "unidade",
         image:
           "https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=800&q=80",
       },
       {
-        id: "furadeira",
-        name: "Furadeira Impacto 650 W",
-        description: "Mandril 3/8, velocidade variavel e maleta.",
-        category: "Ferramentas",
-        price: 189.9,
+        id: "areia-media",
+        name: "Areia Media Lavada",
+        description: "Carga para concreto, contrapiso e assentamento. Consulte rota.",
+        category: "Obra grossa",
+        price: 140,
+        unit: "m3",
         image:
-          "https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&w=800&q=80",
+          "https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "cano-pvc-25",
+        name: "Cano PVC Soldavel 25 mm",
+        description: "Barra de 6 metros para agua fria, padrao marrom.",
+        category: "Hidraulica",
+        price: 21.9,
+        badge: "Mais pedido",
+        unit: "barra 6 m",
+        image:
+          "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "registro-esfera",
+        name: "Registro Esfera 25 mm",
+        description: "Registro soldavel para manutencao rapida em linha de agua.",
+        category: "Hidraulica",
+        price: 18.5,
+        unit: "unidade",
+        image:
+          "https://images.unsplash.com/photo-1581092162384-8987c1d64926?auto=format&fit=crop&w=800&q=80",
       },
       {
         id: "tomada-20a",
@@ -273,19 +325,71 @@ const merchants: Merchant[] = [
         description: "Modulo padrao brasileiro para instalacao residencial.",
         category: "Eletrica",
         price: 9.9,
-        unit: "un",
+        unit: "unidade",
         image:
           "https://images.unsplash.com/photo-1565814329452-e1efa11c5b89?auto=format&fit=crop&w=800&q=80",
       },
       {
+        id: "fio-flexivel-25",
+        name: "Fio Flexivel 2,5 mm 100 m",
+        description: "Rolo antichama para tomadas e pequenos circuitos.",
+        category: "Eletrica",
+        price: 119.9,
+        badge: "Cobre",
+        unit: "rolo 100 m",
+        image:
+          "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "disjuntor-din-20a",
+        name: "Disjuntor DIN 20 A",
+        description: "Disjuntor monopolar para quadro residencial.",
+        category: "Eletrica",
+        price: 16.9,
+        unit: "unidade",
+        image:
+          "https://images.unsplash.com/photo-1518779578993-ec3579fee39f?auto=format&fit=crop&w=800&q=80",
+      },
+      {
         id: "tinta-acrilica",
-        name: "Tinta Acrilica 18 L",
-        description: "Acabamento fosco, alta cobertura, cor branco neve.",
-        category: "Mais pedidos",
+        name: "Tinta Acrilica Fosca 18 L",
+        description: "Alta cobertura para area interna, cor branco neve.",
+        category: "Tintas",
         price: 219.9,
-        badge: "Entrega hoje",
+        badge: "Branco neve",
+        unit: "lata 18 L",
         image:
           "https://images.unsplash.com/photo-1562259949-e8e7689d7828?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "rolo-la",
+        name: "Rolo de La 23 cm",
+        description: "Rolo para parede lisa, cabo ergonomico e boa retencao.",
+        category: "Tintas",
+        price: 17.9,
+        unit: "unidade",
+        image:
+          "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "furadeira",
+        name: "Furadeira Impacto 650 W",
+        description: "Mandril 3/8, velocidade variavel e maleta.",
+        category: "Ferramentas",
+        price: 189.9,
+        unit: "unidade",
+        image:
+          "https://images.unsplash.com/photo-1504148455328-c376907d081c?auto=format&fit=crop&w=800&q=80",
+      },
+      {
+        id: "trena-5m",
+        name: "Trena Emborrachada 5 m",
+        description: "Trava manual, fita metalica e caixa resistente.",
+        category: "Ferramentas",
+        price: 22.9,
+        unit: "unidade",
+        image:
+          "https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?auto=format&fit=crop&w=800&q=80",
       },
     ],
   },
@@ -306,8 +410,11 @@ const categoryIcons = {
   Higiene: ShieldCheck,
   Dermocosmeticos: HeartPulse,
   Cimento: Home,
+  "Obra grossa": Home,
+  Hidraulica: SlidersHorizontal,
   Ferramentas: Hammer,
   Eletrica: SlidersHorizontal,
+  Tintas: BadgePercent,
 };
 
 const initialCheckout: Checkout = {
@@ -338,7 +445,9 @@ function buildWhatsappMessage({
   const items = cart
     .map(
       (item) =>
-        `${item.quantity}x ${item.product.name} - ${formatPrice(
+        `${item.quantity}x ${item.product.name}${
+          item.product.unit ? ` (${item.product.unit})` : ""
+        } - ${formatPrice(
           item.product.price * item.quantity,
         )}`,
     )
@@ -644,7 +753,10 @@ export default function Home() {
                         <p>{product.description}</p>
                       </div>
                       <footer>
-                        <strong>{formatPrice(product.price)}</strong>
+                        <span className="price-stack">
+                          <strong>{formatPrice(product.price)}</strong>
+                          {product.unit ? <small>{product.unit}</small> : null}
+                        </span>
                         {quantity > 0 ? (
                           <div className="quantity-stepper">
                             <button
@@ -824,7 +936,10 @@ function CartPanel({
               <img src={item.product.image} alt={item.product.name} />
               <div>
                 <strong>{item.product.name}</strong>
-                <span>{formatPrice(item.product.price)}</span>
+                <span>
+                  {formatPrice(item.product.price)}
+                  {item.product.unit ? ` / ${item.product.unit}` : ""}
+                </span>
               </div>
               <div className="cart-stepper">
                 <button

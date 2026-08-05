@@ -48,7 +48,9 @@ test("keeps the growth surfaces present", async () => {
 
   assert.match(page, /buildWhatsappMessage/);
   assert.match(page, /Farmacia Vida/);
-  assert.match(page, /Construmais Materiais/);
+  assert.match(page, /Construmais Obras/);
+  assert.match(page, /Obra grossa/);
+  assert.match(page, /Cano PVC Soldavel 25 mm/);
   assert.match(page, /Atualizar precos/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
