@@ -626,6 +626,12 @@ export default function Home() {
     setSyncLog((current) => ({ ...current, [storeId]: `Hoje, ${now}` }));
   }
 
+  function openCatalog(storeId: StoreId) {
+    setActiveStoreId(storeId);
+    setView("catalog");
+    setIsCartOpen(false);
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -687,7 +693,8 @@ export default function Home() {
                 <button
                   className={active ? "store-tile active" : "store-tile"}
                   key={store.id}
-                  onClick={() => setActiveStoreId(store.id)}
+                  onClick={() => openCatalog(store.id)}
+                  aria-pressed={active}
                   style={{ "--store-color": store.palette } as CSSProperties}
                 >
                   <span className="store-avatar">
@@ -702,7 +709,7 @@ export default function Home() {
             })}
           </aside>
 
-          <section className="catalog-surface">
+          <section className="catalog-surface" key={merchant.id}>
             <MerchantHero merchant={merchant} />
 
             <nav className="category-strip" aria-label="Categorias">
@@ -825,8 +832,7 @@ export default function Home() {
           merchants={merchants}
           syncLog={syncLog}
           onOpenCatalog={(storeId) => {
-            setActiveStoreId(storeId);
-            setView("catalog");
+            openCatalog(storeId);
           }}
           onSync={simulateSync}
         />
