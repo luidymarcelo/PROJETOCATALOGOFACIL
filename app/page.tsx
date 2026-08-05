@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type StoreId = "bella-massa" | "farmacia-vida" | "construmais";
 type ViewMode = "catalog" | "admin";
@@ -91,7 +92,7 @@ const currency = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
-const merchants: Merchant[] = [
+const fallbackMerchants: Merchant[] = [
   {
     id: "bella-massa",
     name: "Bella Massa Pizzaria",
@@ -479,6 +480,7 @@ function buildWhatsappMessage({
 }
 
 export default function Home() {
+  const [merchants, setMerchants] = useState<Merchant[]>(fallbackMerchants);
   const [activeStoreId, setActiveStoreId] = useState<StoreId>("bella-massa");
   const [activeCategory, setActiveCategory] = useState("Mais pedidos");
   const [search, setSearch] = useState("");
@@ -488,13 +490,91 @@ export default function Home() {
   const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
-    "bella-massa": merchants[0].integration.lastSync,
-    "farmacia-vida": merchants[1].integration.lastSync,
-    construmais: merchants[2].integration.lastSync,
+    "bella-massa": fallbackMerchants[0].integration.lastSync,
+    "farmacia-vida": fallbackMerchants[1].integration.lastSync,
+    construmais: fallbackMerchants[2].integration.lastSync,
   });
 
   const merchant =
     merchants.find((store) => store.id === activeStoreId) ?? merchants[0];
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCatalog() {
+      if (!supabase) return;
+
+      const { data, error } = await supabase
+        .from("stores")
+        .select("*, categories(*), products(*)")
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
+
+      if (error || !data?.length || cancelled) return;
+
+      const loadedMerchants = data.flatMap((store) => {
+        const fallback = fallbackMerchants.find(
+          (item) => item.id === store.slug,
+        );
+        if (!fallback) return [];
+
+        const categories = [...(store.categories ?? [])].sort(
+          (a, b) => a.sort_order - b.sort_order,
+        );
+        const products = [...(store.products ?? [])]
+          .filter((product) => product.is_active)
+          .map((product) => ({
+            id: product.id,
+            name: product.name,
+            description: product.description ?? "",
+            category:
+              categories.find((category) => category.id === product.category_id)
+                ?.name ?? "Mais pedidos",
+            price: Number(product.price),
+            image:
+              product.image_url ??
+              fallback.products.find((item) => item.name === product.name)
+                ?.image ??
+              fallback.cover,
+            badge: product.badge ?? undefined,
+            unit: product.unit ?? undefined,
+          }));
+
+        if (!products.length) return [];
+
+        return [
+          {
+            ...fallback,
+            name: store.name,
+            address: store.address ?? fallback.address,
+            whatsapp: store.whatsapp_phone,
+            minimumOrder: Number(store.minimum_order),
+            deliveryFee: Number(store.delivery_fee),
+            deliveryTime: store.delivery_time_label ?? fallback.deliveryTime,
+            categories: [
+              "Mais pedidos",
+              ...categories.map((category) => category.name),
+            ],
+            products,
+          },
+        ];
+      });
+
+      if (loadedMerchants.length) {
+        setMerchants(loadedMerchants);
+        setActiveStoreId((current) =>
+          loadedMerchants.some((store) => store.id === current)
+            ? current
+            : loadedMerchants[0].id,
+        );
+      }
+    }
+
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const savedCart = window.localStorage.getItem("catalogo-facil-cart");
