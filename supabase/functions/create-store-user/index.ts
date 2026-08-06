@@ -31,7 +31,8 @@ Deno.serve(async (request) => {
     const { data: store } = await adminClient.from("stores").select("tenant_id").eq("id", storeId).single();
     if (!store) throw new Error("Filial não encontrada.");
     const { data: membership } = await adminClient.from("tenant_members").select("role").eq("tenant_id", store.tenant_id).eq("user_id", userData.user.id).in("role", ["owner", "admin"]).maybeSingle();
-    if (!membership) throw new Error("Seu usuário não tem permissão para criar acessos nesta filial.");
+    const { data: platformAdmin } = await adminClient.from("platform_admins").select("user_id").eq("user_id", userData.user.id).maybeSingle();
+    if (!membership && !platformAdmin) throw new Error("Seu usuário não tem permissão para criar acessos nesta filial.");
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: name } });
     if (createError || !created.user) throw new Error(createError?.message ?? "Não foi possível criar o usuário.");

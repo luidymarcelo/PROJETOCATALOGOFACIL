@@ -31,6 +31,8 @@ type Product = {
 
 type StoreUserForm = { name: string; email: string; password: string; role: "manager" | "staff" };
 
+const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
+
 function slugify(value: string) {
   return value
     .normalize("NFD")
@@ -63,6 +65,7 @@ function AdminPage() {
     categoryId: "",
   });
   const [storeUserForm, setStoreUserForm] = useState<StoreUserForm>({ name: "", email: "", password: "", role: "manager" });
+  const [accessDenied, setAccessDenied] = useState(false);
 
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
@@ -136,11 +139,22 @@ function AdminPage() {
 
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
-      if (data.session?.user.id) void loadWorkspace(data.session.user.id);
+      if (data.session?.user.id && (isCompanyPortal || ADMIN_EMAILS.includes(data.session.user.email?.toLowerCase() ?? ""))) void loadWorkspace(data.session.user.id);
+      else if (data.session) {
+        setAccessDenied(true);
+        setLoading(false);
+        void supabase.auth.signOut();
+      }
       else setLoading(false);
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (nextSession && !isCompanyPortal && !ADMIN_EMAILS.includes(nextSession.user.email?.toLowerCase() ?? "")) {
+        setAccessDenied(true);
+        setLoading(false);
+        void supabase.auth.signOut();
+        return;
+      }
       setSession(nextSession);
       if (nextSession?.user.id) void loadWorkspace(nextSession.user.id);
       else setLoading(false);
@@ -279,6 +293,7 @@ function AdminPage() {
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
+  if (accessDenied) return <AdminDenied />;
   if (!session) return <AdminLogin />;
 
   return (
@@ -346,19 +361,19 @@ function AdminLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  const [signup, setSignup] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
-    const result = signup
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+    const result = await supabase.auth.signInWithPassword({ email, password });
     if (result.error) setMessage(result.error.message);
-    else if (signup && !result.data.session) setMessage("Conta criada. Confirme seu e-mail antes de entrar.");
   }
 
-  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>{signup ? "Criar conta" : "Entrar"}</h1><form onSubmit={submit}><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">{signup ? "Criar conta" : "Entrar"}</button></form>{!isCompanyPortal ? <button className="admin-link" onClick={() => setSignup(!signup)}>{signup ? "Já tenho uma conta" : "Ainda não tenho acesso"}</button> : null}<a className="admin-link" href="/">Voltar ao catálogo</a></section></main>;
+  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>Entrar</h1><form onSubmit={submit}><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">Entrar</button></form><a className="admin-link" href="/empresa">Entrar como empresa</a><a className="admin-link" href="/acesso">Voltar às opções de acesso</a></section></main>;
+}
+
+function AdminDenied() {
+  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>Central dos administradores</span><h1>Acesso não autorizado</h1><p className="admin-message">Este usuário pertence a uma empresa e não pode acessar a Central dos administradores.</p><a className="admin-primary" href="/empresa">Ir para o portal da empresa</a><a className="admin-link" href="/acesso">Voltar às opções de acesso</a></section></main>;
 }
 
 export default AdminPage;
