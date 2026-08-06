@@ -1134,6 +1134,52 @@ img {
   color: var(--muted);
 }
 
+.catalog-import-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.catalog-import-heading,
+.catalog-import-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.catalog-import-heading > svg {
+  flex: 0 0 auto;
+  color: var(--primary-dark);
+}
+
+.catalog-import-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.catalog-import-heading span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.catalog-import-input {
+  display: none;
+}
+
+.admin-secondary:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .admin-columns {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
@@ -1953,7 +1999,8 @@ img {
   }
 
   .workspace-actions,
-  .admin-form-actions {
+  .admin-form-actions,
+  .catalog-import-actions {
     display: grid;
     grid-template-columns: 1fr;
   }
@@ -1961,6 +2008,15 @@ img {
   .workspace-actions button,
   .admin-form-actions button,
   .danger-zone > button {
+    width: 100%;
+  }
+
+  .catalog-import-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .catalog-import-actions button {
     width: 100%;
   }
 

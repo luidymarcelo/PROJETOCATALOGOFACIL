@@ -3,6 +3,8 @@
 import {
   ArrowLeft,
   Building2,
+  Download,
+  FileSpreadsheet,
   LogOut,
   Plus,
   RefreshCw,
@@ -10,10 +12,11 @@ import {
   Settings,
   Store,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Tenant = { id: string; name: string; slug: string };
@@ -21,6 +24,7 @@ type Branch = { id: string; name: string; slug: string; tenant_id: string };
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
   id: string;
+  external_id: string | null;
   name: string;
   description: string | null;
   price: number;
@@ -32,7 +36,62 @@ type Product = {
   is_active: boolean;
 };
 
+type CatalogImportRow = {
+  rowNumber: number;
+  category: string;
+  name: string;
+  description: string | null;
+  price: number;
+  unit: string | null;
+  stock: number | null;
+  imageUrl: string | null;
+  badge: string | null;
+  sku: string | null;
+};
+
 const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
+const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "URL da imagem", "Selo", "Código/SKU"] as const;
+const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function excelValueToText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value).trim();
+  if (value instanceof Date) return value.toLocaleDateString("pt-BR");
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (record.result !== undefined) return excelValueToText(record.result);
+    if (record.text !== undefined) return excelValueToText(record.text);
+    if (Array.isArray(record.richText)) {
+      return record.richText
+        .map((part) => typeof part === "object" && part !== null && "text" in part ? String((part as { text: unknown }).text) : "")
+        .join("")
+        .trim();
+    }
+  }
+  return String(value).trim();
+}
+
+function parseBrazilianNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : Number.NaN;
+  const text = excelValueToText(value).replace(/R\$/gi, "").replace(/\s/g, "");
+  if (!text) return Number.NaN;
+  const normalized = text.includes(",") ? text.replace(/\./g, "").replace(",", ".") : text;
+  return Number(normalized);
+}
+
+function chunkRows<T>(rows: T[], size = 200) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks;
+}
 
 function slugify(value: string) {
   return value
@@ -66,6 +125,8 @@ function AdminPage() {
   const [showDeleteCompany, setShowDeleteCompany] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deletingCompany, setDeletingCompany] = useState(false);
+  const [importingCatalog, setImportingCatalog] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [categoryName, setCategoryName] = useState("");
   const [productForm, setProductForm] = useState({
     name: "",
@@ -211,34 +272,34 @@ function AdminPage() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    async function loadBranchCatalog() {
-      if (!supabase || !activeBranchId) {
-        setCategories([]);
-        setProducts([]);
-        return;
-      }
-
-      const [{ data: categoryRows }, { data: productRows }] = await Promise.all([
-        supabase
-          .from("categories")
-          .select("id, name, sort_order")
-          .eq("store_id", activeBranchId)
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true }),
-        supabase
-          .from("products")
-          .select("id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
-          .eq("store_id", activeBranchId)
-          .eq("is_active", true)
-          .order("name", { ascending: true }),
-      ]);
-
-      setCategories((categoryRows ?? []) as Category[]);
-      setProducts((productRows ?? []) as Product[]);
+  async function refreshBranchCatalog(branchId: string) {
+    if (!supabase || !branchId) {
+      setCategories([]);
+      setProducts([]);
+      return;
     }
 
-    void loadBranchCatalog();
+    const [{ data: categoryRows }, { data: productRows }] = await Promise.all([
+      supabase
+        .from("categories")
+        .select("id, name, sort_order")
+        .eq("store_id", branchId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true }),
+      supabase
+        .from("products")
+        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
+        .eq("store_id", branchId)
+        .eq("is_active", true)
+        .order("name", { ascending: true }),
+    ]);
+
+    setCategories((categoryRows ?? []) as Category[]);
+    setProducts((productRows ?? []) as Product[]);
+  }
+
+  useEffect(() => {
+    void refreshBranchCatalog(activeBranchId);
   }, [activeBranchId]);
 
   async function createCompany(event: FormEvent<HTMLFormElement>) {
@@ -288,8 +349,7 @@ function AdminPage() {
     setMessage(error?.message ?? "Categoria adicionada.");
     if (!error) {
       setCategoryName("");
-      const { data } = await supabase.from("categories").select("id, name, sort_order").eq("store_id", activeBranchId).eq("is_active", true).order("sort_order");
-      setCategories((data ?? []) as Category[]);
+      await refreshBranchCatalog(activeBranchId);
     }
   }
 
@@ -434,6 +494,255 @@ function AdminPage() {
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
 
+  async function downloadCatalogTemplate() {
+    setMessage("");
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Catálogo Fácil";
+      workbook.created = new Date();
+
+      const productsSheet = workbook.addWorksheet("Produtos", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+      productsSheet.addRow([...IMPORT_HEADERS]);
+      productsSheet.columns = [
+        { width: 24 },
+        { width: 32 },
+        { width: 48 },
+        { width: 14 },
+        { width: 16 },
+        { width: 14 },
+        { width: 48 },
+        { width: 20 },
+        { width: 20 },
+      ];
+      productsSheet.autoFilter = { from: "A1", to: "I1" };
+      productsSheet.getRow(1).height = 25;
+      productsSheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
+        cell.alignment = { vertical: "middle" };
+      });
+      productsSheet.getColumn(4).numFmt = 'R$ #,##0.00';
+      productsSheet.getColumn(6).numFmt = "0.000";
+      productsSheet.getColumn(9).numFmt = "@";
+
+      const instructionsSheet = workbook.addWorksheet("Instruções");
+      instructionsSheet.columns = [{ width: 24 }, { width: 88 }];
+      instructionsSheet.addRows([
+        ["Campo", "Preenchimento"],
+        ["Categoria", "Obrigatório. Se ainda não existir na filial, será criada automaticamente."],
+        ["Produto", "Obrigatório. Nome exibido no catálogo."],
+        ["Descrição", "Opcional."],
+        ["Preço", "Obrigatório. Aceita 12,50 ou 12.50."],
+        ["Unidade", "Opcional. Exemplos: unidade, caixa, kg, metro."],
+        ["Estoque", "Opcional. Aceita números inteiros ou decimais."],
+        ["URL da imagem", "Opcional. Endereço público da imagem do produto."],
+        ["Selo", "Opcional. Exemplo: Mais vendido."],
+        ["Código/SKU", "Opcional e recomendado. Ao importar novamente o mesmo código, o produto será atualizado."],
+        ["Importação", "Somente a aba Produtos é importada. Não altere o nome dessa aba nem os títulos das colunas."],
+      ]);
+      instructionsSheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
+      });
+      instructionsSheet.eachRow((row) => {
+        row.alignment = { vertical: "top", wrapText: true };
+      });
+
+      const exampleSheet = workbook.addWorksheet("Exemplo", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+      exampleSheet.addRows([
+        [...IMPORT_HEADERS],
+        ["Pizzas", "Pizza Calabresa", "Molho, queijo, calabresa e cebola", 49.9, "unidade", 20, "https://exemplo.com/pizza.jpg", "Mais vendido", "PIZ-001"],
+        ["Bebidas", "Refrigerante 2 L", "Garrafa retornável", 12, "unidade", 35, "", "", "BEB-001"],
+      ]);
+      exampleSheet.columns = productsSheet.columns.map((column) => ({ width: column.width }));
+      exampleSheet.autoFilter = { from: "A1", to: "I1" };
+      exampleSheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
+      });
+      exampleSheet.getColumn(4).numFmt = 'R$ #,##0.00';
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer as BlobPart], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `modelo-catalogo-${slugify(activeBranch?.name ?? "filial")}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("Modelo Excel baixado.");
+    } catch (error) {
+      setMessage(error instanceof Error ? `Não foi possível gerar o modelo: ${error.message}` : "Não foi possível gerar o modelo Excel.");
+    }
+  }
+
+  async function importCatalog(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !supabase || !activeBranchId || importingCatalog) return;
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      setMessage("Selecione uma planilha no formato .xlsx.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage("A planilha deve ter no máximo 10 MB.");
+      return;
+    }
+
+    const branchId = activeBranchId;
+    setImportingCatalog(true);
+    setMessage("Validando a planilha...");
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(await file.arrayBuffer());
+      const sheet = workbook.getWorksheet("Produtos");
+      if (!sheet) throw new Error('A planilha precisa ter uma aba chamada "Produtos".');
+
+      const headerColumns = new Map<string, number>();
+      sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+        const header = normalizeText(excelValueToText(cell.value));
+        if (header) headerColumns.set(header, columnNumber);
+      });
+      const missingHeaders = REQUIRED_IMPORT_HEADERS.filter((header) => !headerColumns.has(normalizeText(header)));
+      if (missingHeaders.length) throw new Error(`Colunas obrigatórias ausentes: ${missingHeaders.join(", ")}.`);
+
+      const columnValue = (rowNumber: number, header: (typeof IMPORT_HEADERS)[number]) => {
+        const columnNumber = headerColumns.get(normalizeText(header));
+        return columnNumber ? sheet.getRow(rowNumber).getCell(columnNumber).value : null;
+      };
+      const importedRows: CatalogImportRow[] = [];
+      const validationErrors: string[] = [];
+      const usedSkus = new Set<string>();
+
+      for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+        const values = IMPORT_HEADERS.map((header) => columnValue(rowNumber, header));
+        if (values.every((value) => !excelValueToText(value))) continue;
+
+        const category = excelValueToText(columnValue(rowNumber, "Categoria"));
+        const name = excelValueToText(columnValue(rowNumber, "Produto"));
+        const price = parseBrazilianNumber(columnValue(rowNumber, "Preço"));
+        const stockText = excelValueToText(columnValue(rowNumber, "Estoque"));
+        const stock = stockText ? parseBrazilianNumber(columnValue(rowNumber, "Estoque")) : null;
+        const skuText = excelValueToText(columnValue(rowNumber, "Código/SKU"));
+        const sku = skuText ? skuText.toUpperCase() : null;
+
+        if (!category) validationErrors.push(`linha ${rowNumber}: categoria vazia`);
+        if (!name) validationErrors.push(`linha ${rowNumber}: produto vazio`);
+        if (!Number.isFinite(price) || price < 0) validationErrors.push(`linha ${rowNumber}: preço inválido`);
+        if (stock !== null && (!Number.isFinite(stock) || stock < 0)) validationErrors.push(`linha ${rowNumber}: estoque inválido`);
+        if (sku && usedSkus.has(normalizeText(sku))) validationErrors.push(`linha ${rowNumber}: Código/SKU repetido (${sku})`);
+        if (sku) usedSkus.add(normalizeText(sku));
+
+        importedRows.push({
+          rowNumber,
+          category,
+          name,
+          description: excelValueToText(columnValue(rowNumber, "Descrição")) || null,
+          price,
+          unit: excelValueToText(columnValue(rowNumber, "Unidade")) || null,
+          stock,
+          imageUrl: excelValueToText(columnValue(rowNumber, "URL da imagem")) || null,
+          badge: excelValueToText(columnValue(rowNumber, "Selo")) || null,
+          sku,
+        });
+      }
+
+      if (!importedRows.length) throw new Error("A aba Produtos não possui produtos preenchidos.");
+      if (validationErrors.length) {
+        const details = validationErrors.slice(0, 6).join("; ");
+        const remaining = validationErrors.length > 6 ? `; e mais ${validationErrors.length - 6} erro(s)` : "";
+        throw new Error(`Corrija a planilha antes de importar: ${details}${remaining}.`);
+      }
+
+      setMessage(`Importando ${importedRows.length} produto(s)...`);
+      const { data: existingCategories, error: categoryLoadError } = await supabase
+        .from("categories")
+        .select("id, name, sort_order, is_active")
+        .eq("store_id", branchId)
+        .order("sort_order", { ascending: true });
+      if (categoryLoadError) throw categoryLoadError;
+
+      const categoryByName = new Map<string, { id: string; is_active: boolean }>();
+      for (const category of existingCategories ?? []) {
+        const key = normalizeText(category.name);
+        if (!categoryByName.has(key)) categoryByName.set(key, { id: category.id, is_active: category.is_active });
+      }
+
+      const missingCategoryNames = new Map<string, string>();
+      for (const row of importedRows) {
+        const key = normalizeText(row.category);
+        if (!categoryByName.has(key) && !missingCategoryNames.has(key)) missingCategoryNames.set(key, row.category);
+      }
+      if (missingCategoryNames.size) {
+        const nextSortOrder = (existingCategories ?? []).reduce((highest, category) => Math.max(highest, category.sort_order), -1) + 1;
+        const { data: createdCategories, error: categoryCreateError } = await supabase
+          .from("categories")
+          .insert([...missingCategoryNames.values()].map((name, index) => ({
+            store_id: branchId,
+            name,
+            sort_order: nextSortOrder + index,
+            is_active: true,
+          })))
+          .select("id, name, is_active");
+        if (categoryCreateError) throw categoryCreateError;
+        for (const category of createdCategories ?? []) categoryByName.set(normalizeText(category.name), { id: category.id, is_active: true });
+      }
+
+      const usedCategoryKeys = new Set(importedRows.map((row) => normalizeText(row.category)));
+      const categoriesToReactivate = [...usedCategoryKeys]
+        .map((key) => categoryByName.get(key))
+        .filter((category): category is { id: string; is_active: boolean } => Boolean(category && !category.is_active))
+        .map((category) => category.id);
+      if (categoriesToReactivate.length) {
+        const { error: reactivateError } = await supabase.from("categories").update({ is_active: true }).in("id", categoriesToReactivate);
+        if (reactivateError) throw reactivateError;
+      }
+
+      const productRows = importedRows.map((row) => ({
+        store_id: branchId,
+        category_id: categoryByName.get(normalizeText(row.category))?.id ?? null,
+        external_id: row.sku,
+        name: row.name,
+        description: row.description,
+        price: row.price,
+        unit: row.unit,
+        stock_quantity: row.stock,
+        image_url: row.imageUrl,
+        badge: row.badge,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }));
+      const rowsWithSku = productRows.filter((row) => row.external_id);
+      const rowsWithoutSku = productRows.filter((row) => !row.external_id).map(({ external_id: _externalId, ...row }) => row);
+
+      for (const rows of chunkRows(rowsWithSku)) {
+        const { error } = await supabase.from("products").upsert(rows, { onConflict: "store_id,external_id" });
+        if (error) throw error;
+      }
+      for (const rows of chunkRows(rowsWithoutSku)) {
+        const { error } = await supabase.from("products").insert(rows);
+        if (error) throw error;
+      }
+
+      await refreshBranchCatalog(branchId);
+      setMessage(`${importedRows.length} produto(s) importado(s) para ${activeBranch?.name ?? "a filial"}. Categorias novas foram criadas automaticamente.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível importar a planilha.");
+    } finally {
+      setImportingCatalog(false);
+    }
+  }
+
   async function createProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !activeBranchId) return;
@@ -452,8 +761,7 @@ function AdminPage() {
     setMessage(error?.message ?? "Produto adicionado ao catálogo.");
     if (!error) {
       setProductForm({ name: "", description: "", price: "", unit: "unidade", stock: "", image: "", badge: "", categoryId: "" });
-      const { data } = await supabase.from("products").select("id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active").eq("store_id", activeBranchId).eq("is_active", true).order("name");
-      setProducts((data ?? []) as Product[]);
+      await refreshBranchCatalog(activeBranchId);
     }
   }
 
@@ -506,6 +814,14 @@ function AdminPage() {
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
             {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
+            <section className="catalog-import-panel">
+              <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Importação por Excel</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong></div></div>
+              <div className="catalog-import-actions">
+                <button className="admin-secondary" type="button" onClick={downloadCatalogTemplate} disabled={!activeBranchId || importingCatalog}><Download size={16} /> Baixar modelo</button>
+                <button className="admin-primary" type="button" onClick={() => importInputRef.current?.click()} disabled={!activeBranchId || importingCatalog}><Upload size={16} /> {importingCatalog ? "Importando..." : "Importar Excel"}</button>
+                <input ref={importInputRef} className="catalog-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={importCatalog} />
+              </div>
+            </section>
             <div className="admin-columns">
               <section className="admin-form-panel">
                 <h2>Categorias</h2>
