@@ -802,7 +802,7 @@ export default function Home() {
           </button>
             <button
               className={view === "admin" ? "nav-action active" : "nav-action"}
-              onClick={() => setView("admin")}
+              onClick={() => window.location.assign("/admin")}
           >
             <Settings size={18} />
               <span>Config</span>

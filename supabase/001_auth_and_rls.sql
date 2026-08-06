@@ -82,6 +82,7 @@ alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 
 drop policy if exists "public can read active stores" on public.stores;
+drop policy if exists "members can read their tenants" on public.tenants;
 drop policy if exists "public can read active categories" on public.categories;
 drop policy if exists "public can read active products" on public.products;
 drop policy if exists "users can read own profile" on public.profiles;
@@ -103,6 +104,15 @@ drop policy if exists "store members read order items" on public.order_items;
 create policy "public can read active stores"
   on public.stores for select
   using (is_active = true);
+
+create policy "members can read their tenants"
+  on public.tenants for select
+  using (
+    exists (
+      select 1 from public.tenant_members tm
+      where tm.tenant_id = id and tm.user_id = auth.uid()
+    )
+  );
 
 create policy "public can read active categories"
   on public.categories for select
