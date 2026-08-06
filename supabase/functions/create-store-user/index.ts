@@ -35,13 +35,19 @@ Deno.serve(async (request) => {
     if (!membership && !platformAdmin) throw new Error("Seu usuário não tem permissão para criar acessos nesta filial.");
 
     const { data: created, error: createError } = await adminClient.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: name } });
-    if (createError || !created.user) throw new Error(createError?.message ?? "Não foi possível criar o usuário.");
+    let managedUser = created.user;
+    if (!managedUser && createError?.message.toLowerCase().includes("already registered")) {
+      const { data: users } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      managedUser = users.users.find((candidate) => candidate.email?.toLowerCase() === email) ?? null;
+      if (managedUser) await adminClient.auth.admin.updateUserById(managedUser.id, { password, email_confirm: true, user_metadata: { full_name: name } });
+    }
+    if (!managedUser) throw new Error(createError?.message ?? "Não foi possível criar o usuário.");
 
-    await adminClient.from("profiles").upsert({ id: created.user.id, full_name: name });
-    const { error: memberError } = await adminClient.from("store_members").upsert({ store_id: storeId, user_id: created.user.id, role });
+    await adminClient.from("profiles").upsert({ id: managedUser.id, full_name: name });
+    const { error: memberError } = await adminClient.from("store_members").upsert({ store_id: storeId, user_id: managedUser.id, role });
     if (memberError) throw new Error(memberError.message);
 
-    return new Response(JSON.stringify({ user_id: created.user.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ user_id: managedUser.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Erro ao criar usuário." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
