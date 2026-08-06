@@ -1091,6 +1091,19 @@ img {
   font-weight: 750;
 }
 
+.user-access-panel {
+  margin-bottom: 14px;
+  border-left: 4px solid var(--primary);
+}
+
+.access-denied-panel {
+  max-width: 720px;
+}
+
+.access-denied-panel .admin-primary {
+  text-decoration: none;
+}
+
 .admin-login-card {
   display: grid;
   gap: 12px;

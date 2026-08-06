@@ -29,6 +29,8 @@ type Product = {
   is_active: boolean;
 };
 
+type StoreUserForm = { name: string; email: string; password: string; role: "manager" | "staff" };
+
 function slugify(value: string) {
   return value
     .normalize("NFD")
@@ -39,6 +41,7 @@ function slugify(value: string) {
 }
 
 function AdminPage() {
+  const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -59,9 +62,31 @@ function AdminPage() {
     badge: "",
     categoryId: "",
   });
+  const [storeUserForm, setStoreUserForm] = useState<StoreUserForm>({ name: "", email: "", password: "", role: "manager" });
 
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
+    if (isCompanyPortal) {
+      const { data: memberships } = await supabase
+        .from("store_members")
+        .select("store_id, role")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true });
+      const { data: branch } = memberships?.[0]
+        ? await supabase.from("stores").select("id, name, slug, tenant_id").eq("id", memberships[0].store_id).single()
+        : { data: null };
+      if (!branch) {
+        setTenant(null);
+        setBranches([]);
+        setLoading(false);
+        return;
+      }
+      setTenant({ id: branch.tenant_id, name: "Portal da filial", slug: branch.slug });
+      setBranches([branch as Branch]);
+      setActiveBranchId(branch.id);
+      setLoading(false);
+      return;
+    }
     const { data: memberships, error: membershipError } = await supabase
       .from("tenant_members")
       .select("tenant_id, role")
@@ -232,6 +257,34 @@ function AdminPage() {
     setMessage(error?.message ?? "Produto removido.");
   }
 
+  async function createStoreUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !activeBranchId) return;
+    const { data: currentAuth } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.signUp({
+      email: storeUserForm.email.trim(),
+      password: storeUserForm.password,
+      options: { data: { full_name: storeUserForm.name.trim() } },
+    });
+    if (error || !data.user) {
+      setMessage(error?.message ?? "Não foi possível criar o usuário da filial.");
+      return;
+    }
+    if (currentAuth.session) {
+      await supabase.auth.setSession({
+        access_token: currentAuth.session.access_token,
+        refresh_token: currentAuth.session.refresh_token,
+      });
+    }
+    const { error: memberError } = await supabase.from("store_members").upsert({
+      store_id: activeBranchId,
+      user_id: data.user.id,
+      role: storeUserForm.role,
+    });
+    setMessage(memberError?.message ?? "Usuário criado. Ele deve entrar em /empresa com este e-mail e senha.");
+    if (!memberError) setStoreUserForm({ name: "", email: "", password: "", role: "manager" });
+  }
+
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
@@ -244,9 +297,11 @@ function AdminPage() {
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
       <section className="admin-page-inner">
-        <div className="admin-page-heading"><span>Painel administrativo</span><h1>Gestão do catálogo</h1><p>Empresas, filiais, categorias e produtos em um só lugar.</p></div>
+        <div className="admin-page-heading"><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Edite o catálogo da sua filial" : "Gestão do catálogo"}</h1><p>{isCompanyPortal ? "Altere somente os produtos e categorias da filial vinculada ao seu usuário." : "Cadastre empresas, filiais, usuários e catálogos em um só lugar."}</p></div>
 
-        {!tenant ? (
+        {!tenant && isCompanyPortal ? (
+          <section className="admin-form-panel access-denied-panel"><h2>Acesso da filial ainda não configurado</h2><p>Este e-mail não está vinculado a nenhuma filial. Solicite ao administrador um usuário de filial e entre novamente por este portal.</p><a className="admin-primary" href="/admin">Ir para a Central dos administradores</a></section>
+        ) : !tenant ? (
           <form className="admin-form-panel" onSubmit={createCompany}>
             <h2>Nenhuma empresa vinculada a este acesso</h2>
             <p>Este e-mail é de administrador do sistema. Crie uma empresa somente se ela ainda não existir. Para editar uma empresa já criada, entre com o e-mail usado no cadastro.</p>
@@ -262,6 +317,7 @@ function AdminPage() {
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><button onClick={() => session.user.id && loadWorkspace(session.user.id)}><RefreshCw size={16} /> Atualizar</button></section>
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
+            {!isCompanyPortal ? <section className="admin-form-panel user-access-panel"><h2>Acesso da filial</h2><p>Crie o login que você entregará ao responsável. Ele usará <strong>/empresa</strong> e não verá outras filiais.</p><form className="admin-form-grid" onSubmit={createStoreUser}><label>Nome<input value={storeUserForm.name} onChange={(event) => setStoreUserForm({ ...storeUserForm, name: event.target.value })} required /></label><label>E-mail<input type="email" value={storeUserForm.email} onChange={(event) => setStoreUserForm({ ...storeUserForm, email: event.target.value })} required /></label><label>Senha inicial<input type="password" minLength={6} value={storeUserForm.password} onChange={(event) => setStoreUserForm({ ...storeUserForm, password: event.target.value })} required /></label><label>Permissão<select value={storeUserForm.role} onChange={(event) => setStoreUserForm({ ...storeUserForm, role: event.target.value as StoreUserForm["role"] })}><option value="manager">Gerente</option><option value="staff">Operador</option></select></label><button className="admin-primary" type="submit"><Plus size={16} /> Criar acesso da filial</button></form></section> : null}
             <div className="admin-columns">
               <section className="admin-form-panel">
                 <h2>Categorias</h2>
@@ -291,6 +347,7 @@ function AdminPage() {
 }
 
 function AdminLogin() {
+  const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -306,7 +363,7 @@ function AdminLogin() {
     else if (signup && !result.data.session) setMessage("Conta criada. Confirme seu e-mail antes de entrar.");
   }
 
-  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>Painel administrativo</span><h1>{signup ? "Criar conta" : "Entrar"}</h1><form onSubmit={submit}><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">{signup ? "Criar conta" : "Entrar"}</button></form><button className="admin-link" onClick={() => setSignup(!signup)}>{signup ? "Já tenho uma conta" : "Ainda não tenho acesso"}</button><a className="admin-link" href="/">Voltar ao catálogo</a></section></main>;
+  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>{signup ? "Criar conta" : "Entrar"}</h1><form onSubmit={submit}><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">{signup ? "Criar conta" : "Entrar"}</button></form>{!isCompanyPortal ? <button className="admin-link" onClick={() => setSignup(!signup)}>{signup ? "Já tenho uma conta" : "Ainda não tenho acesso"}</button> : null}<a className="admin-link" href="/">Voltar ao catálogo</a></section></main>;
 }
 
 export default AdminPage;
