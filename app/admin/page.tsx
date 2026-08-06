@@ -70,21 +70,36 @@ function AdminPage() {
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
     if (isCompanyPortal) {
-      const { data: memberships } = await supabase
+      const { data: workspace } = await supabase.functions.invoke("create-store-user", {
+        body: { action: "get-company-workspace" },
+      });
+      if (workspace?.tenant && workspace?.branches?.length) {
+        const portalBranches = workspace.branches as Branch[];
+        setTenant(workspace.tenant as Tenant);
+        setBranches(portalBranches);
+        setActiveBranchId((current) => current && portalBranches.some((branch) => branch.id === current) ? current : portalBranches[0].id);
+        setMessage("");
+        setLoading(false);
+        return;
+      }
+
+      const { data: memberships, error: membershipError } = await supabase
         .from("tenant_members")
         .select("tenant_id, role")
         .eq("user_id", userId)
+        .in("role", ["manager", "staff"])
         .order("created_at", { ascending: true });
       const tenantId = memberships?.[0]?.tenant_id;
-      const [{ data: portalTenant }, { data: portalBranches }] = tenantId
+      const [{ data: portalTenant, error: tenantError }, { data: portalBranches, error: branchError }] = tenantId
         ? await Promise.all([
             supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
             supabase.from("stores").select("id, name, slug, tenant_id").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
           ])
-        : [{ data: null }, { data: null }];
+        : [{ data: null, error: null }, { data: null, error: null }];
       if (!portalTenant || !portalBranches?.length) {
         setTenant(null);
         setBranches([]);
+        setMessage(membershipError?.message ?? tenantError?.message ?? branchError?.message ?? workspace?.error ?? "Este login não está vinculado a uma empresa.");
         setLoading(false);
         return;
       }
@@ -313,7 +328,7 @@ function AdminPage() {
         {!isCompanyPortal && adminSection === "companies" ? (
           <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => setAdminSection("new")} onOpenCatalog={openAdminCatalog} />
         ) : !tenant && isCompanyPortal ? (
-          <section className="admin-form-panel access-denied-panel"><h2>Acesso da filial ainda não configurado</h2><p>Este e-mail não está vinculado a nenhuma filial. Solicite ao administrador um usuário de filial e entre novamente por este portal.</p><a className="admin-primary" href="/admin">Ir para a Central dos administradores</a></section>
+          <section className="admin-form-panel access-denied-panel"><h2>Acesso da empresa não vinculado</h2><p>O login foi aceito, mas não foi encontrado o vínculo deste e-mail com uma empresa cadastrada.</p><button className="admin-primary" onClick={() => supabase?.auth.signOut()}>Sair e entrar novamente</button></section>
         ) : adminSection === "new" || !tenant ? (
           <form className="admin-form-panel" onSubmit={createCompany}>
             <h2>Nenhuma empresa vinculada a este acesso</h2>

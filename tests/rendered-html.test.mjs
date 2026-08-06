@@ -59,7 +59,9 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(adminPage, /createStoreUser|storeUserForm|Salvar acesso principal/);
   assert.match(createCompanyFunction, /tenant_members/);
   assert.match(createCompanyFunction, /const company = body\.company/);
-  assert.doesNotMatch(createCompanyFunction, /store_members/);
+  assert.match(createCompanyFunction, /get-company-workspace/);
+  assert.match(createCompanyFunction, /company_tenant_id/);
+  assert.match(createCompanyFunction, /store_members/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(schema, /create table public\.integration_sources/);

@@ -23,6 +23,10 @@ Deno.serve(async (request) => {
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const body = await request.json();
+    if (body.action === "get-company-workspace") {
+      return await getCompanyWorkspace(adminClient, caller.user.id);
+    }
+
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const name = String(body.name ?? "").trim();
@@ -72,6 +76,13 @@ Deno.serve(async (request) => {
       }).select("id, name, slug, tenant_id").single();
       if (branchError || !branch) throw branchError ?? new Error("Não foi possível criar a filial.");
 
+      const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
+      if (authUserError || !authUser.user) throw authUserError ?? new Error("Não foi possível confirmar o acesso da empresa.");
+      const { error: metadataError } = await adminClient.auth.admin.updateUserById(managedUser.id, {
+        app_metadata: { ...authUser.user.app_metadata, company_tenant_id: tenant.id },
+      });
+      if (metadataError) throw metadataError;
+
       return json({ tenant, branch, user_id: managedUser.id });
     } catch (databaseError) {
       await adminClient.from("tenants").delete().eq("id", tenant.id);
@@ -82,6 +93,66 @@ Deno.serve(async (request) => {
     return json({ error: error instanceof Error ? error.message : "Erro ao criar empresa e acesso." });
   }
 });
+
+async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) {
+  const { data: memberships, error: membershipError } = await adminClient
+    .from("tenant_members")
+    .select("tenant_id")
+    .eq("user_id", userId)
+    .in("role", ["manager", "staff"])
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (membershipError) throw membershipError;
+
+  let tenantId = memberships?.[0]?.tenant_id as string | undefined;
+
+  if (!tenantId) {
+    const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(userId);
+    if (authUserError) throw authUserError;
+    tenantId = authUser.user?.app_metadata?.company_tenant_id as string | undefined;
+  }
+
+  if (!tenantId) {
+    const { data: storeMemberships, error: storeMembershipError } = await adminClient
+      .from("store_members")
+      .select("store_id")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (storeMembershipError) throw storeMembershipError;
+
+    const legacyStoreId = storeMemberships?.[0]?.store_id as string | undefined;
+    if (legacyStoreId) {
+      const { data: legacyStore, error: legacyStoreError } = await adminClient
+        .from("stores")
+        .select("tenant_id")
+        .eq("id", legacyStoreId)
+        .single();
+      if (legacyStoreError) throw legacyStoreError;
+      tenantId = legacyStore?.tenant_id as string | undefined;
+    }
+  }
+
+  if (!tenantId) {
+    return json({ error: "Este login não está vinculado a uma empresa.", code: "company_access_not_found" });
+  }
+
+  const { error: repairError } = await adminClient.from("tenant_members").upsert(
+    { tenant_id: tenantId, user_id: userId, role: "manager" },
+    { onConflict: "tenant_id,user_id" },
+  );
+  if (repairError) throw repairError;
+
+  const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
+    adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
+    adminClient.from("stores").select("id, name, slug, tenant_id").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+  ]);
+  if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
+  if (branchError) throw branchError;
+  if (!branches?.length) return json({ error: "Esta empresa ainda não possui filial.", code: "company_branch_not_found" });
+
+  return json({ tenant, branches });
+}
 
 async function ensureAuthUser(adminClient: SupabaseClient, email: string, password: string, name: string): Promise<ManagedUser> {
   const { data: created, error: createError } = await adminClient.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: name } });
