@@ -81,6 +81,25 @@ alter table public.sync_jobs enable row level security;
 alter table public.orders enable row level security;
 alter table public.order_items enable row level security;
 
+drop policy if exists "public can read active stores" on public.stores;
+drop policy if exists "public can read active categories" on public.categories;
+drop policy if exists "public can read active products" on public.products;
+drop policy if exists "users can read own profile" on public.profiles;
+drop policy if exists "users can update own profile" on public.profiles;
+drop policy if exists "members can read their memberships" on public.tenant_members;
+drop policy if exists "tenant admins manage memberships" on public.tenant_members;
+drop policy if exists "members can read store memberships" on public.store_members;
+drop policy if exists "tenant admins manage store memberships" on public.store_members;
+drop policy if exists "tenant admins manage stores" on public.stores;
+drop policy if exists "store members manage categories" on public.categories;
+drop policy if exists "store members manage products" on public.products;
+drop policy if exists "store members manage integrations" on public.integration_sources;
+drop policy if exists "store members read sync jobs" on public.sync_jobs;
+drop policy if exists "public can create orders" on public.orders;
+drop policy if exists "store members read orders" on public.orders;
+drop policy if exists "public can create order items" on public.order_items;
+drop policy if exists "store members read order items" on public.order_items;
+
 create policy "public can read active stores"
   on public.stores for select
   using (is_active = true);
