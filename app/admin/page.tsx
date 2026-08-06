@@ -83,6 +83,17 @@ function AdminPage() {
         return;
       }
 
+      const { data: databaseWorkspace } = await supabase.rpc("get_company_workspace");
+      if (databaseWorkspace?.tenant && databaseWorkspace?.branches?.length) {
+        const portalBranches = databaseWorkspace.branches as Branch[];
+        setTenant(databaseWorkspace.tenant as Tenant);
+        setBranches(portalBranches);
+        setActiveBranchId((current) => current && portalBranches.some((branch) => branch.id === current) ? current : portalBranches[0].id);
+        setMessage("");
+        setLoading(false);
+        return;
+      }
+
       const { data: memberships, error: membershipError } = await supabase
         .from("tenant_members")
         .select("tenant_id, role")
@@ -99,7 +110,7 @@ function AdminPage() {
       if (!portalTenant || !portalBranches?.length) {
         setTenant(null);
         setBranches([]);
-        setMessage(membershipError?.message ?? tenantError?.message ?? branchError?.message ?? workspace?.error ?? "Este login não está vinculado a uma empresa.");
+        setMessage(membershipError?.message ?? tenantError?.message ?? branchError?.message ?? databaseWorkspace?.error ?? workspace?.error ?? "Este login não está vinculado a uma empresa.");
         setLoading(false);
         return;
       }

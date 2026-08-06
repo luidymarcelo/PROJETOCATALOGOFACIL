@@ -39,10 +39,11 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, layout, packageJson, schema] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
+    readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -62,6 +63,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /get-company-workspace/);
   assert.match(createCompanyFunction, /company_tenant_id/);
   assert.match(createCompanyFunction, /store_members/);
+  assert.match(adminPage, /get_company_workspace/);
+  assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(schema, /create table public\.integration_sources/);
