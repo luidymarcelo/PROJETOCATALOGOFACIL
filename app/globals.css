@@ -809,6 +809,28 @@ img {
   margin: 0 0 8px;
 }
 
+.empty-products {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 42px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-products h2,
+.empty-products p {
+  margin: 0;
+}
+
+.empty-products h2 {
+  color: var(--foreground);
+  font-size: 1.25rem;
+}
+
 .admin-shell {
   width: min(1180px, calc(100% - 32px));
   margin: 24px auto 0;

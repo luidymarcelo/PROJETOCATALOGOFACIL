@@ -582,8 +582,6 @@ export default function Home() {
             unit: product.unit ?? undefined,
           }));
 
-        if (!products.length) return [];
-
         return [
           {
             ...fallback,
@@ -881,8 +879,9 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="product-grid">
-              {filteredProducts.map((product) => {
+            {filteredProducts.length ? (
+              <div className="product-grid">
+                {filteredProducts.map((product) => {
                 const quantity =
                   cart.find((item) => item.product.id === product.id)?.quantity ??
                   0;
@@ -933,8 +932,15 @@ export default function Home() {
                     </div>
                   </article>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            ) : (
+              <div className="empty-products">
+                <Store size={26} />
+                <h2>Catálogo sem produtos</h2>
+                <p>Cadastre categorias e produtos no painel administrativo para começar a vender.</p>
+              </div>
+            )}
           </section>
 
           <CartPanel
