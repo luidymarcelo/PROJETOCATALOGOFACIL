@@ -21,16 +21,15 @@ Deno.serve(async (request) => {
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const body = await request.json();
-    const storeId = String(body.store_id ?? "");
+    const tenantId = String(body.tenant_id ?? "");
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const name = String(body.name ?? "").trim();
-    const role = body.role === "staff" ? "staff" : "manager";
-    if (!storeId || !email || password.length < 6 || !name) throw new Error("Preencha nome, e-mail e uma senha com pelo menos 6 caracteres.");
+    if (!tenantId || !email || password.length < 6 || !name) throw new Error("Preencha nome, e-mail e uma senha com pelo menos 6 caracteres.");
 
-    const { data: store } = await adminClient.from("stores").select("tenant_id").eq("id", storeId).single();
-    if (!store) throw new Error("Filial não encontrada.");
-    const { data: membership } = await adminClient.from("tenant_members").select("role").eq("tenant_id", store.tenant_id).eq("user_id", userData.user.id).in("role", ["owner", "admin"]).maybeSingle();
+    const { data: tenant } = await adminClient.from("tenants").select("id").eq("id", tenantId).single();
+    if (!tenant) throw new Error("Empresa não encontrada.");
+    const { data: membership } = await adminClient.from("tenant_members").select("role").eq("tenant_id", tenantId).eq("user_id", userData.user.id).in("role", ["owner", "admin"]).maybeSingle();
     const { data: platformAdmin } = await adminClient.from("platform_admins").select("user_id").eq("user_id", userData.user.id).maybeSingle();
     if (!membership && !platformAdmin) throw new Error("Seu usuário não tem permissão para criar acessos nesta filial.");
 
@@ -43,8 +42,10 @@ Deno.serve(async (request) => {
     }
     if (!managedUser) throw new Error(createError?.message ?? "Não foi possível criar o usuário.");
 
+    const { data: existingBusinessUser } = await adminClient.from("tenant_members").select("user_id").eq("tenant_id", tenantId).in("role", ["manager", "staff"]).neq("user_id", managedUser.id).maybeSingle();
+    if (existingBusinessUser) throw new Error("Esta empresa já possui um usuário principal.");
     await adminClient.from("profiles").upsert({ id: managedUser.id, full_name: name });
-    const { error: memberError } = await adminClient.from("store_members").upsert({ store_id: storeId, user_id: managedUser.id, role });
+    const { error: memberError } = await adminClient.from("tenant_members").upsert({ tenant_id: tenantId, user_id: managedUser.id, role: "manager" });
     if (memberError) throw new Error(memberError.message);
 
     return new Response(JSON.stringify({ user_id: managedUser.id }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

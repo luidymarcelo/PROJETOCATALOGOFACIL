@@ -74,22 +74,26 @@ function AdminPage() {
     if (!supabase) return;
     if (isCompanyPortal) {
       const { data: memberships } = await supabase
-        .from("store_members")
-        .select("store_id, role")
+        .from("tenant_members")
+        .select("tenant_id, role")
         .eq("user_id", userId)
         .order("created_at", { ascending: true });
-      const { data: branch } = memberships?.[0]
-        ? await supabase.from("stores").select("id, name, slug, tenant_id").eq("id", memberships[0].store_id).single()
-        : { data: null };
-      if (!branch) {
+      const tenantId = memberships?.[0]?.tenant_id;
+      const [{ data: portalTenant }, { data: portalBranches }] = tenantId
+        ? await Promise.all([
+            supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
+            supabase.from("stores").select("id, name, slug, tenant_id").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+          ])
+        : [{ data: null }, { data: null }];
+      if (!portalTenant || !portalBranches?.length) {
         setTenant(null);
         setBranches([]);
         setLoading(false);
         return;
       }
-      setTenant({ id: branch.tenant_id, name: "Portal da filial", slug: branch.slug });
-      setBranches([branch as Branch]);
-      setActiveBranchId(branch.id);
+      setTenant(portalTenant as Tenant);
+      setBranches(portalBranches as Branch[]);
+      setActiveBranchId((portalBranches as Branch[])[0].id);
       setLoading(false);
       return;
     }
@@ -228,7 +232,7 @@ function AdminPage() {
     }).select("id, name, slug, tenant_id").single();
     if (branchError) setMessage(branchError.message);
     else if (branchRow) {
-      const userError = await provisionStoreUser(branchRow.id, companyForm.userName, companyForm.userEmail, companyForm.userPassword);
+      const userError = await provisionTenantUser(tenantId as string, companyForm.userName, companyForm.userEmail, companyForm.userPassword);
       setMessage(userError ? `Empresa criada, mas não foi possível criar o acesso da filial: ${userError}` : "Empresa, filial e acesso criados. O cliente deve entrar em /empresa.");
       setTenant({ id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) });
       setBranches([branchRow as Branch]);
@@ -298,15 +302,15 @@ function AdminPage() {
   async function createStoreUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !activeBranchId) return;
-    const error = await provisionStoreUser(activeBranchId, storeUserForm.name, storeUserForm.email, storeUserForm.password, storeUserForm.role);
+    const error = await provisionTenantUser(activeBranch?.tenant_id ?? "", storeUserForm.name, storeUserForm.email, storeUserForm.password);
     setMessage(error ?? "Usuário criado. Ele deve entrar em /empresa com este e-mail e senha.");
     if (!error) setStoreUserForm({ name: "", email: "", password: "", role: "manager" });
   }
 
-  async function provisionStoreUser(storeId: string, name: string, email: string, password: string, role = "manager") {
+  async function provisionTenantUser(tenantId: string, name: string, email: string, password: string) {
     if (!supabase) return "Supabase não configurado.";
     const { data, error } = await supabase.functions.invoke("create-store-user", {
-      body: { store_id: storeId, name: name.trim(), email: email.trim(), password, role },
+      body: { tenant_id: tenantId, name: name.trim(), email: email.trim(), password },
     });
     return error?.message ?? data?.error ?? null;
   }
