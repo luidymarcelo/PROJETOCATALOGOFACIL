@@ -10,6 +10,7 @@ import {
   Hammer,
   HeartPulse,
   Home,
+  LogOut,
   MapPin,
   MessageCircle,
   Minus,
@@ -742,6 +743,11 @@ export default function Home() {
     setIsCartOpen(false);
   }
 
+  async function signOut() {
+    await supabase?.auth.signOut();
+    setView("catalog");
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -776,7 +782,7 @@ export default function Home() {
           />
         </label>
 
-        <div className="topbar-actions">
+          <div className="topbar-actions">
           <button
             className={view === "catalog" ? "nav-action active" : "nav-action"}
             onClick={() => setView("catalog")}
@@ -784,14 +790,20 @@ export default function Home() {
             <ShoppingCart size={18} />
             <span>Catalogo</span>
           </button>
-          <button
-            className={view === "admin" ? "nav-action active" : "nav-action"}
-            onClick={() => setView("admin")}
+            <button
+              className={view === "admin" ? "nav-action active" : "nav-action"}
+              onClick={() => setView("admin")}
           >
             <Settings size={18} />
-            <span>Config</span>
-          </button>
-        </div>
+              <span>Config</span>
+            </button>
+            {authSession ? (
+              <button className="nav-action" onClick={signOut}>
+                <LogOut size={18} />
+                <span>Sair</span>
+              </button>
+            ) : null}
+          </div>
       </header>
 
       {view === "catalog" ? (
