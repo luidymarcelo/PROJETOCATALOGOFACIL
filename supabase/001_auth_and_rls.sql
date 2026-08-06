@@ -1,7 +1,13 @@
 -- Usuarios e permissoes do Catalogo Facil.
-create type public.member_role as enum ('owner', 'admin', 'manager', 'staff');
+do $$
+begin
+  create type public.member_role as enum ('owner', 'admin', 'manager', 'staff');
+exception
+  when duplicate_object then null;
+end
+$$;
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   phone text,
@@ -9,7 +15,7 @@ create table public.profiles (
   updated_at timestamptz not null default now()
 );
 
-create table public.tenant_members (
+create table if not exists public.tenant_members (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   role public.member_role not null default 'staff',
@@ -17,7 +23,7 @@ create table public.tenant_members (
   primary key (tenant_id, user_id)
 );
 
-create table public.store_members (
+create table if not exists public.store_members (
   store_id uuid not null references public.stores(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   role public.member_role not null default 'staff',
@@ -25,8 +31,8 @@ create table public.store_members (
   primary key (store_id, user_id)
 );
 
-create index tenant_members_user_idx on public.tenant_members (user_id);
-create index store_members_user_idx on public.store_members (user_id);
+create index if not exists tenant_members_user_idx on public.tenant_members (user_id);
+create index if not exists store_members_user_idx on public.store_members (user_id);
 
 create or replace function public.is_tenant_admin(target_tenant_id uuid)
 returns boolean
