@@ -194,7 +194,7 @@ function AdminPage() {
       return;
     }
 
-    const { error: branchError } = await supabase.from("stores").insert({
+    const { data: branchRow, error: branchError } = await supabase.from("stores").insert({
       tenant_id: tenantId,
       name: companyForm.branch,
       slug: slugify(companyForm.branch),
@@ -202,11 +202,13 @@ function AdminPage() {
       whatsapp_phone: companyForm.phone.replace(/\D/g, ""),
       address: companyForm.address,
       is_active: true,
-    });
+    }).select("id, name, slug, tenant_id").single();
     if (branchError) setMessage(branchError.message);
-    else if (session?.user.id) {
+    else if (branchRow) {
+      setTenant({ id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) });
+      setBranches([branchRow as Branch]);
+      setActiveBranchId(branchRow.id);
       setMessage("Empresa criada. O catálogo da filial está pronto para receber produtos.");
-      await loadWorkspace(session.user.id, tenantId as string);
     }
   }
 
