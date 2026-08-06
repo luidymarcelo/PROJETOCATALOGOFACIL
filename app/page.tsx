@@ -1283,6 +1283,7 @@ function AdminPanel({
 }) {
   return (
     <section className="admin-shell">
+      <CompanySetupForm />
       <div className="admin-heading">
         <div>
           <span>Painel interno</span>
@@ -1382,5 +1383,94 @@ function AdminPanel({
         </div>
       </section>
     </section>
+  );
+}
+
+function CompanySetupForm() {
+  const [companyName, setCompanyName] = useState("");
+  const [companySlug, setCompanySlug] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const [branchSlug, setBranchSlug] = useState("");
+  const [branchPhone, setBranchPhone] = useState("");
+  const [branchAddress, setBranchAddress] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function createCompany(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+
+    setBusy(true);
+    setMessage("");
+    const { data: tenantId, error: tenantError } = await supabase.rpc(
+      "create_tenant_with_owner",
+      {
+        tenant_name: companyName,
+        tenant_slug: companySlug,
+      },
+    );
+
+    if (tenantError || !tenantId) {
+      setMessage(tenantError?.message ?? "Não foi possível criar a empresa.");
+      setBusy(false);
+      return;
+    }
+
+    const { error: storeError } = await supabase.from("stores").insert({
+      tenant_id: tenantId,
+      name: branchName,
+      slug: branchSlug,
+      segment: "retail",
+      whatsapp_phone: branchPhone,
+      address: branchAddress,
+      is_active: true,
+    });
+
+    setMessage(
+      storeError
+        ? storeError.message
+        : "Empresa e primeira filial cadastradas. Atualize o catálogo para carregar os dados.",
+    );
+    setBusy(false);
+  }
+
+  return (
+    <form className="setup-panel" onSubmit={createCompany}>
+      <div>
+        <span className="panel-kicker">Primeiro cadastro</span>
+        <h2>Cadastrar empresa e filial</h2>
+        <p>Depois você poderá adicionar produtos e usuários da filial.</p>
+      </div>
+      <div className="setup-grid">
+        <label>
+          Empresa
+          <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Ex.: Material Forte" required />
+        </label>
+        <label>
+          Identificador da empresa
+          <input value={companySlug} onChange={(event) => setCompanySlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="material-forte" required />
+        </label>
+        <label>
+          Primeira filial
+          <input value={branchName} onChange={(event) => setBranchName(event.target.value)} placeholder="Ex.: Filial Centro" required />
+        </label>
+        <label>
+          Identificador da filial
+          <input value={branchSlug} onChange={(event) => setBranchSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="filial-centro" required />
+        </label>
+        <label>
+          WhatsApp da filial
+          <input value={branchPhone} onChange={(event) => setBranchPhone(event.target.value)} placeholder="5563999999999" required />
+        </label>
+        <label>
+          Endereço
+          <input value={branchAddress} onChange={(event) => setBranchAddress(event.target.value)} placeholder="Rua e número" required />
+        </label>
+      </div>
+      {message ? <p className="form-message">{message}</p> : null}
+      <button className="primary-button setup-submit" type="submit" disabled={busy}>
+        {busy ? "Salvando..." : "Salvar empresa e filial"}
+      </button>
+    </form>
   );
 }
