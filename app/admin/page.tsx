@@ -601,11 +601,19 @@ function AdminPage() {
     setMessage("Enviando capa da filial...");
     let uploadedPath = "";
     try {
-      const uploaded = await uploadCatalogImage(coverImageFile, "covers");
+      let uploaded;
+      try {
+        uploaded = await uploadCatalogImage(coverImageFile, "covers");
+      } catch (error) {
+        throw new Error(`Falha no envio da imagem: ${error instanceof Error ? error.message : "erro desconhecido"}`);
+      }
       uploadedPath = uploaded.path;
       const previousCover = branches.find((branch) => branch.id === activeBranchId)?.cover_image_url;
-      const { error } = await supabase.from("stores").update({ cover_image_url: uploaded.url }).eq("id", activeBranchId);
-      if (error) throw error;
+      const { error } = await supabase.rpc("set_store_cover", {
+        target_store_id: activeBranchId,
+        new_cover_image_url: uploaded.url,
+      });
+      if (error) throw new Error(`Falha ao gravar a capa: ${error.message}`);
 
       setBranches((current) => current.map((branch) => branch.id === activeBranchId ? { ...branch, cover_image_url: uploaded.url } : branch));
       setAdminBranches((current) => current.map((branch) => branch.id === activeBranchId ? { ...branch, cover_image_url: uploaded.url } : branch));
@@ -629,7 +637,10 @@ function AdminPage() {
     if (!previousCover) return;
     setUploadingCover(true);
     setMessage("");
-    const { error } = await supabase.from("stores").update({ cover_image_url: null }).eq("id", activeBranchId);
+    const { error } = await supabase.rpc("set_store_cover", {
+      target_store_id: activeBranchId,
+      new_cover_image_url: "",
+    });
     if (error) {
       setMessage(error.message);
       setUploadingCover(false);

@@ -39,12 +39,13 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, layout, packageJson, schema] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/006_catalog_images.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/007_fix_catalog_image_rls.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -85,6 +86,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /catalog-images/);
   assert.match(adminPage, /async function saveBranchCover/);
   assert.match(adminPage, /Foto do produto/);
+  assert.match(adminPage, /set_store_cover/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(createCompanyFunction, /get-company-settings/);
   assert.match(createCompanyFunction, /update-company-access/);
@@ -93,6 +95,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(catalogImagesSql, /add column if not exists cover_image_url/);
   assert.match(catalogImagesSql, /insert into storage\.buckets/);
   assert.match(catalogImagesSql, /store members upload catalog images/);
+  assert.match(catalogImageRlsFixSql, /function public\.can_manage_catalog_image/);
+  assert.match(catalogImageRlsFixSql, /function public\.set_store_cover/);
   assert.match(layout, /lang="pt-BR"/);
   assert.match(packageJson, /"exceljs"/);
   assert.match(packageJson, /"uuid": "\^11\.1\.0"/);
