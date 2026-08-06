@@ -14,6 +14,7 @@ import {
   MapPin,
   MessageCircle,
   Minus,
+  Package,
   Pill,
   Pizza,
   Plus,
@@ -45,7 +46,7 @@ type Product = {
   description: string;
   category: string;
   price: number;
-  image: string;
+  image: string | null;
   badge?: string;
   unit?: string;
 };
@@ -55,15 +56,15 @@ type Merchant = {
   name: string;
   segment: string;
   tagline: string;
-  rating: number;
-  distance: string;
+  rating: number | null;
+  distance: string | null;
   deliveryTime: string;
   minimumOrder: number;
   deliveryFee: number;
   whatsapp: string;
   address: string;
-  cover: string;
-  icon: "pizza" | "pill" | "hammer";
+  cover: string | null;
+  icon: "pizza" | "pill" | "hammer" | "store";
   palette: string;
   categories: string[];
   products: Product[];
@@ -415,7 +416,43 @@ const iconByMerchant = {
   pizza: Pizza,
   pill: Pill,
   hammer: Hammer,
+  store: Store,
 };
+
+const segmentLabels: Record<string, string> = {
+  restaurant: "Restaurante",
+  pharmacy: "Farmácia",
+  construction: "Material de construção",
+  retail: "Comércio",
+};
+
+function neutralMerchant(store: { id: string; slug: string; name: string; segment?: string | null }): Merchant {
+  return {
+    id: store.slug,
+    name: store.name,
+    segment: segmentLabels[store.segment ?? ""] ?? "Comércio",
+    tagline: `Catálogo de produtos de ${store.name}.`,
+    rating: null,
+    distance: null,
+    deliveryTime: "Consulte a filial",
+    minimumOrder: 0,
+    deliveryFee: 0,
+    whatsapp: "",
+    address: "Endereço não informado",
+    cover: null,
+    icon: "store",
+    palette: "#176b52",
+    categories: ["Mais pedidos"],
+    products: [],
+    integration: {
+      mode: "Planilha + agendamento",
+      status: "Pendente",
+      cadence: "Manual",
+      source: "Catálogo",
+      lastSync: "Ainda não atualizado",
+    },
+  };
+}
 
 const categoryIcons = {
   "Mais pedidos": BadgePercent,
@@ -556,9 +593,10 @@ export default function Home() {
       }
 
       const loadedMerchants = data.flatMap((store) => {
-        const fallback = fallbackMerchants.find(
+        const demoMerchant = fallbackMerchants.find(
           (item) => item.id === store.slug,
-        ) ?? fallbackMerchants[0];
+        );
+        const baseMerchant = demoMerchant ?? neutralMerchant(store);
 
         const categories = [...(store.categories ?? [])].sort(
           (a, b) => a.sort_order - b.sort_order,
@@ -575,23 +613,23 @@ export default function Home() {
             price: Number(product.price),
             image:
               product.image_url ??
-              fallback.products.find((item) => item.name === product.name)
-                ?.image ??
-              fallback.cover,
+              demoMerchant?.products.find((item) => item.name === product.name)
+                ?.image ?? null,
             badge: product.badge ?? undefined,
             unit: product.unit ?? undefined,
           }));
 
         return [
           {
-            ...fallback,
+            ...baseMerchant,
             id: store.slug,
             name: store.name,
-            address: store.address ?? fallback.address,
+            address: store.address ?? baseMerchant.address,
             whatsapp: normalizeWhatsapp(store.whatsapp_phone),
             minimumOrder: Number(store.minimum_order),
             deliveryFee: Number(store.delivery_fee),
-            deliveryTime: store.delivery_time_label ?? fallback.deliveryTime,
+            deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
+            cover: store.cover_image_url ?? baseMerchant.cover,
             categories: [
               "Mais pedidos",
               ...categories.map((category) => category.name),
@@ -888,7 +926,7 @@ export default function Home() {
 
                 return (
                   <article className="product-card" key={product.id}>
-                    <img src={product.image} alt={product.name} />
+                    <CatalogImage src={product.image} alt={product.name} variant="product-card-image" />
                     <div className="product-content">
                       <div>
                         {product.badge ? (
@@ -1064,6 +1102,28 @@ function EmptyCatalog() {
   );
 }
 
+function CatalogImage({
+  src,
+  alt,
+  variant,
+  icon = "product",
+}: {
+  src: string | null;
+  alt: string;
+  variant: "merchant-cover" | "product-card-image" | "cart-item-image";
+  icon?: "store" | "product";
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+
+  if (src && !failed) {
+    return <img className={variant} src={src} alt={alt} onError={() => setFailed(true)} />;
+  }
+
+  const Icon = icon === "store" ? Store : Package;
+  return <div className={`${variant} catalog-image-placeholder`} role="img" aria-label={`${alt} sem imagem`}><Icon size={variant === "merchant-cover" ? 54 : 28} /></div>;
+}
+
 function MerchantHero({ merchant }: { merchant: Merchant }) {
   const Icon = iconByMerchant[merchant.icon];
 
@@ -1072,7 +1132,7 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
       className="merchant-hero"
       style={{ "--merchant-color": merchant.palette } as CSSProperties}
     >
-      <img src={merchant.cover} alt={merchant.name} />
+      <CatalogImage src={merchant.cover} alt={merchant.name} variant="merchant-cover" icon="store" />
       <div className="merchant-overlay" />
       <div className="merchant-info">
         <span className="merchant-logo">
@@ -1083,18 +1143,12 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
           <h1>{merchant.name}</h1>
           <p>{merchant.tagline}</p>
           <div className="merchant-meta">
-            <span>
-              <CheckCircle2 size={16} />
-              {merchant.rating.toFixed(1)}
-            </span>
+            {merchant.rating !== null ? <span><CheckCircle2 size={16} />{merchant.rating.toFixed(1)}</span> : null}
             <span>
               <Clock size={16} />
               {merchant.deliveryTime}
             </span>
-            <span>
-              <Truck size={16} />
-              {merchant.distance}
-            </span>
+            {merchant.distance ? <span><Truck size={16} />{merchant.distance}</span> : null}
             <span>Min. {formatPrice(merchant.minimumOrder)}</span>
           </div>
         </div>
@@ -1162,7 +1216,7 @@ function CartPanel({
         ) : (
           cart.map((item) => (
             <div className="cart-item" key={item.product.id}>
-              <img src={item.product.image} alt={item.product.name} />
+              <CatalogImage src={item.product.image} alt={item.product.name} variant="cart-item-image" />
               <div>
                 <strong>{item.product.name}</strong>
                 <span>

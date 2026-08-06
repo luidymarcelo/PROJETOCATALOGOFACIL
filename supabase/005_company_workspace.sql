@@ -57,7 +57,8 @@ begin
         'id', s.id,
         'name', s.name,
         'slug', s.slug,
-        'tenant_id', s.tenant_id
+        'tenant_id', s.tenant_id,
+        'cover_image_url', s.cover_image_url
       ) order by s.created_at asc
     ),
     '[]'::jsonb

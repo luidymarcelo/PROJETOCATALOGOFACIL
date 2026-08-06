@@ -85,7 +85,7 @@ Deno.serve(async (request) => {
         whatsapp_phone: whatsappPhone,
         address,
         is_active: true,
-      }).select("id, name, slug, tenant_id").single();
+      }).select("id, name, slug, tenant_id, cover_image_url").single();
       if (branchError || !branch) throw branchError ?? new Error("Não foi possível criar a filial.");
 
       const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
@@ -157,7 +157,7 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
 
   const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
     adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-    adminClient.from("stores").select("id, name, slug, tenant_id").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+    adminClient.from("stores").select("id, name, slug, tenant_id, cover_image_url").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
   ]);
   if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
   if (branchError) throw branchError;

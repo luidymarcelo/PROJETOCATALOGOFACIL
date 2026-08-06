@@ -39,11 +39,12 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, layout, packageJson, schema] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/006_catalog_images.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -56,6 +57,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /Obra grossa/);
   assert.match(page, /Cano PVC Soldavel 25 mm/);
   assert.match(page, /Atualizar precos/);
+  assert.match(page, /demoMerchant \?\? neutralMerchant\(store\)/);
+  assert.match(page, /CatalogImage/);
+  assert.match(page, /store\.cover_image_url \?\? baseMerchant\.cover/);
   assert.match(adminPage, /adminSection === "companies"/);
   assert.match(adminPage, /company: \{/);
   assert.doesNotMatch(adminPage, /createStoreUser|storeUserForm|Salvar acesso principal/);
@@ -78,11 +82,17 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Importação por Excel/);
   assert.match(adminPage, /Código\/SKU/);
   assert.match(adminPage, /onConflict: "store_id,external_id"/);
+  assert.match(adminPage, /catalog-images/);
+  assert.match(adminPage, /async function saveBranchCover/);
+  assert.match(adminPage, /Foto do produto/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(createCompanyFunction, /get-company-settings/);
   assert.match(createCompanyFunction, /update-company-access/);
   assert.match(createCompanyFunction, /delete-company/);
   assert.match(createCompanyFunction, /auth\.admin\.deleteUser/);
+  assert.match(catalogImagesSql, /add column if not exists cover_image_url/);
+  assert.match(catalogImagesSql, /insert into storage\.buckets/);
+  assert.match(catalogImagesSql, /store members upload catalog images/);
   assert.match(layout, /lang="pt-BR"/);
   assert.match(packageJson, /"exceljs"/);
   assert.match(packageJson, /"uuid": "\^11\.1\.0"/);

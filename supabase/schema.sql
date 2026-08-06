@@ -50,6 +50,7 @@ create table public.stores (
   minimum_order numeric(12, 2) not null default 0,
   delivery_fee numeric(12, 2) not null default 0,
   delivery_time_label text,
+  cover_image_url text,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   unique (tenant_id, slug)

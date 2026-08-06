@@ -5,7 +5,9 @@ import {
   Building2,
   Download,
   FileSpreadsheet,
+  ImagePlus,
   LogOut,
+  Package,
   Plus,
   RefreshCw,
   Save,
@@ -20,7 +22,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { supabase } from "../../lib/supabase";
 
 type Tenant = { id: string; name: string; slug: string };
-type Branch = { id: string; name: string; slug: string; tenant_id: string };
+type Branch = { id: string; name: string; slug: string; tenant_id: string; cover_image_url?: string | null };
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
   id: string;
@@ -50,6 +52,13 @@ type CatalogImportRow = {
 };
 
 const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
+const CATALOG_IMAGE_BUCKET = "catalog-images";
+const CATALOG_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
+const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "URL da imagem", "Selo", "Código/SKU"] as const;
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 
@@ -93,6 +102,19 @@ function chunkRows<T>(rows: T[], size = 200) {
   return chunks;
 }
 
+function validateCatalogImage(file: File) {
+  if (!CATALOG_IMAGE_EXTENSIONS[file.type]) return "Escolha uma imagem JPG, PNG ou WebP.";
+  if (file.size > CATALOG_IMAGE_MAX_SIZE) return "A imagem deve ter no máximo 5 MB.";
+  return "";
+}
+
+function storagePathFromPublicUrl(url?: string | null) {
+  if (!url) return null;
+  const marker = `/storage/v1/object/public/${CATALOG_IMAGE_BUCKET}/`;
+  const markerIndex = url.indexOf(marker);
+  return markerIndex >= 0 ? decodeURIComponent(url.slice(markerIndex + marker.length)) : null;
+}
+
 function slugify(value: string) {
   return value
     .normalize("NFD")
@@ -127,7 +149,15 @@ function AdminPage() {
   const [deletingCompany, setDeletingCompany] = useState(false);
   const [importingCatalog, setImportingCatalog] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
+  const [coverImagePreview, setCoverImagePreview] = useState("");
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const coverImageInputRef = useRef<HTMLInputElement>(null);
   const [categoryName, setCategoryName] = useState("");
+  const [productImageFile, setProductImageFile] = useState<File | null>(null);
+  const [productImagePreview, setProductImagePreview] = useState("");
+  const [savingProduct, setSavingProduct] = useState(false);
+  const productImageInputRef = useRef<HTMLInputElement>(null);
   const [productForm, setProductForm] = useState({
     name: "",
     description: "",
@@ -279,7 +309,7 @@ function AdminPage() {
       return;
     }
 
-    const [{ data: categoryRows }, { data: productRows }] = await Promise.all([
+    const [{ data: categoryRows }, { data: productRows }, { data: branchRow }] = await Promise.all([
       supabase
         .from("categories")
         .select("id, name, sort_order")
@@ -292,15 +322,41 @@ function AdminPage() {
         .eq("store_id", branchId)
         .eq("is_active", true)
         .order("name", { ascending: true }),
+      supabase
+        .from("stores")
+        .select("cover_image_url")
+        .eq("id", branchId)
+        .maybeSingle(),
     ]);
 
     setCategories((categoryRows ?? []) as Category[]);
     setProducts((productRows ?? []) as Product[]);
+    if (branchRow) {
+      setBranches((current) => current.map((branch) => branch.id === branchId ? { ...branch, cover_image_url: branchRow.cover_image_url } : branch));
+      setAdminBranches((current) => current.map((branch) => branch.id === branchId ? { ...branch, cover_image_url: branchRow.cover_image_url } : branch));
+    }
   }
 
   useEffect(() => {
     void refreshBranchCatalog(activeBranchId);
   }, [activeBranchId]);
+
+  useEffect(() => {
+    setCoverImageFile(null);
+    setCoverImagePreview("");
+    setProductImageFile(null);
+    setProductImagePreview("");
+    if (coverImageInputRef.current) coverImageInputRef.current.value = "";
+    if (productImageInputRef.current) productImageInputRef.current.value = "";
+  }, [activeBranchId]);
+
+  useEffect(() => () => {
+    if (coverImagePreview.startsWith("blob:")) URL.revokeObjectURL(coverImagePreview);
+  }, [coverImagePreview]);
+
+  useEffect(() => () => {
+    if (productImagePreview.startsWith("blob:")) URL.revokeObjectURL(productImagePreview);
+  }, [productImagePreview]);
 
   async function createCompany(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -494,6 +550,99 @@ function AdminPage() {
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
 
+  function selectCoverImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+    const validationMessage = validateCatalogImage(file);
+    if (validationMessage) {
+      event.target.value = "";
+      setMessage(validationMessage);
+      return;
+    }
+    setCoverImageFile(file);
+    setCoverImagePreview(URL.createObjectURL(file));
+    setMessage("");
+  }
+
+  function selectProductImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+    const validationMessage = validateCatalogImage(file);
+    if (validationMessage) {
+      event.target.value = "";
+      setMessage(validationMessage);
+      return;
+    }
+    setProductImageFile(file);
+    setProductImagePreview(URL.createObjectURL(file));
+    setMessage("");
+  }
+
+  async function uploadCatalogImage(file: File, folder: "covers" | "products") {
+    if (!supabase || !activeBranchId) throw new Error("Selecione uma filial antes de enviar a imagem.");
+    const extension = CATALOG_IMAGE_EXTENSIONS[file.type];
+    const path = `${activeBranchId}/${folder}/${crypto.randomUUID()}.${extension}`;
+    const { error } = await supabase.storage.from(CATALOG_IMAGE_BUCKET).upload(path, file, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false,
+    });
+    if (error) {
+      const isMissingBucket = /bucket|not found/i.test(error.message);
+      throw new Error(isMissingBucket ? "O armazenamento de imagens ainda não foi configurado no Supabase." : error.message);
+    }
+    const { data } = supabase.storage.from(CATALOG_IMAGE_BUCKET).getPublicUrl(path);
+    return { path, url: data.publicUrl };
+  }
+
+  async function saveBranchCover() {
+    if (!supabase || !activeBranchId || !coverImageFile || uploadingCover) return;
+    setUploadingCover(true);
+    setMessage("Enviando capa da filial...");
+    let uploadedPath = "";
+    try {
+      const uploaded = await uploadCatalogImage(coverImageFile, "covers");
+      uploadedPath = uploaded.path;
+      const previousCover = branches.find((branch) => branch.id === activeBranchId)?.cover_image_url;
+      const { error } = await supabase.from("stores").update({ cover_image_url: uploaded.url }).eq("id", activeBranchId);
+      if (error) throw error;
+
+      setBranches((current) => current.map((branch) => branch.id === activeBranchId ? { ...branch, cover_image_url: uploaded.url } : branch));
+      setAdminBranches((current) => current.map((branch) => branch.id === activeBranchId ? { ...branch, cover_image_url: uploaded.url } : branch));
+      setCoverImageFile(null);
+      setCoverImagePreview("");
+      if (coverImageInputRef.current) coverImageInputRef.current.value = "";
+      const previousPath = storagePathFromPublicUrl(previousCover);
+      if (previousPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+      setMessage("Capa da filial atualizada.");
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      setMessage(error instanceof Error ? error.message : "Não foi possível atualizar a capa.");
+    } finally {
+      setUploadingCover(false);
+    }
+  }
+
+  async function removeBranchCover() {
+    if (!supabase || !activeBranchId || uploadingCover) return;
+    const previousCover = branches.find((branch) => branch.id === activeBranchId)?.cover_image_url;
+    if (!previousCover) return;
+    setUploadingCover(true);
+    setMessage("");
+    const { error } = await supabase.from("stores").update({ cover_image_url: null }).eq("id", activeBranchId);
+    if (error) {
+      setMessage(error.message);
+      setUploadingCover(false);
+      return;
+    }
+    setBranches((current) => current.map((branch) => branch.id === activeBranchId ? { ...branch, cover_image_url: null } : branch));
+    setAdminBranches((current) => current.map((branch) => branch.id === activeBranchId ? { ...branch, cover_image_url: null } : branch));
+    const previousPath = storagePathFromPublicUrl(previousCover);
+    if (previousPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+    setUploadingCover(false);
+    setMessage("Capa removida. O catálogo usará a apresentação neutra.");
+  }
+
   async function downloadCatalogTemplate() {
     setMessage("");
     try {
@@ -556,8 +705,8 @@ function AdminPage() {
       });
       exampleSheet.addRows([
         [...IMPORT_HEADERS],
-        ["Pizzas", "Pizza Calabresa", "Molho, queijo, calabresa e cebola", 49.9, "unidade", 20, "https://exemplo.com/pizza.jpg", "Mais vendido", "PIZ-001"],
-        ["Bebidas", "Refrigerante 2 L", "Garrafa retornável", 12, "unidade", 35, "", "", "BEB-001"],
+        ["Bebidas", "Refrigerante Cola 2 L", "Garrafa gelada", 12, "unidade", 35, "https://exemplo.com/refrigerante.jpg", "Mais vendido", "BEB-001"],
+        ["Mercearia", "Arroz 5 kg", "Pacote tipo 1", 27.9, "pacote", 20, "", "", "MER-001"],
       ]);
       exampleSheet.columns = productsSheet.columns.map((column) => ({ width: column.width }));
       exampleSheet.autoFilter = { from: "A1", to: "I1" };
@@ -745,23 +894,41 @@ function AdminPage() {
 
   async function createProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!supabase || !activeBranchId) return;
-    const { error } = await supabase.from("products").insert({
-      store_id: activeBranchId,
-      category_id: productForm.categoryId || null,
-      name: productForm.name.trim(),
-      description: productForm.description.trim() || null,
-      price: Number(productForm.price.replace(",", ".")),
-      unit: productForm.unit.trim() || null,
-      stock_quantity: productForm.stock ? Number(productForm.stock.replace(",", ".")) : null,
-      image_url: productForm.image.trim() || null,
-      badge: productForm.badge.trim() || null,
-      is_active: true,
-    });
-    setMessage(error?.message ?? "Produto adicionado ao catálogo.");
-    if (!error) {
+    if (!supabase || !activeBranchId || savingProduct) return;
+    setSavingProduct(true);
+    setMessage("");
+    let uploadedPath = "";
+    try {
+      let imageUrl = productForm.image.trim() || null;
+      if (productImageFile) {
+        const uploaded = await uploadCatalogImage(productImageFile, "products");
+        uploadedPath = uploaded.path;
+        imageUrl = uploaded.url;
+      }
+      const { error } = await supabase.from("products").insert({
+        store_id: activeBranchId,
+        category_id: productForm.categoryId || null,
+        name: productForm.name.trim(),
+        description: productForm.description.trim() || null,
+        price: Number(productForm.price.replace(",", ".")),
+        unit: productForm.unit.trim() || null,
+        stock_quantity: productForm.stock ? Number(productForm.stock.replace(",", ".")) : null,
+        image_url: imageUrl,
+        badge: productForm.badge.trim() || null,
+        is_active: true,
+      });
+      if (error) throw error;
       setProductForm({ name: "", description: "", price: "", unit: "unidade", stock: "", image: "", badge: "", categoryId: "" });
+      setProductImageFile(null);
+      setProductImagePreview("");
+      if (productImageInputRef.current) productImageInputRef.current.value = "";
       await refreshBranchCatalog(activeBranchId);
+      setMessage("Produto adicionado ao catálogo.");
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      setMessage(error instanceof Error ? error.message : "Não foi possível adicionar o produto.");
+    } finally {
+      setSavingProduct(false);
     }
   }
 
@@ -814,6 +981,18 @@ function AdminPage() {
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
             {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
+            <section className="catalog-media-panel">
+              <div className="branch-cover-preview">
+                {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
+              </div>
+              <div className="catalog-media-copy"><span>Capa da filial</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong><small>JPG, PNG ou WebP · máximo 5 MB</small></div>
+              <div className="catalog-media-actions">
+                <button className="admin-secondary" type="button" onClick={() => coverImageInputRef.current?.click()} disabled={!activeBranchId || uploadingCover}><ImagePlus size={16} /> Escolher foto</button>
+                {coverImageFile ? <button className="admin-primary" type="button" onClick={saveBranchCover} disabled={uploadingCover}><Save size={16} /> {uploadingCover ? "Enviando..." : "Salvar capa"}</button> : null}
+                {!coverImageFile && activeBranch?.cover_image_url ? <button className="icon-button cover-remove-button" type="button" title="Remover capa" aria-label="Remover capa" onClick={removeBranchCover} disabled={uploadingCover}><Trash2 size={17} /></button> : null}
+                <input ref={coverImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCoverImage} />
+              </div>
+            </section>
             <section className="catalog-import-panel">
               <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Importação por Excel</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong></div></div>
               <div className="catalog-import-actions">
@@ -835,9 +1014,10 @@ function AdminPage() {
                   <label>Descrição<textarea value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} /></label>
                   <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
                   <div className="admin-form-grid"><label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label><label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
-                  <label>Imagem (URL)<input value={productForm.image} onChange={(event) => setProductForm({ ...productForm, image: event.target.value })} placeholder="https://..." /></label>
+                  <div className="product-image-field"><div className="product-image-preview">{productImagePreview ? <img src={productImagePreview} alt="Prévia do produto" /> : <Package size={25} />}</div><div><strong>Foto do produto</strong><small>{productImageFile?.name ?? "JPG, PNG ou WebP · máximo 5 MB"}</small><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()}><ImagePlus size={16} /> Escolher foto</button><input ref={productImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectProductImage} /></div></div>
+                  <label>Imagem por link (opcional)<input value={productForm.image} onChange={(event) => setProductForm({ ...productForm, image: event.target.value })} placeholder="https://..." /></label>
                   <label>Selo opcional<input value={productForm.badge} onChange={(event) => setProductForm({ ...productForm, badge: event.target.value })} placeholder="Mais vendido" /></label>
-                  <button className="admin-primary" type="submit"><Plus size={16} /> Adicionar produto</button>
+                  <button className="admin-primary" type="submit" disabled={savingProduct}><Plus size={16} /> {savingProduct ? "Salvando..." : "Adicionar produto"}</button>
                 </form>
               </section>
             </div>
