@@ -6,6 +6,8 @@ import {
   LogOut,
   Plus,
   RefreshCw,
+  Save,
+  Settings,
   Store,
   Trash2,
   X,
@@ -49,7 +51,7 @@ function AdminPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [adminTenants, setAdminTenants] = useState<Tenant[]>([]);
   const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
-  const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog">("companies");
+  const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -58,6 +60,9 @@ function AdminPage() {
   const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "" });
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
+  const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [savingAccess, setSavingAccess] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [productForm, setProductForm] = useState({
     name: "",
@@ -295,6 +300,56 @@ function AdminPage() {
     setAdminSection("catalog");
   }
 
+  async function openCompanySettings(tenantId: string) {
+    if (!supabase) return;
+    const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? null;
+    const selectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
+    setTenant(selectedTenant);
+    setBranches(selectedBranches);
+    setActiveBranchId(selectedBranches[0]?.id ?? "");
+    setAccessForm({ name: "", email: "", password: "" });
+    setAdminSection("settings");
+    setLoadingSettings(true);
+    setMessage("");
+
+    const { data, error } = await supabase.functions.invoke("create-store-user", {
+      body: { action: "get-company-settings", tenant_id: tenantId },
+    });
+    setLoadingSettings(false);
+    if (error || data?.error) {
+      setMessage(data?.error ?? error?.message ?? "Não foi possível carregar as configurações da empresa.");
+      return;
+    }
+    setAccessForm({
+      name: data?.account?.name ?? "",
+      email: data?.account?.email ?? "",
+      password: "",
+    });
+  }
+
+  async function saveCompanyAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !tenant || savingAccess) return;
+    setSavingAccess(true);
+    setMessage("");
+    const { data, error } = await supabase.functions.invoke("create-store-user", {
+      body: {
+        action: "update-company-access",
+        tenant_id: tenant.id,
+        name: accessForm.name.trim(),
+        email: accessForm.email.trim(),
+        password: accessForm.password,
+      },
+    });
+    setSavingAccess(false);
+    if (error || data?.error || !data?.account) {
+      setMessage(data?.error ?? error?.message ?? "Não foi possível atualizar o acesso da empresa.");
+      return;
+    }
+    setAccessForm({ name: data.account.name, email: data.account.email, password: "" });
+    setMessage("Acesso atualizado. A empresa já pode entrar com as novas credenciais.");
+  }
+
   async function createBranch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !tenant || savingBranch) return;
@@ -389,9 +444,9 @@ function AdminPage() {
       <section className="admin-page-inner">
         <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie os catálogos da sua empresa" : "Gestão do catálogo"}</h1><p>{isCompanyPortal ? "Escolha uma filial e cadastre as categorias e os produtos que serão exibidos aos clientes." : "Cadastre empresas, filiais, usuários e catálogos em um só lugar."}</p></div>
 
-        {!isCompanyPortal ? <nav className="admin-tabs"><button className={adminSection === "companies" ? "active" : ""} onClick={() => setAdminSection("companies")}>Empresas</button><button className={adminSection === "new" ? "active" : ""} onClick={() => setAdminSection("new")}>Nova empresa</button>{adminSection === "catalog" ? <button className="active" onClick={() => setAdminSection("catalog")}>Catálogo selecionado</button> : null}</nav> : null}
+        {!isCompanyPortal ? <nav className="admin-tabs"><button className={adminSection === "companies" ? "active" : ""} onClick={() => setAdminSection("companies")}>Empresas</button><button className={adminSection === "new" ? "active" : ""} onClick={() => setAdminSection("new")}>Nova empresa</button>{adminSection === "catalog" ? <button className="active" onClick={() => setAdminSection("catalog")}>Catálogo selecionado</button> : null}{adminSection === "settings" ? <button className="active" onClick={() => setAdminSection("settings")}>Configurações</button> : null}</nav> : null}
         {!isCompanyPortal && adminSection === "companies" ? (
-          <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => setAdminSection("new")} onOpenCatalog={openAdminCatalog} />
+          <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => setAdminSection("new")} onOpenCatalog={openAdminCatalog} onOpenSettings={openCompanySettings} />
         ) : !tenant && isCompanyPortal ? (
           <section className="admin-form-panel access-denied-panel"><h2>Acesso da empresa não vinculado</h2><p>O login foi aceito, mas não foi encontrado o vínculo deste e-mail com uma empresa cadastrada.</p><button className="admin-primary" onClick={() => supabase?.auth.signOut()}>Sair e entrar novamente</button></section>
         ) : adminSection === "new" || !tenant ? (
@@ -409,6 +464,8 @@ function AdminPage() {
             </div>
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
+        ) : !isCompanyPortal && adminSection === "settings" ? (
+          <section className="company-settings-view"><div className="admin-list-heading"><div><span>Configurações da empresa</span><h2>{tenant.name}</h2><p>{branches.length} filial(is) vinculada(s)</p></div></div><form className="admin-form-panel company-settings-panel" onSubmit={saveCompanyAccess}><div className="branch-form-heading"><div><span>Acesso principal</span><h2>E-mail e senha da empresa</h2></div><Settings size={21} /></div>{loadingSettings ? <p className="admin-muted">Carregando configurações...</p> : <><label>Nome do responsável<input value={accessForm.name} onChange={(event) => setAccessForm({ ...accessForm, name: event.target.value })} required /></label><label>E-mail de acesso<input type="email" value={accessForm.email} onChange={(event) => setAccessForm({ ...accessForm, email: event.target.value })} required /></label><label>Nova senha<input type="password" minLength={6} value={accessForm.password} onChange={(event) => setAccessForm({ ...accessForm, password: event.target.value })} placeholder="Deixe em branco para manter a senha atual" /></label><div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingAccess}><Save size={16} /> {savingAccess ? "Salvando..." : "Salvar acesso"}</button></div></>}</form></section>
         ) : (
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
@@ -447,13 +504,15 @@ function AdminCompanies({
   branches,
   onNew,
   onOpenCatalog,
+  onOpenSettings,
 }: {
   tenants: Tenant[];
   branches: Branch[];
   onNew: () => void;
   onOpenCatalog: (tenantId: string) => void;
+  onOpenSettings: (tenantId: string) => void;
 }) {
-  return <section className="admin-company-list"><div className="admin-list-heading"><div><span>Empresas cadastradas</span><h2>Escolha uma empresa para administrar</h2></div><button className="admin-primary" onClick={onNew}><Plus size={16} /> Nova empresa</button></div>{tenants.map((item) => <article className="company-admin-card" key={item.id}><div><strong>{item.name}</strong><small>{branches.filter((branch) => branch.tenant_id === item.id).length} filial(is)</small></div><button className="admin-primary" onClick={() => onOpenCatalog(item.id)}>Abrir catálogo</button></article>)}{!tenants.length ? <div className="admin-form-panel"><p className="admin-muted">Nenhuma empresa cadastrada ainda.</p><button className="admin-primary" onClick={onNew}><Plus size={16} /> Cadastrar primeira empresa</button></div> : null}</section>;
+  return <section className="admin-company-list"><div className="admin-list-heading"><div><span>Empresas cadastradas</span><h2>Escolha uma empresa para administrar</h2></div><button className="admin-primary" onClick={onNew}><Plus size={16} /> Nova empresa</button></div>{tenants.map((item) => <article className="company-admin-card" key={item.id}><div className="company-admin-info"><strong>{item.name}</strong><small>{branches.filter((branch) => branch.tenant_id === item.id).length} filial(is)</small></div><div className="company-card-actions"><button className="icon-button" title={`Configurações de ${item.name}`} aria-label={`Configurações de ${item.name}`} onClick={() => onOpenSettings(item.id)}><Settings size={18} /></button><button className="admin-primary" onClick={() => onOpenCatalog(item.id)}>Abrir catálogo</button></div></article>)}{!tenants.length ? <div className="admin-form-panel"><p className="admin-muted">Nenhuma empresa cadastrada ainda.</p><button className="admin-primary" onClick={onNew}><Plus size={16} /> Cadastrar primeira empresa</button></div> : null}</section>;
 }
 
 function AdminLogin() {

@@ -68,7 +68,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /async function createBranch/);
   assert.match(adminPage, /Nova filial/);
   assert.match(adminPage, /Ela já está disponível no Portal da empresa/);
+  assert.match(adminPage, /openCompanySettings/);
+  assert.match(adminPage, /update-company-access/);
+  assert.match(adminPage, /Salvar acesso/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
+  assert.match(createCompanyFunction, /get-company-settings/);
+  assert.match(createCompanyFunction, /update-company-access/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(schema, /create table public\.integration_sources/);

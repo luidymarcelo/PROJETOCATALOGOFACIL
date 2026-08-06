@@ -27,13 +27,21 @@ Deno.serve(async (request) => {
       return await getCompanyWorkspace(adminClient, caller.user.id);
     }
 
+    const { data: platformAdmin } = await adminClient.from("platform_admins").select("user_id").eq("user_id", caller.user.id).maybeSingle();
+    if (!platformAdmin) throw new Error("Somente o administrador da plataforma pode gerenciar empresas.");
+
+    if (body.action === "get-company-settings") {
+      return await getCompanySettings(adminClient, String(body.tenant_id ?? ""));
+    }
+
+    if (body.action === "update-company-access") {
+      return await updateCompanyAccess(adminClient, body);
+    }
+
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const name = String(body.name ?? "").trim();
     if (!email || password.length < 6 || !name) throw new Error("Preencha nome, e-mail e uma senha com pelo menos 6 caracteres.");
-
-    const { data: platformAdmin } = await adminClient.from("platform_admins").select("user_id").eq("user_id", caller.user.id).maybeSingle();
-    if (!platformAdmin) throw new Error("Somente o administrador da plataforma pode criar empresas.");
 
     const managedUser = await ensureAuthUser(adminClient, email, password, name);
     const company = body.company;
@@ -152,6 +160,122 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
   if (!branches?.length) return json({ error: "Esta empresa ainda não possui filial.", code: "company_branch_not_found" });
 
   return json({ tenant, branches });
+}
+
+async function getCompanySettings(adminClient: SupabaseClient, tenantId: string) {
+  if (!tenantId) throw new Error("Empresa não informada.");
+  const { data: tenant, error: tenantError } = await adminClient.from("tenants").select("id").eq("id", tenantId).maybeSingle();
+  if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
+
+  const { data: members, error: memberError } = await adminClient
+    .from("tenant_members")
+    .select("user_id")
+    .eq("tenant_id", tenantId)
+    .in("role", ["manager", "staff"])
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (memberError) throw memberError;
+  const userId = members?.[0]?.user_id as string | undefined;
+  if (!userId) return json({ account: null });
+
+  const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(userId);
+  if (authUserError || !authUser.user) throw authUserError ?? new Error("Usuário da empresa não encontrado.");
+  const { data: profile } = await adminClient.from("profiles").select("full_name").eq("id", userId).maybeSingle();
+
+  return json({
+    account: {
+      user_id: userId,
+      email: authUser.user.email ?? "",
+      name: profile?.full_name ?? authUser.user.user_metadata?.full_name ?? "",
+    },
+  });
+}
+
+async function updateCompanyAccess(adminClient: SupabaseClient, body: Record<string, unknown>) {
+  const tenantId = String(body.tenant_id ?? "");
+  const email = String(body.email ?? "").trim().toLowerCase();
+  const password = String(body.password ?? "");
+  const name = String(body.name ?? "").trim();
+  if (!tenantId || !email || !name) throw new Error("Preencha o nome do responsável e o e-mail de acesso.");
+  if (password && password.length < 6) throw new Error("A nova senha deve ter pelo menos 6 caracteres.");
+
+  const { data: tenant, error: tenantError } = await adminClient.from("tenants").select("id").eq("id", tenantId).maybeSingle();
+  if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
+
+  const { data: members, error: memberError } = await adminClient
+    .from("tenant_members")
+    .select("user_id")
+    .eq("tenant_id", tenantId)
+    .in("role", ["manager", "staff"])
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (memberError) throw memberError;
+
+  let userId = members?.[0]?.user_id as string | undefined;
+  if (userId) {
+    const { data: currentUser, error: currentUserError } = await adminClient.auth.admin.getUserById(userId);
+    if (currentUserError || !currentUser.user) throw currentUserError ?? new Error("Usuário da empresa não encontrado.");
+    const updates = {
+      email,
+      email_confirm: true,
+      user_metadata: { ...currentUser.user.user_metadata, full_name: name },
+      app_metadata: { ...currentUser.user.app_metadata, company_tenant_id: tenantId },
+      ...(password ? { password } : {}),
+    };
+    const { error: updateError } = await adminClient.auth.admin.updateUserById(userId, updates);
+    if (updateError) throw updateError;
+  } else {
+    if (password.length < 6) throw new Error("Defina uma senha com pelo menos 6 caracteres para criar o acesso.");
+    const existingUser = await findAuthUserByEmail(adminClient, email);
+    if (existingUser) {
+      const { data: otherMembership } = await adminClient
+        .from("tenant_members")
+        .select("tenant_id")
+        .eq("user_id", existingUser.id)
+        .in("role", ["manager", "staff"])
+        .neq("tenant_id", tenantId)
+        .limit(1)
+        .maybeSingle();
+      if (otherMembership) throw new Error("Este e-mail já está vinculado a outra empresa.");
+      userId = existingUser.id;
+      const { error: updateError } = await adminClient.auth.admin.updateUserById(userId, {
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { ...existingUser.user_metadata, full_name: name },
+        app_metadata: { ...existingUser.app_metadata, company_tenant_id: tenantId },
+      });
+      if (updateError) throw updateError;
+    } else {
+      const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: name },
+        app_metadata: { company_tenant_id: tenantId },
+      });
+      if (createError || !created.user) throw createError ?? new Error("Não foi possível criar o acesso da empresa.");
+      userId = created.user.id;
+    }
+
+    if (!userId) throw new Error("Não foi possível identificar o acesso da empresa.");
+    const { error: membershipError } = await adminClient.from("tenant_members").upsert(
+      { tenant_id: tenantId, user_id: userId, role: "manager" },
+      { onConflict: "tenant_id,user_id" },
+    );
+    if (membershipError) throw membershipError;
+  }
+
+  if (!userId) throw new Error("Não foi possível identificar o acesso da empresa.");
+  const { error: profileError } = await adminClient.from("profiles").upsert({ id: userId, full_name: name });
+  if (profileError) throw profileError;
+  return json({ account: { user_id: userId, email, name } });
+}
+
+async function findAuthUserByEmail(adminClient: SupabaseClient, email: string) {
+  const { data, error } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) throw error;
+  return data.users.find((candidate) => candidate.email?.toLowerCase() === email) ?? null;
 }
 
 async function ensureAuthUser(adminClient: SupabaseClient, email: string, password: string, name: string): Promise<ManagedUser> {

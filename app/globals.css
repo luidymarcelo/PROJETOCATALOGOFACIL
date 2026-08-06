@@ -1263,13 +1263,33 @@ img {
   box-shadow: var(--shadow);
 }
 
-.company-admin-card > div {
+.company-admin-info {
   display: grid;
   gap: 4px;
 }
 
+.company-card-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .company-admin-card small {
   color: var(--muted);
+}
+
+.admin-list-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.company-settings-view {
+  display: grid;
+  gap: 14px;
+}
+
+.company-settings-panel {
+  width: min(680px, 100%);
 }
 
 .access-denied-panel {
@@ -1900,6 +1920,16 @@ img {
   .workspace-actions button,
   .admin-form-actions button {
     width: 100%;
+  }
+
+  .company-admin-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .company-card-actions {
+    flex-shrink: 0;
+    justify-content: flex-end;
   }
 
   .inline-form {
