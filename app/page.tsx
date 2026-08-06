@@ -95,6 +95,18 @@ const currency = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
+function formatWhatsapp(value: string) {
+  const digits = value.replace(/\D/g, "").replace(/^55/, "").slice(0, 11);
+  if (digits.length <= 2) return digits ? `(${digits}` : "";
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function normalizeWhatsapp(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.startsWith("55") ? digits : `55${digits}`;
+}
+
 const fallbackMerchants: Merchant[] = [
   {
     id: "bella-massa",
@@ -1419,6 +1431,8 @@ function CompanySetupForm() {
       {
         tenant_name: companyName,
         tenant_slug: companySlug,
+        owner_name: null,
+        owner_phone: null,
       },
     );
 
@@ -1433,7 +1447,7 @@ function CompanySetupForm() {
       name: branchName,
       slug: branchSlug,
       segment: "retail",
-      whatsapp_phone: branchPhone,
+      whatsapp_phone: normalizeWhatsapp(branchPhone),
       address: branchAddress,
       is_active: true,
     });
@@ -1472,7 +1486,7 @@ function CompanySetupForm() {
         </label>
         <label>
           WhatsApp da filial
-          <input value={branchPhone} onChange={(event) => setBranchPhone(event.target.value)} placeholder="5563999999999" required />
+          <input value={branchPhone} onChange={(event) => setBranchPhone(formatWhatsapp(event.target.value))} inputMode="tel" placeholder="(63) 99999-9999" required />
         </label>
         <label>
           Endereço
