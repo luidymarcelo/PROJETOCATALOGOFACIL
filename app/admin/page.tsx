@@ -205,21 +205,8 @@ function AdminPage() {
     }).select("id, name, slug, tenant_id").single();
     if (branchError) setMessage(branchError.message);
     else if (branchRow) {
-      const { data: adminAuth } = await supabase.auth.getSession();
-      const { data: newUser, error: userError } = await supabase.auth.signUp({
-        email: companyForm.userEmail.trim(),
-        password: companyForm.userPassword,
-        options: { data: { full_name: companyForm.userName.trim() } },
-      });
-      if (adminAuth.session) {
-        await supabase.auth.setSession({ access_token: adminAuth.session.access_token, refresh_token: adminAuth.session.refresh_token });
-      }
-      if (userError || !newUser.user) {
-        setMessage(`Empresa criada, mas não foi possível criar o acesso da filial: ${userError?.message ?? "usuário inválido"}`);
-      } else {
-        const { error: memberError } = await supabase.from("store_members").insert({ store_id: branchRow.id, user_id: newUser.user.id, role: "manager" });
-        setMessage(memberError ? `Empresa criada, mas o acesso não foi vinculado: ${memberError.message}` : "Empresa, filial e acesso criados. O cliente deve entrar em /empresa.");
-      }
+      const userError = await provisionStoreUser(branchRow.id, companyForm.userName, companyForm.userEmail, companyForm.userPassword);
+      setMessage(userError ? `Empresa criada, mas não foi possível criar o acesso da filial: ${userError}` : "Empresa, filial e acesso criados. O cliente deve entrar em /empresa.");
       setTenant({ id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) });
       setBranches([branchRow as Branch]);
       setActiveBranchId(branchRow.id);
@@ -276,29 +263,17 @@ function AdminPage() {
   async function createStoreUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !activeBranchId) return;
-    const { data: currentAuth } = await supabase.auth.getSession();
-    const { data, error } = await supabase.auth.signUp({
-      email: storeUserForm.email.trim(),
-      password: storeUserForm.password,
-      options: { data: { full_name: storeUserForm.name.trim() } },
+    const error = await provisionStoreUser(activeBranchId, storeUserForm.name, storeUserForm.email, storeUserForm.password, storeUserForm.role);
+    setMessage(error ?? "Usuário criado. Ele deve entrar em /empresa com este e-mail e senha.");
+    if (!error) setStoreUserForm({ name: "", email: "", password: "", role: "manager" });
+  }
+
+  async function provisionStoreUser(storeId: string, name: string, email: string, password: string, role = "manager") {
+    if (!supabase) return "Supabase não configurado.";
+    const { data, error } = await supabase.functions.invoke("create-store-user", {
+      body: { store_id: storeId, name: name.trim(), email: email.trim(), password, role },
     });
-    if (error || !data.user) {
-      setMessage(error?.message ?? "Não foi possível criar o usuário da filial.");
-      return;
-    }
-    if (currentAuth.session) {
-      await supabase.auth.setSession({
-        access_token: currentAuth.session.access_token,
-        refresh_token: currentAuth.session.refresh_token,
-      });
-    }
-    const { error: memberError } = await supabase.from("store_members").upsert({
-      store_id: activeBranchId,
-      user_id: data.user.id,
-      role: storeUserForm.role,
-    });
-    setMessage(memberError?.message ?? "Usuário criado. Ele deve entrar em /empresa com este e-mail e senha.");
-    if (!memberError) setStoreUserForm({ name: "", email: "", password: "", role: "manager" });
+    return error?.message ?? data?.error ?? null;
   }
 
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
