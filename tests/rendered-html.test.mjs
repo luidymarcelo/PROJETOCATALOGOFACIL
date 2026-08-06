@@ -71,9 +71,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /openCompanySettings/);
   assert.match(adminPage, /update-company-access/);
   assert.match(adminPage, /Salvar acesso/);
+  assert.match(adminPage, /async function deleteCompany/);
+  assert.match(adminPage, /Excluir definitivamente/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(createCompanyFunction, /get-company-settings/);
   assert.match(createCompanyFunction, /update-company-access/);
+  assert.match(createCompanyFunction, /delete-company/);
+  assert.match(createCompanyFunction, /auth\.admin\.deleteUser/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(schema, /create table public\.integration_sources/);

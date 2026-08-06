@@ -1292,6 +1292,47 @@ img {
   width: min(680px, 100%);
 }
 
+.danger-zone {
+  border-color: rgba(196, 67, 44, 0.35);
+}
+
+.danger-zone > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.danger-zone span {
+  color: #a33d2a;
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.danger-zone p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-danger {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #a33d2a;
+  border-radius: 8px;
+  background: #a33d2a;
+  color: #fff;
+  font-weight: 850;
+}
+
+.admin-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .access-denied-panel {
   max-width: 720px;
 }
@@ -1918,7 +1959,8 @@ img {
   }
 
   .workspace-actions button,
-  .admin-form-actions button {
+  .admin-form-actions button,
+  .danger-zone > button {
     width: 100%;
   }
 

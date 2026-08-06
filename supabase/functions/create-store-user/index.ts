@@ -38,6 +38,10 @@ Deno.serve(async (request) => {
       return await updateCompanyAccess(adminClient, body);
     }
 
+    if (body.action === "delete-company") {
+      return await deleteCompany(adminClient, String(body.tenant_id ?? ""), String(body.confirmation ?? ""));
+    }
+
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const name = String(body.name ?? "").trim();
@@ -270,6 +274,48 @@ async function updateCompanyAccess(adminClient: SupabaseClient, body: Record<str
   const { error: profileError } = await adminClient.from("profiles").upsert({ id: userId, full_name: name });
   if (profileError) throw profileError;
   return json({ account: { user_id: userId, email, name } });
+}
+
+async function deleteCompany(adminClient: SupabaseClient, tenantId: string, confirmation: string) {
+  if (!tenantId) throw new Error("Empresa não informada.");
+  const { data: tenant, error: tenantError } = await adminClient.from("tenants").select("id, name").eq("id", tenantId).maybeSingle();
+  if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
+  if (confirmation.trim() !== tenant.name) throw new Error("O nome de confirmação não corresponde à empresa.");
+
+  const { data: companyMembers, error: memberError } = await adminClient
+    .from("tenant_members")
+    .select("user_id")
+    .eq("tenant_id", tenantId)
+    .in("role", ["manager", "staff"]);
+  if (memberError) throw memberError;
+
+  const usersToDelete: string[] = [];
+  for (const member of companyMembers ?? []) {
+    const [{ data: platformAdmin }, { count: otherCompanyCount }] = await Promise.all([
+      adminClient.from("platform_admins").select("user_id").eq("user_id", member.user_id).maybeSingle(),
+      adminClient
+        .from("tenant_members")
+        .select("tenant_id", { count: "exact", head: true })
+        .eq("user_id", member.user_id)
+        .in("role", ["manager", "staff"])
+        .neq("tenant_id", tenantId),
+    ]);
+    if (!platformAdmin && !otherCompanyCount) usersToDelete.push(member.user_id);
+  }
+
+  const { error: deleteError } = await adminClient.from("tenants").delete().eq("id", tenantId);
+  if (deleteError) throw deleteError;
+
+  const authDeletionErrors: string[] = [];
+  for (const userId of usersToDelete) {
+    const { error } = await adminClient.auth.admin.deleteUser(userId);
+    if (error) authDeletionErrors.push(error.message);
+  }
+
+  return json({
+    deleted: true,
+    warning: authDeletionErrors.length ? "A empresa foi excluída, mas um usuário de autenticação não pôde ser removido." : null,
+  });
 }
 
 async function findAuthUserByEmail(adminClient: SupabaseClient, email: string) {
