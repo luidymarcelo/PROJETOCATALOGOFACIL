@@ -810,6 +810,68 @@ img {
   letter-spacing: 0;
 }
 
+.admin-access-shell {
+  max-width: 620px;
+}
+
+.admin-access-form {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.admin-access-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.admin-access-form input {
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.primary-button,
+.text-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.primary-button {
+  background: var(--primary);
+  color: #fff;
+}
+
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.text-button {
+  margin-top: 12px;
+  background: transparent;
+  color: var(--primary-dark);
+}
+
+.form-message {
+  margin: 0;
+  color: #9d4424;
+  font-size: 0.9rem;
+}
+
 .primary-outline {
   background: rgba(15, 167, 111, 0.09);
   color: var(--primary-dark);

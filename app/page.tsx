@@ -28,6 +28,8 @@ import {
   User,
   X,
 } from "lucide-react";
+import type { FormEvent } from "react";
+import type { Session } from "@supabase/supabase-js";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
@@ -489,6 +491,7 @@ export default function Home() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
+  const [authSession, setAuthSession] = useState<Session | null>(null);
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
     "farmacia-vida": fallbackMerchants[1].integration.lastSync,
@@ -497,6 +500,20 @@ export default function Home() {
 
   const merchant =
     merchants.find((store) => store.id === activeStoreId) ?? merchants[0];
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    void supabase.auth.getSession().then(({ data }) => {
+      setAuthSession(data.session);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session);
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -908,16 +925,80 @@ export default function Home() {
           ) : null}
         </section>
       ) : (
-        <AdminPanel
-          merchants={merchants}
-          syncLog={syncLog}
-          onOpenCatalog={(storeId) => {
-            openCatalog(storeId);
-          }}
-          onSync={simulateSync}
-        />
+        authSession ? (
+          <AdminPanel
+            merchants={merchants}
+            syncLog={syncLog}
+            onOpenCatalog={(storeId) => {
+              openCatalog(storeId);
+            }}
+            onSync={simulateSync}
+          />
+        ) : (
+          <AdminLogin />
+        )
       )}
     </main>
+  );
+}
+
+function AdminLogin() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) {
+      setMessage("Configure as credenciais do Supabase para continuar.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+    const result =
+      mode === "login"
+        ? await supabase.auth.signInWithPassword({ email, password })
+        : await supabase.auth.signUp({ email, password });
+
+    if (result.error) {
+      setMessage(result.error.message);
+    } else if (mode === "signup" && !result.data.session) {
+      setMessage("Conta criada. Confirme o e-mail para entrar.");
+    }
+
+    setBusy(false);
+  }
+
+  return (
+    <section className="admin-shell admin-access-shell">
+      <div className="admin-heading">
+        <div>
+          <span>Painel seguro</span>
+          <h1>{mode === "login" ? "Entrar no painel" : "Criar acesso administrativo"}</h1>
+        </div>
+        <ShieldCheck size={28} />
+      </div>
+      <form className="admin-access-form" onSubmit={submit}>
+        <label>
+          E-mail
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+        </label>
+        <label>
+          Senha
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required />
+        </label>
+        {message ? <p className="form-message">{message}</p> : null}
+        <button className="primary-button" type="submit" disabled={busy}>
+          {busy ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar conta"}
+        </button>
+      </form>
+      <button className="text-button" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+        {mode === "login" ? "Ainda não tenho acesso" : "Já tenho uma conta"}
+      </button>
+    </section>
   );
 }
 
