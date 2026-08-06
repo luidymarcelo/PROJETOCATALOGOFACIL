@@ -50,6 +50,7 @@ test("keeps the growth surfaces present", async () => {
   ]);
 
   assert.match(page, /buildWhatsappMessage/);
+  assert.match(page, /whatsapp: normalizeWhatsapp\(store\.whatsapp_phone\)/);
   assert.match(page, /Farmacia Vida/);
   assert.match(page, /Construmais Obras/);
   assert.match(page, /Obra grossa/);
@@ -64,6 +65,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /company_tenant_id/);
   assert.match(createCompanyFunction, /store_members/);
   assert.match(adminPage, /get_company_workspace/);
+  assert.match(adminPage, /async function createBranch/);
+  assert.match(adminPage, /Nova filial/);
+  assert.match(adminPage, /Ela já está disponível no Portal da empresa/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

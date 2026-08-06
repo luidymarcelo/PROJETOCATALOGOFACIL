@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Store,
   Trash2,
+  X,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -54,6 +55,9 @@ function AdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [message, setMessage] = useState("");
   const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", userName: "", userEmail: "", userPassword: "" });
+  const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "" });
+  const [showBranchForm, setShowBranchForm] = useState(false);
+  const [savingBranch, setSavingBranch] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [productForm, setProductForm] = useState({
     name: "",
@@ -287,7 +291,57 @@ function AdminPage() {
     setTenant(selectedTenant);
     setBranches(selectedBranches);
     setActiveBranchId(selectedBranches[0]?.id ?? "");
+    setShowBranchForm(false);
     setAdminSection("catalog");
+  }
+
+  async function createBranch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !tenant || savingBranch) return;
+
+    const phone = branchForm.phone.replace(/\D/g, "");
+    if (phone.length < 10) {
+      setMessage("Informe um WhatsApp válido para a filial.");
+      return;
+    }
+
+    setSavingBranch(true);
+    setMessage("");
+    const { data: sourceBranch } = await supabase
+      .from("stores")
+      .select("segment")
+      .eq("tenant_id", tenant.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const { data, error } = await supabase
+      .from("stores")
+      .insert({
+        tenant_id: tenant.id,
+        name: branchForm.name.trim(),
+        slug: slugify(branchForm.name),
+        segment: sourceBranch?.segment ?? "retail",
+        whatsapp_phone: phone,
+        address: branchForm.address.trim(),
+        is_active: true,
+      })
+      .select("id, name, slug, tenant_id")
+      .single();
+
+    setSavingBranch(false);
+    if (error || !data) {
+      setMessage(error?.code === "23505" ? "Já existe uma filial com esse nome nesta empresa." : error?.message ?? "Não foi possível criar a filial.");
+      return;
+    }
+
+    const branchRow = data as Branch;
+    setBranches((current) => [...current, branchRow]);
+    setAdminBranches((current) => [...current, branchRow]);
+    setActiveBranchId(branchRow.id);
+    setBranchForm({ name: "", phone: "", address: "" });
+    setShowBranchForm(false);
+    setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
 
   async function createProduct(event: FormEvent<HTMLFormElement>) {
@@ -357,7 +411,8 @@ function AdminPage() {
           </form>
         ) : (
           <>
-            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><button onClick={() => session.user.id && loadWorkspace(session.user.id)}><RefreshCw size={16} /> Atualizar</button></section>
+            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
+            {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
             <div className="admin-columns">
               <section className="admin-form-panel">

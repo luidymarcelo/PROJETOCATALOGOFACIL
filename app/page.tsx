@@ -588,7 +588,7 @@ export default function Home() {
             id: store.slug,
             name: store.name,
             address: store.address ?? fallback.address,
-            whatsapp: store.whatsapp_phone,
+            whatsapp: normalizeWhatsapp(store.whatsapp_phone),
             minimumOrder: Number(store.minimum_order),
             deliveryFee: Number(store.delivery_fee),
             deliveryTime: store.delivery_time_label ?? fallback.deliveryTime,
