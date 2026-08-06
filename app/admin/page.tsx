@@ -29,8 +29,6 @@ type Product = {
   is_active: boolean;
 };
 
-type StoreUserForm = { name: string; email: string; password: string; role: "manager" | "staff" };
-
 const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
 
 function slugify(value: string) {
@@ -67,7 +65,6 @@ function AdminPage() {
     badge: "",
     categoryId: "",
   });
-  const [storeUserForm, setStoreUserForm] = useState<StoreUserForm>({ name: "", email: "", password: "", role: "manager" });
   const [accessDenied, setAccessDenied] = useState(false);
 
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
@@ -210,37 +207,35 @@ function AdminPage() {
     event.preventDefault();
     if (!supabase) return;
     setMessage("");
-    const { data: tenantId, error } = await supabase.rpc("create_tenant_with_owner", {
-      tenant_name: companyForm.name,
-      tenant_slug: slugify(companyForm.name),
-      owner_name: null,
-      owner_phone: null,
+    const { data, error } = await supabase.functions.invoke("create-store-user", {
+      body: {
+        name: companyForm.userName.trim(),
+        email: companyForm.userEmail.trim(),
+        password: companyForm.userPassword,
+        company: {
+          name: companyForm.name.trim(),
+          slug: slugify(companyForm.name),
+          branch_name: companyForm.branch.trim(),
+          branch_slug: slugify(companyForm.branch),
+          whatsapp_phone: companyForm.phone.replace(/\D/g, ""),
+          address: companyForm.address.trim(),
+        },
+      },
     });
-    if (error || !tenantId) {
-      setMessage(error?.message ?? "Não foi possível criar a empresa.");
+    if (error || data?.error || !data?.tenant || !data?.branch) {
+      setMessage(data?.error ?? error?.message ?? "Não foi possível criar a empresa e seu acesso.");
       return;
     }
-
-    const { data: branchRow, error: branchError } = await supabase.from("stores").insert({
-      tenant_id: tenantId,
-      name: companyForm.branch,
-      slug: slugify(companyForm.branch),
-      segment: "retail",
-      whatsapp_phone: companyForm.phone.replace(/\D/g, ""),
-      address: companyForm.address,
-      is_active: true,
-    }).select("id, name, slug, tenant_id").single();
-    if (branchError) setMessage(branchError.message);
-    else if (branchRow) {
-      const userError = await provisionTenantUser(tenantId as string, companyForm.userName, companyForm.userEmail, companyForm.userPassword);
-      setMessage(userError ? `Empresa criada, mas não foi possível criar o acesso da filial: ${userError}` : "Empresa, filial e acesso criados. O cliente deve entrar em /empresa.");
-      setTenant({ id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) });
-      setBranches([branchRow as Branch]);
-      setActiveBranchId(branchRow.id);
-      setAdminTenants((current) => [...current, { id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) }]);
-      setAdminBranches((current) => [...current, branchRow as Branch]);
-      setAdminSection("companies");
-    }
+    const tenantRow = data.tenant as Tenant;
+    const branchRow = data.branch as Branch;
+    setMessage("Empresa, filial e acesso criados. O cliente já pode entrar no Portal da empresa.");
+    setTenant(tenantRow);
+    setBranches([branchRow]);
+    setActiveBranchId(branchRow.id);
+    setAdminTenants((current) => [...current, tenantRow]);
+    setAdminBranches((current) => [...current, branchRow]);
+    setAdminSection("companies");
+    setCompanyForm({ name: "", branch: "", phone: "", address: "", userName: "", userEmail: "", userPassword: "" });
   }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
@@ -299,22 +294,6 @@ function AdminPage() {
     setMessage(error?.message ?? "Produto removido.");
   }
 
-  async function createStoreUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase || !activeBranchId) return;
-    const error = await provisionTenantUser(activeBranch?.tenant_id ?? "", storeUserForm.name, storeUserForm.email, storeUserForm.password);
-    setMessage(error ?? "Usuário criado. Ele deve entrar em /empresa com este e-mail e senha.");
-    if (!error) setStoreUserForm({ name: "", email: "", password: "", role: "manager" });
-  }
-
-  async function provisionTenantUser(tenantId: string, name: string, email: string, password: string) {
-    if (!supabase) return "Supabase não configurado.";
-    const { data, error } = await supabase.functions.invoke("create-store-user", {
-      body: { tenant_id: tenantId, name: name.trim(), email: email.trim(), password },
-    });
-    return error?.message ?? data?.error ?? null;
-  }
-
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
@@ -353,9 +332,7 @@ function AdminPage() {
         ) : (
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><button onClick={() => session.user.id && loadWorkspace(session.user.id)}><RefreshCw size={16} /> Atualizar</button></section>
-            {!isCompanyPortal ? <div className="admin-shortcuts"><a href="#branch-access">Acesso da filial</a><a href="/empresa" target="_blank" rel="noreferrer">Abrir portal da empresa</a></div> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {!isCompanyPortal ? <section className="admin-form-panel user-access-panel"><h2>Acesso principal da filial</h2><p>Use este formulário para criar ou corrigir o único acesso do responsável. Ele entrará em <strong>/empresa</strong>.</p><form className="admin-form-grid" onSubmit={createStoreUser}><label>Nome<input value={storeUserForm.name} onChange={(event) => setStoreUserForm({ ...storeUserForm, name: event.target.value })} required /></label><label>E-mail<input type="email" value={storeUserForm.email} onChange={(event) => setStoreUserForm({ ...storeUserForm, email: event.target.value })} required /></label><label>Senha inicial<input type="password" minLength={6} value={storeUserForm.password} onChange={(event) => setStoreUserForm({ ...storeUserForm, password: event.target.value })} required /></label><label>Permissão<select value={storeUserForm.role} onChange={(event) => setStoreUserForm({ ...storeUserForm, role: event.target.value as StoreUserForm["role"] })}><option value="manager">Gerente</option><option value="staff">Operador</option></select></label><button className="admin-primary" type="submit"><Plus size={16} /> Salvar acesso principal</button></form></section> : null}
             <div className="admin-columns">
               <section className="admin-form-panel">
                 <h2>Categorias</h2>

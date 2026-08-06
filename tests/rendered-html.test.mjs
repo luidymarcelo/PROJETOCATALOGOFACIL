@@ -39,8 +39,10 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, layout, packageJson, schema] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -52,6 +54,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /Obra grossa/);
   assert.match(page, /Cano PVC Soldavel 25 mm/);
   assert.match(page, /Atualizar precos/);
+  assert.match(adminPage, /adminSection === "companies"/);
+  assert.match(adminPage, /company: \{/);
+  assert.doesNotMatch(adminPage, /createStoreUser|storeUserForm|Salvar acesso principal/);
+  assert.match(createCompanyFunction, /tenant_members/);
+  assert.match(createCompanyFunction, /const company = body\.company/);
+  assert.doesNotMatch(createCompanyFunction, /store_members/);
   assert.match(layout, /lang="pt-BR"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(schema, /create table public\.integration_sources/);
