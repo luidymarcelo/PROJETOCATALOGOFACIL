@@ -1161,6 +1161,74 @@ img {
 .user-access-panel {
   margin-bottom: 14px;
   border-left: 4px solid var(--primary);
+  display: none;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-tabs button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.admin-tabs button.active {
+  border-bottom-color: var(--primary);
+  color: var(--primary-dark);
+}
+
+.admin-company-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-list-heading,
+.company-admin-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.admin-list-heading {
+  margin-bottom: 8px;
+}
+
+.admin-list-heading span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.admin-list-heading h2 {
+  margin: 4px 0 0;
+}
+
+.company-admin-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.company-admin-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.company-admin-card small {
+  color: var(--muted);
 }
 
 .admin-shortcuts {
@@ -1168,6 +1236,7 @@ img {
   gap: 10px;
   flex-wrap: wrap;
   margin: 0 0 14px;
+  display: none;
 }
 
 .admin-shortcuts a {

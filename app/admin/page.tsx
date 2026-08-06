@@ -48,6 +48,9 @@ function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [adminTenants, setAdminTenants] = useState<Tenant[]>([]);
+  const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
+  const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog">("companies");
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -103,7 +106,8 @@ function AdminPage() {
       return;
     }
 
-    const tenantId = (preferredTenantId ?? memberships[0].tenant_id) as string;
+    const tenantIds = memberships.map((membership) => membership.tenant_id as string);
+    const tenantId = (preferredTenantId ?? tenantIds[0]) as string;
     if (!memberships.some((membership) => membership.tenant_id === tenantId)) {
       setTenant(null);
       setBranches([]);
@@ -111,17 +115,22 @@ function AdminPage() {
       setLoading(false);
       return;
     }
-    const [{ data: tenantRow }, { data: branchRows }] = await Promise.all([
-      supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
+    const [{ data: tenantRows }, { data: allBranchRows }] = await Promise.all([
+      supabase.from("tenants").select("id, name, slug").in("id", tenantIds).order("created_at", { ascending: true }),
       supabase
         .from("stores")
         .select("id, name, slug, tenant_id")
-        .eq("tenant_id", tenantId)
+        .in("tenant_id", tenantIds)
         .order("created_at", { ascending: true }),
     ]);
 
-    setTenant(tenantRow as Tenant | null);
-    const nextBranches = (branchRows ?? []) as Branch[];
+    const nextTenants = (tenantRows ?? []) as Tenant[];
+    const allBranches = (allBranchRows ?? []) as Branch[];
+    setAdminTenants(nextTenants);
+    setAdminBranches(allBranches);
+    const tenantRow = nextTenants.find((item) => item.id === tenantId) ?? null;
+    setTenant(tenantRow);
+    const nextBranches = allBranches.filter((branch) => branch.tenant_id === tenantId);
     setBranches(nextBranches);
     setActiveBranchId((current) =>
       current && nextBranches.some((branch) => branch.id === current)
@@ -224,6 +233,9 @@ function AdminPage() {
       setTenant({ id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) });
       setBranches([branchRow as Branch]);
       setActiveBranchId(branchRow.id);
+      setAdminTenants((current) => [...current, { id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) }]);
+      setAdminBranches((current) => [...current, branchRow as Branch]);
+      setAdminSection("companies");
     }
   }
 
@@ -242,6 +254,15 @@ function AdminPage() {
       const { data } = await supabase.from("categories").select("id, name, sort_order").eq("store_id", activeBranchId).eq("is_active", true).order("sort_order");
       setCategories((data ?? []) as Category[]);
     }
+  }
+
+  function openAdminCatalog(tenantId: string) {
+    const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? null;
+    const selectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
+    setTenant(selectedTenant);
+    setBranches(selectedBranches);
+    setActiveBranchId(selectedBranches[0]?.id ?? "");
+    setAdminSection("catalog");
   }
 
   async function createProduct(event: FormEvent<HTMLFormElement>) {
@@ -305,9 +326,12 @@ function AdminPage() {
       <section className="admin-page-inner">
         <div className="admin-page-heading"><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Edite o catálogo da sua filial" : "Gestão do catálogo"}</h1><p>{isCompanyPortal ? "Altere somente os produtos e categorias da filial vinculada ao seu usuário." : "Cadastre empresas, filiais, usuários e catálogos em um só lugar."}</p></div>
 
-        {!tenant && isCompanyPortal ? (
+        {!isCompanyPortal ? <nav className="admin-tabs"><button className={adminSection === "companies" ? "active" : ""} onClick={() => setAdminSection("companies")}>Empresas</button><button className={adminSection === "new" ? "active" : ""} onClick={() => setAdminSection("new")}>Nova empresa</button>{adminSection === "catalog" ? <button className="active" onClick={() => setAdminSection("catalog")}>Catálogo selecionado</button> : null}</nav> : null}
+        {!isCompanyPortal && adminSection === "companies" ? (
+          <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => setAdminSection("new")} onOpenCatalog={openAdminCatalog} />
+        ) : !tenant && isCompanyPortal ? (
           <section className="admin-form-panel access-denied-panel"><h2>Acesso da filial ainda não configurado</h2><p>Este e-mail não está vinculado a nenhuma filial. Solicite ao administrador um usuário de filial e entre novamente por este portal.</p><a className="admin-primary" href="/admin">Ir para a Central dos administradores</a></section>
-        ) : !tenant ? (
+        ) : adminSection === "new" || !tenant ? (
           <form className="admin-form-panel" onSubmit={createCompany}>
             <h2>Nenhuma empresa vinculada a este acesso</h2>
             <p>Este e-mail é de administrador do sistema. Crie uma empresa somente se ela ainda não existir. Para editar uma empresa já criada, entre com o e-mail usado no cadastro.</p>
@@ -354,6 +378,20 @@ function AdminPage() {
       </section>
     </main>
   );
+}
+
+function AdminCompanies({
+  tenants,
+  branches,
+  onNew,
+  onOpenCatalog,
+}: {
+  tenants: Tenant[];
+  branches: Branch[];
+  onNew: () => void;
+  onOpenCatalog: (tenantId: string) => void;
+}) {
+  return <section className="admin-company-list"><div className="admin-list-heading"><div><span>Empresas cadastradas</span><h2>Escolha uma empresa para administrar</h2></div><button className="admin-primary" onClick={onNew}><Plus size={16} /> Nova empresa</button></div>{tenants.map((item) => <article className="company-admin-card" key={item.id}><div><strong>{item.name}</strong><small>{branches.filter((branch) => branch.tenant_id === item.id).length} filial(is)</small></div><button className="admin-primary" onClick={() => onOpenCatalog(item.id)}>Abrir catálogo</button></article>)}{!tenants.length ? <div className="admin-form-panel"><p className="admin-muted">Nenhuma empresa cadastrada ainda.</p><button className="admin-primary" onClick={onNew}><Plus size={16} /> Cadastrar primeira empresa</button></div> : null}</section>;
 }
 
 function AdminLogin() {
