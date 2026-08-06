@@ -428,6 +428,11 @@ const initialCheckout: Checkout = {
   notes: "",
 };
 
+const hasSupabaseConfig = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+);
+
 function formatPrice(value: number) {
   return currency.format(value);
 }
@@ -483,7 +488,7 @@ function buildWhatsappMessage({
 
 export default function Home() {
   const [merchants, setMerchants] = useState<Merchant[]>(
-    supabase ? [] : fallbackMerchants,
+    hasSupabaseConfig ? [] : fallbackMerchants,
   );
   const [activeStoreId, setActiveStoreId] = useState<StoreId>("bella-massa");
   const [activeCategory, setActiveCategory] = useState("Mais pedidos");
