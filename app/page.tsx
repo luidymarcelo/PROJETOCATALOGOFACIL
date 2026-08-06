@@ -34,7 +34,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type StoreId = "bella-massa" | "farmacia-vida" | "construmais";
+type StoreId = string;
 type ViewMode = "catalog" | "admin";
 type FulfillmentMode = "delivery" | "pickup";
 
@@ -482,7 +482,9 @@ function buildWhatsappMessage({
 }
 
 export default function Home() {
-  const [merchants, setMerchants] = useState<Merchant[]>(fallbackMerchants);
+  const [merchants, setMerchants] = useState<Merchant[]>(
+    supabase ? [] : fallbackMerchants,
+  );
   const [activeStoreId, setActiveStoreId] = useState<StoreId>("bella-massa");
   const [activeCategory, setActiveCategory] = useState("Mais pedidos");
   const [search, setSearch] = useState("");
@@ -527,13 +529,16 @@ export default function Home() {
         .eq("is_active", true)
         .order("created_at", { ascending: true });
 
-      if (error || !data?.length || cancelled) return;
+      if (error || cancelled) return;
+      if (!data?.length) {
+        setMerchants([]);
+        return;
+      }
 
       const loadedMerchants = data.flatMap((store) => {
         const fallback = fallbackMerchants.find(
           (item) => item.id === store.slug,
-        );
-        if (!fallback) return [];
+        ) ?? fallbackMerchants[0];
 
         const categories = [...(store.categories ?? [])].sort(
           (a, b) => a.sort_order - b.sort_order,
@@ -562,6 +567,7 @@ export default function Home() {
         return [
           {
             ...fallback,
+            id: store.slug,
             name: store.name,
             address: store.address ?? fallback.address,
             whatsapp: store.whatsapp_phone,
@@ -757,7 +763,9 @@ export default function Home() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={`Buscar em ${merchant.name}`}
+            placeholder={
+              merchants.length ? `Buscar em ${merchant.name}` : "Buscar no catalogo"
+            }
           />
         </label>
 
@@ -780,6 +788,9 @@ export default function Home() {
       </header>
 
       {view === "catalog" ? (
+        !merchants.length ? (
+          <EmptyCatalog />
+        ) : (
         <section className="commerce-grid">
           <aside className="store-rail" aria-label="Lojas">
             {merchants.map((store) => {
@@ -924,6 +935,7 @@ export default function Home() {
             </button>
           ) : null}
         </section>
+        )
       ) : (
         authSession ? (
           <AdminPanel
@@ -997,6 +1009,19 @@ function AdminLogin() {
       </form>
       <button className="text-button" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
         {mode === "login" ? "Ainda não tenho acesso" : "Já tenho uma conta"}
+      </button>
+    </section>
+  );
+}
+
+function EmptyCatalog() {
+  return (
+    <section className="empty-catalog" aria-live="polite">
+      <Store size={30} />
+      <h1>Nenhum catalogo configurado</h1>
+      <p>Cadastre uma empresa e uma filial no painel administrativo para começar.</p>
+      <button className="primary-button" onClick={() => window.location.reload()}>
+        Atualizar
       </button>
     </section>
   );
