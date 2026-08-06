@@ -60,13 +60,13 @@ function AdminPage() {
     categoryId: "",
   });
 
-  async function loadWorkspace(userId: string) {
+  async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
     const { data: memberships, error: membershipError } = await supabase
       .from("tenant_members")
       .select("tenant_id, role")
       .eq("user_id", userId)
-      .limit(1);
+      .order("created_at", { ascending: true });
 
     if (membershipError || !memberships?.length) {
       setTenant(null);
@@ -75,7 +75,14 @@ function AdminPage() {
       return;
     }
 
-    const tenantId = memberships[0].tenant_id as string;
+    const tenantId = (preferredTenantId ?? memberships[0].tenant_id) as string;
+    if (!memberships.some((membership) => membership.tenant_id === tenantId)) {
+      setTenant(null);
+      setBranches([]);
+      setMessage("Esta empresa foi criada por outro usuário. Entre com o e-mail que a criou ou peça para um administrador vincular seu acesso.");
+      setLoading(false);
+      return;
+    }
     const [{ data: tenantRow }, { data: branchRows }] = await Promise.all([
       supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
       supabase
@@ -174,7 +181,7 @@ function AdminPage() {
     if (branchError) setMessage(branchError.message);
     else if (session?.user.id) {
       setMessage("Empresa criada. O catálogo da filial está pronto para receber produtos.");
-      await loadWorkspace(session.user.id);
+      await loadWorkspace(session.user.id, tenantId as string);
     }
   }
 
@@ -241,8 +248,8 @@ function AdminPage() {
 
         {!tenant ? (
           <form className="admin-form-panel" onSubmit={createCompany}>
-            <h2>Cadastre sua primeira empresa</h2>
-            <p>Você será o administrador principal desta empresa.</p>
+            <h2>Nenhuma empresa vinculada a este acesso</h2>
+            <p>Este e-mail é de administrador do sistema. Crie uma empresa somente se ela ainda não existir. Para editar uma empresa já criada, entre com o e-mail usado no cadastro.</p>
             <div className="admin-form-grid">
               <label>Empresa<input value={companyForm.name} onChange={(event) => setCompanyForm({ ...companyForm, name: event.target.value })} placeholder="Ex.: Material Forte" required /></label>
               <label>Primeira filial<input value={companyForm.branch} onChange={(event) => setCompanyForm({ ...companyForm, branch: event.target.value })} placeholder="Ex.: Filial Centro" required /></label>
