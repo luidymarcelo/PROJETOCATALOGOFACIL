@@ -506,7 +506,9 @@ export default function Home() {
   });
 
   const merchant =
-    merchants.find((store) => store.id === activeStoreId) ?? merchants[0];
+    merchants.find((store) => store.id === activeStoreId) ??
+    merchants[0] ??
+    fallbackMerchants[0];
 
   useEffect(() => {
     if (!supabase) return;

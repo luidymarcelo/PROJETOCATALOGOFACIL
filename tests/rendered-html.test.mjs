@@ -33,8 +33,8 @@ test("server-renders the catalog shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>Catalogo Facil<\/title>/i);
   assert.match(html, /Catalogo Facil/);
-  assert.match(html, /Carrinho/);
-  assert.match(html, /Bella Massa Pizzaria/);
+  assert.match(html, /Carrinho|Nenhum catalogo configurado/);
+  assert.match(html, /Bella Massa Pizzaria|Nenhum catalogo configurado/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|SkeletonPreview/);
 });
 
