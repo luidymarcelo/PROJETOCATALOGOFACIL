@@ -50,7 +50,7 @@ function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [message, setMessage] = useState("");
-  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "" });
+  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", userName: "", userEmail: "", userPassword: "" });
   const [categoryName, setCategoryName] = useState("");
   const [productForm, setProductForm] = useState({
     name: "",
@@ -205,10 +205,24 @@ function AdminPage() {
     }).select("id, name, slug, tenant_id").single();
     if (branchError) setMessage(branchError.message);
     else if (branchRow) {
+      const { data: adminAuth } = await supabase.auth.getSession();
+      const { data: newUser, error: userError } = await supabase.auth.signUp({
+        email: companyForm.userEmail.trim(),
+        password: companyForm.userPassword,
+        options: { data: { full_name: companyForm.userName.trim() } },
+      });
+      if (adminAuth.session) {
+        await supabase.auth.setSession({ access_token: adminAuth.session.access_token, refresh_token: adminAuth.session.refresh_token });
+      }
+      if (userError || !newUser.user) {
+        setMessage(`Empresa criada, mas não foi possível criar o acesso da filial: ${userError?.message ?? "usuário inválido"}`);
+      } else {
+        const { error: memberError } = await supabase.from("store_members").insert({ store_id: branchRow.id, user_id: newUser.user.id, role: "manager" });
+        setMessage(memberError ? `Empresa criada, mas o acesso não foi vinculado: ${memberError.message}` : "Empresa, filial e acesso criados. O cliente deve entrar em /empresa.");
+      }
       setTenant({ id: tenantId as string, name: companyForm.name, slug: slugify(companyForm.name) });
       setBranches([branchRow as Branch]);
       setActiveBranchId(branchRow.id);
-      setMessage("Empresa criada. O catálogo da filial está pronto para receber produtos.");
     }
   }
 
@@ -311,9 +325,12 @@ function AdminPage() {
               <label>Empresa<input value={companyForm.name} onChange={(event) => setCompanyForm({ ...companyForm, name: event.target.value })} placeholder="Ex.: Material Forte" required /></label>
               <label>Primeira filial<input value={companyForm.branch} onChange={(event) => setCompanyForm({ ...companyForm, branch: event.target.value })} placeholder="Ex.: Filial Centro" required /></label>
               <label>WhatsApp<input value={companyForm.phone} onChange={(event) => setCompanyForm({ ...companyForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
+              <label>Nome do responsável<input value={companyForm.userName} onChange={(event) => setCompanyForm({ ...companyForm, userName: event.target.value })} placeholder="Nome do cliente" required /></label>
+              <label>E-mail de acesso<input type="email" value={companyForm.userEmail} onChange={(event) => setCompanyForm({ ...companyForm, userEmail: event.target.value })} placeholder="cliente@empresa.com" required /></label>
+              <label>Senha de acesso<input type="password" minLength={6} value={companyForm.userPassword} onChange={(event) => setCompanyForm({ ...companyForm, userPassword: event.target.value })} placeholder="Mínimo de 6 caracteres" required /></label>
               <label>Endereço<input value={companyForm.address} onChange={(event) => setCompanyForm({ ...companyForm, address: event.target.value })} placeholder="Rua e número" required /></label>
             </div>
-            <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa e filial</button>
+            <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
         ) : (
           <>
