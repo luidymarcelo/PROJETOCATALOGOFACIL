@@ -87,7 +87,9 @@ type Checkout = {
   name: string;
   phone: string;
   address: string;
+  reference: string;
   payment: string;
+  changeFor: string;
   notes: string;
 };
 
@@ -97,7 +99,11 @@ const currency = new Intl.NumberFormat("pt-BR", {
 });
 
 function formatWhatsapp(value: string) {
-  const digits = value.replace(/\D/g, "").replace(/^55/, "").slice(0, 11);
+  const rawDigits = value.replace(/\D/g, "");
+  const digits = (rawDigits.length > 11 && rawDigits.startsWith("55")
+    ? rawDigits.slice(2)
+    : rawDigits
+  ).slice(0, 11);
   if (digits.length <= 2) return digits ? `(${digits}` : "";
   if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
@@ -474,7 +480,9 @@ const initialCheckout: Checkout = {
   name: "",
   phone: "",
   address: "",
+  reference: "",
   payment: "Pix",
+  changeFor: "",
   notes: "",
 };
 
@@ -487,53 +495,145 @@ function formatPrice(value: number) {
   return currency.format(value);
 }
 
+function cleanOrderText(value: string, fallback = "Não informado") {
+  const cleaned = value
+    .replace(/[*_~`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned || fallback;
+}
+
+function parseMoney(value: string) {
+  const cleaned = value.replace(/[^\d,.-]/g, "");
+
+  if (!/\d/.test(cleaned)) return null;
+
+  const normalized = cleaned.includes(",")
+    ? cleaned.replace(/\./g, "").replace(",", ".")
+    : cleaned;
+  const amount = Number(normalized);
+
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function createOrderCode(now: Date) {
+  const date = [
+    String(now.getFullYear()).slice(-2),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("");
+  const suffix = now.getTime().toString(36).slice(-5).toUpperCase();
+
+  return `CF-${date}-${suffix}`;
+}
+
+function formatOrderMoment(now: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+}
+
 function buildWhatsappMessage({
   merchant,
   cart,
   checkout,
   fulfillment,
   totals,
+  orderCode,
+  createdAt,
 }: {
   merchant: Merchant;
   cart: CartItem[];
   checkout: Checkout;
   fulfillment: FulfillmentMode;
   totals: { subtotal: number; delivery: number; total: number };
+  orderCode: string;
+  createdAt: Date;
 }) {
+  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const items = cart
     .map(
-      (item) =>
-        `${item.quantity}x ${item.product.name}${
-          item.product.unit ? ` (${item.product.unit})` : ""
-        } - ${formatPrice(
-          item.product.price * item.quantity,
-        )}`,
-    )
-    .join("\n");
+      (item, index) => {
+        const unit = item.product.unit
+          ? `\n   Unidade: ${cleanOrderText(item.product.unit)}`
+          : "";
 
-  const deliveryLine =
+        return `${String(index + 1).padStart(2, "0")}. *${cleanOrderText(
+          item.product.name,
+        )}*\n   ${item.quantity} x ${formatPrice(
+          item.product.price,
+        )} = *${formatPrice(item.product.price * item.quantity)}*${unit}`;
+      },
+    )
+    .join("\n\n");
+
+  const fulfillmentSection =
     fulfillment === "delivery"
-      ? `Entrega: ${checkout.address || "Endereco a confirmar"}`
-      : `Retirada: ${merchant.address}`;
+      ? [
+          "*ENTREGA*",
+          "Modalidade: Entrega",
+          `Endereço: ${cleanOrderText(checkout.address)}`,
+          `Complemento/referência: ${cleanOrderText(
+            checkout.reference,
+            "Não informado",
+          )}`,
+          `Previsão informada: ${cleanOrderText(merchant.deliveryTime)}`,
+        ]
+      : [
+          "*RETIRADA*",
+          "Modalidade: Retirada no local",
+          `Local: ${cleanOrderText(merchant.address)}`,
+          `Previsão informada: ${cleanOrderText(merchant.deliveryTime)}`,
+        ];
+
+  const changeAmount =
+    checkout.payment === "Dinheiro" ? parseMoney(checkout.changeFor) : null;
+  const paymentSection = [
+    "*PAGAMENTO*",
+    `Forma: ${cleanOrderText(checkout.payment)}`,
+  ];
+
+  if (changeAmount !== null) {
+    paymentSection.push(`Troco para: ${formatPrice(changeAmount)}`);
+    paymentSection.push(
+      `Troco a devolver: ${formatPrice(Math.max(0, changeAmount - totals.total))}`,
+    );
+  } else if (checkout.payment === "Dinheiro") {
+    paymentSection.push("Troco: Não solicitado");
+  }
 
   return [
-    `*Pedido - ${merchant.name}*`,
+    `*COMANDA #${orderCode}*`,
+    `*${cleanOrderText(merchant.name)}*`,
+    `Gerada em: ${formatOrderMoment(createdAt)}`,
+    "----------------------------",
+    "*CLIENTE*",
+    `Nome: ${cleanOrderText(checkout.name)}`,
+    `WhatsApp: ${cleanOrderText(checkout.phone)}`,
     "",
-    `Cliente: ${checkout.name || "A confirmar"}`,
-    `Telefone: ${checkout.phone || "A confirmar"}`,
-    deliveryLine,
-    `Pagamento: ${checkout.payment}`,
+    ...fulfillmentSection,
     "",
-    "*Itens*",
+    `*ITENS DO PEDIDO (${itemCount})*`,
     items,
     "",
+    "----------------------------",
+    "*RESUMO DE VALORES*",
     `Subtotal: ${formatPrice(totals.subtotal)}`,
-    `Taxa: ${formatPrice(totals.delivery)}`,
-    `Total: ${formatPrice(totals.total)}`,
-    checkout.notes ? `\nObservacoes: ${checkout.notes}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `Taxa de entrega: ${formatPrice(totals.delivery)}`,
+    `*TOTAL: ${formatPrice(totals.total)}*`,
+    "",
+    ...paymentSection,
+    "",
+    "*OBSERVAÇÕES*",
+    cleanOrderText(checkout.notes, "Sem observações."),
+    "----------------------------",
+    "Aguardando confirmação da loja.",
+  ].join("\n");
 }
 
 export default function Home() {
@@ -548,6 +648,7 @@ export default function Home() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
+  const [checkoutError, setCheckoutError] = useState("");
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
@@ -666,7 +767,10 @@ export default function Home() {
     }
 
     if (savedCheckout) {
-      setCheckout(JSON.parse(savedCheckout) as Checkout);
+      setCheckout({
+        ...initialCheckout,
+        ...(JSON.parse(savedCheckout) as Partial<Checkout>),
+      });
     }
   }, []);
 
@@ -763,12 +867,56 @@ export default function Home() {
 
   function sendWhatsappOrder() {
     const targetMerchant = cartMerchant ?? merchant;
+    const phoneDigits = checkout.phone.replace(/\D/g, "").replace(/^55/, "");
+
+    if (!cart.length) {
+      setCheckoutError("Adicione pelo menos um produto ao pedido.");
+      return;
+    }
+
+    if (checkout.name.trim().length < 2) {
+      setCheckoutError("Informe o nome de quem receberá o pedido.");
+      return;
+    }
+
+    if (phoneDigits.length < 10) {
+      setCheckoutError("Informe um telefone válido com DDD.");
+      return;
+    }
+
+    if (fulfillment === "delivery" && checkout.address.trim().length < 5) {
+      setCheckoutError("Informe rua, número e bairro para a entrega.");
+      return;
+    }
+
+    if (totals.subtotal < targetMerchant.minimumOrder) {
+      setCheckoutError(
+        `O pedido mínimo desta filial é ${formatPrice(targetMerchant.minimumOrder)}.`,
+      );
+      return;
+    }
+
+    if (checkout.payment === "Dinheiro" && checkout.changeFor.trim()) {
+      const changeAmount = parseMoney(checkout.changeFor);
+
+      if (changeAmount === null || changeAmount < totals.total) {
+        setCheckoutError(
+          `O valor para troco deve ser igual ou maior que ${formatPrice(totals.total)}.`,
+        );
+        return;
+      }
+    }
+
+    setCheckoutError("");
+    const createdAt = new Date();
     const message = buildWhatsappMessage({
       merchant: targetMerchant,
       cart,
       checkout,
       fulfillment,
       totals,
+      orderCode: createOrderCode(createdAt),
+      createdAt,
     });
     const url = `https://wa.me/${targetMerchant.whatsapp}?text=${encodeURIComponent(
       message,
@@ -988,11 +1136,17 @@ export default function Home() {
             checkout={checkout}
             fulfillment={fulfillment}
             isCartOpen={isCartOpen}
-            merchant={merchant}
             totals={totals}
-            onCheckoutChange={setCheckout}
+            checkoutError={checkoutError}
+            onCheckoutChange={(nextCheckout) => {
+              setCheckout(nextCheckout);
+              setCheckoutError("");
+            }}
             onClose={() => setIsCartOpen(false)}
-            onFulfillmentChange={setFulfillment}
+            onFulfillmentChange={(mode) => {
+              setFulfillment(mode);
+              setCheckoutError("");
+            }}
             onQuantityChange={updateQuantity}
             onSendOrder={sendWhatsappOrder}
           />
@@ -1162,9 +1316,9 @@ function CartPanel({
   cartMerchant,
   cartIsFromActiveStore,
   checkout,
+  checkoutError,
   fulfillment,
   isCartOpen,
-  merchant,
   totals,
   onCheckoutChange,
   onClose,
@@ -1176,9 +1330,9 @@ function CartPanel({
   cartMerchant: Merchant;
   cartIsFromActiveStore: boolean;
   checkout: Checkout;
+  checkoutError: string;
   fulfillment: FulfillmentMode;
   isCartOpen: boolean;
-  merchant: Merchant;
   totals: { subtotal: number; delivery: number; total: number };
   onCheckoutChange: (checkout: Checkout) => void;
   onClose: () => void;
@@ -1274,6 +1428,8 @@ function CartPanel({
               onCheckoutChange({ ...checkout, name: event.target.value })
             }
             placeholder="Nome"
+            autoComplete="name"
+            aria-invalid={Boolean(checkoutError && checkout.name.trim().length < 2)}
           />
         </label>
 
@@ -1282,9 +1438,17 @@ function CartPanel({
           <input
             value={checkout.phone}
             onChange={(event) =>
-              onCheckoutChange({ ...checkout, phone: event.target.value })
+              onCheckoutChange({
+                ...checkout,
+                phone: formatWhatsapp(event.target.value),
+              })
             }
-            placeholder="Telefone"
+            placeholder="Telefone com DDD"
+            inputMode="tel"
+            autoComplete="tel"
+            aria-invalid={Boolean(
+              checkoutError && checkout.phone.replace(/\D/g, "").length < 10,
+            )}
           />
         </label>
 
@@ -1296,15 +1460,32 @@ function CartPanel({
               onChange={(event) =>
                 onCheckoutChange({ ...checkout, address: event.target.value })
               }
-              placeholder="Endereco"
+              placeholder="Rua, número e bairro"
+              autoComplete="street-address"
+              aria-invalid={Boolean(
+                checkoutError && checkout.address.trim().length < 5,
+              )}
             />
           </label>
         ) : (
           <div className="pickup-address">
             <MapPin size={16} />
-            <span>{merchant.address}</span>
+            <span>{cartMerchant.address}</span>
           </div>
         )}
+
+        {fulfillment === "delivery" ? (
+          <label>
+            <MapPin size={16} />
+            <input
+              value={checkout.reference}
+              onChange={(event) =>
+                onCheckoutChange({ ...checkout, reference: event.target.value })
+              }
+              placeholder="Complemento ou referência (opcional)"
+            />
+          </label>
+        ) : null}
 
         <label>
           <CreditCard size={16} />
@@ -1321,13 +1502,38 @@ function CartPanel({
           </select>
         </label>
 
+        {checkout.payment === "Dinheiro" ? (
+          <label>
+            <CreditCard size={16} />
+            <input
+              value={checkout.changeFor}
+              onChange={(event) =>
+                onCheckoutChange({ ...checkout, changeFor: event.target.value })
+              }
+              placeholder="Troco para (opcional)"
+              inputMode="decimal"
+              aria-invalid={Boolean(
+                checkoutError &&
+                  checkout.changeFor.trim() &&
+                  (parseMoney(checkout.changeFor) ?? 0) < totals.total,
+              )}
+            />
+          </label>
+        ) : null}
+
         <textarea
           value={checkout.notes}
           onChange={(event) =>
             onCheckoutChange({ ...checkout, notes: event.target.value })
           }
-          placeholder="Observacoes"
+          placeholder="Observações para o pedido (opcional)"
         />
+
+        {checkoutError ? (
+          <p className="checkout-error" role="alert">
+            {checkoutError}
+          </p>
+        ) : null}
       </div>
 
       <div className="cart-total">

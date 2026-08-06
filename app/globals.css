@@ -744,6 +744,22 @@ img {
   border-radius: 8px;
 }
 
+.checkout-block [aria-invalid="true"] {
+  color: #9f2f22;
+}
+
+.checkout-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e7b8b1;
+  border-radius: 8px;
+  background: #fff4f2;
+  color: #8c281e;
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
 .pickup-address span {
   overflow: hidden;
   text-overflow: ellipsis;

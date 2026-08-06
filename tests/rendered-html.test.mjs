@@ -52,6 +52,10 @@ test("keeps the growth surfaces present", async () => {
   ]);
 
   assert.match(page, /buildWhatsappMessage/);
+  assert.match(page, /\*COMANDA #\$\{orderCode\}\*/);
+  assert.match(page, /Troco a devolver/);
+  assert.match(page, /Complemento ou referência \(opcional\)/);
+  assert.match(page, /Aguardando confirmação da loja/);
   assert.match(page, /whatsapp: normalizeWhatsapp\(store\.whatsapp_phone\)/);
   assert.match(page, /Farmacia Vida/);
   assert.match(page, /Construmais Obras/);
