@@ -307,7 +307,7 @@ function AdminPage() {
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
       <section className="admin-page-inner">
-        <div className="admin-page-heading"><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Edite o catálogo da sua filial" : "Gestão do catálogo"}</h1><p>{isCompanyPortal ? "Altere somente os produtos e categorias da filial vinculada ao seu usuário." : "Cadastre empresas, filiais, usuários e catálogos em um só lugar."}</p></div>
+        <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie os catálogos da sua empresa" : "Gestão do catálogo"}</h1><p>{isCompanyPortal ? "Escolha uma filial e cadastre as categorias e os produtos que serão exibidos aos clientes." : "Cadastre empresas, filiais, usuários e catálogos em um só lugar."}</p></div>
 
         {!isCompanyPortal ? <nav className="admin-tabs"><button className={adminSection === "companies" ? "active" : ""} onClick={() => setAdminSection("companies")}>Empresas</button><button className={adminSection === "new" ? "active" : ""} onClick={() => setAdminSection("new")}>Nova empresa</button>{adminSection === "catalog" ? <button className="active" onClick={() => setAdminSection("catalog")}>Catálogo selecionado</button> : null}</nav> : null}
         {!isCompanyPortal && adminSection === "companies" ? (
