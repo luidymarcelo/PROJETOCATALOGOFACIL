@@ -1161,7 +1161,7 @@ img {
 .user-access-panel {
   margin-bottom: 14px;
   border-left: 4px solid var(--primary);
-  display: none;
+  display: grid;
 }
 
 .admin-tabs {
