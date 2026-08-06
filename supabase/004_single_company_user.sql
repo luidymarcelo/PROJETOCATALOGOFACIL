@@ -1,4 +1,10 @@
 -- O usuário principal da empresa administra todas as suas filiais.
+insert into public.tenant_members (tenant_id, user_id, role)
+select distinct s.tenant_id, sm.user_id, 'manager'::public.member_role
+from public.store_members sm
+join public.stores s on s.id = sm.store_id
+on conflict (tenant_id, user_id) do nothing;
+
 create or replace function public.can_manage_store(target_store_id uuid)
 returns boolean
 language sql
