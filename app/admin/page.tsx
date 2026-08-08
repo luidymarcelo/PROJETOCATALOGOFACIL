@@ -47,7 +47,6 @@ type CatalogImportRow = {
   price: number;
   unit: string | null;
   stock: number | null;
-  imageUrl: string | null;
   badge: string | null;
   sku: string | null;
 };
@@ -65,7 +64,6 @@ const EMPTY_PRODUCT_FORM = {
   price: "",
   unit: "unidade",
   stock: "",
-  image: "",
   badge: "",
   categoryId: "",
 };
@@ -78,7 +76,7 @@ const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
 };
-const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "URL da imagem", "Selo", "Código/SKU"] as const;
+const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "Selo", "Código/SKU"] as const;
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
 
@@ -220,7 +218,6 @@ function AdminPage() {
       price: Number(product.price).toFixed(2).replace(".", ","),
       unit: product.unit ?? "",
       stock: product.stock_quantity === null ? "" : String(product.stock_quantity).replace(".", ","),
-      image: product.image_url ?? "",
       badge: product.badge ?? "",
       categoryId: product.category_id ?? "",
     });
@@ -769,7 +766,6 @@ function AdminPage() {
         Number(product.price),
         product.unit ?? "",
         product.stock_quantity ?? "",
-        product.image_url ?? "",
         product.badge ?? "",
         product.external_id ?? `CAT-${product.id}`,
       ]));
@@ -780,11 +776,10 @@ function AdminPage() {
         { width: 14 },
         { width: 16 },
         { width: 14 },
-        { width: 48 },
         { width: 20 },
         { width: 20 },
       ];
-      productsSheet.autoFilter = { from: "A1", to: "I1" };
+      productsSheet.autoFilter = { from: "A1", to: "H1" };
       productsSheet.getRow(1).height = 25;
       productsSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -793,7 +788,7 @@ function AdminPage() {
       });
       productsSheet.getColumn(4).numFmt = 'R$ #,##0.00';
       productsSheet.getColumn(6).numFmt = "0.000";
-      productsSheet.getColumn(9).numFmt = "@";
+      productsSheet.getColumn(8).numFmt = "@";
 
       const categoriesSheet = workbook.addWorksheet("Categorias", {
         views: [{ state: "frozen", ySplit: 1 }],
@@ -821,7 +816,7 @@ function AdminPage() {
         ["Preço", "Obrigatório. Aceita 12,50 ou 12.50."],
         ["Unidade", "Opcional. Exemplos: unidade, caixa, kg, metro."],
         ["Estoque", "Opcional. Aceita números inteiros ou decimais."],
-        ["URL da imagem", "Opcional. Endereço público da imagem do produto."],
+        ["Fotos", "Envie as fotos pelo botão de imagem de cada produto no Portal da empresa."],
         ["Selo", "Opcional. Exemplo: Mais vendido."],
         ["Código/SKU", "Não altere os códigos já exportados. Em produtos novos, informe um código próprio para permitir futuras atualizações."],
         ["Importação", "As abas Produtos e Categorias são importadas. Não altere os nomes das abas nem os títulos das colunas."],
@@ -839,11 +834,11 @@ function AdminPage() {
       });
       exampleSheet.addRows([
         [...IMPORT_HEADERS],
-        ["Bebidas", "Refrigerante Cola 2 L", "Garrafa gelada", 12, "unidade", 35, "https://exemplo.com/refrigerante.jpg", "Mais vendido", "BEB-001"],
-        ["Mercearia", "Arroz 5 kg", "Pacote tipo 1", 27.9, "pacote", 20, "", "", "MER-001"],
+        ["Bebidas", "Refrigerante Cola 2 L", "Garrafa gelada", 12, "unidade", 35, "Mais vendido", "BEB-001"],
+        ["Mercearia", "Arroz 5 kg", "Pacote tipo 1", 27.9, "pacote", 20, "", "MER-001"],
       ]);
       exampleSheet.columns = productsSheet.columns.map((column) => ({ width: column.width }));
-      exampleSheet.autoFilter = { from: "A1", to: "I1" };
+      exampleSheet.autoFilter = { from: "A1", to: "H1" };
       exampleSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
@@ -970,7 +965,6 @@ function AdminPage() {
           price,
           unit: excelValueToText(columnValue(rowNumber, "Unidade")) || null,
           stock,
-          imageUrl: excelValueToText(columnValue(rowNumber, "URL da imagem")) || null,
           badge: excelValueToText(columnValue(rowNumber, "Selo")) || null,
           sku,
         });
@@ -1060,7 +1054,6 @@ function AdminPage() {
           price: row.price,
           unit: row.unit,
           stock_quantity: row.stock,
-          image_url: row.imageUrl,
           badge: row.badge,
           is_active: true,
           updated_at: new Date().toISOString(),
@@ -1105,7 +1098,7 @@ function AdminPage() {
     try {
       const editingProduct = editingProductId ? products.find((product) => product.id === editingProductId) : null;
       if (editingProductId && !editingProduct) throw new Error("O produto selecionado não está mais disponível.");
-      let imageUrl = productForm.image.trim() || null;
+      let imageUrl = editingProduct?.image_url ?? null;
       if (productImageFile) {
         const uploaded = await uploadCatalogImage(productImageFile, "products");
         uploadedPath = uploaded.path;
@@ -1301,7 +1294,6 @@ function AdminPage() {
                   <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
                   <div className="admin-form-grid"><label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label><label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
                   <div className="product-image-field"><div className="product-image-preview">{productImagePreview ? <img src={productImagePreview} alt="Prévia do produto" /> : <Package size={25} />}</div><div><strong>Foto do produto</strong><small>{productImageFile?.name ?? "JPG, PNG ou WebP · máximo 5 MB"}</small><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()}><ImagePlus size={16} /> Escolher foto</button><input ref={productImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectProductImage} /></div></div>
-                  <label>Imagem por link (opcional)<input value={productForm.image} onChange={(event) => setProductForm({ ...productForm, image: event.target.value })} placeholder="https://..." /></label>
                   <label>Selo opcional<input value={productForm.badge} onChange={(event) => setProductForm({ ...productForm, badge: event.target.value })} placeholder="Mais vendido" /></label>
                   <button className="admin-primary" type="submit" disabled={savingProduct}>{editingProductId ? <Save size={16} /> : <Plus size={16} />} {savingProduct ? "Salvando..." : editingProductId ? "Salvar alterações" : "Adicionar produto"}</button>
                 </form>

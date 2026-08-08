@@ -92,6 +92,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /external_id: `CAT-\$\{productId\}`/);
   assert.doesNotMatch(adminPage, /skuText\.toUpperCase/);
   assert.match(adminPage, /Código\/SKU/);
+  assert.doesNotMatch(adminPage, /URL da imagem/);
+  assert.doesNotMatch(adminPage, /Imagem por link/);
+  assert.doesNotMatch(adminPage, /image_url: row\.imageUrl/);
   assert.match(adminPage, /onConflict: "store_id,external_id"/);
   assert.match(adminPage, /catalog-images/);
   assert.match(adminPage, /async function saveBranchCover/);
