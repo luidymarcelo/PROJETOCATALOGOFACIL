@@ -168,6 +168,9 @@ function AdminPage() {
   const [savingProduct, setSavingProduct] = useState(false);
   const [catalogEditorMode, setCatalogEditorMode] = useState<CatalogEditorMode | null>(null);
   const productImageInputRef = useRef<HTMLInputElement>(null);
+  const quickProductImageInputRef = useRef<HTMLInputElement>(null);
+  const quickProductImageTargetRef = useRef("");
+  const [uploadingProductImageId, setUploadingProductImageId] = useState("");
   const [productForm, setProductForm] = useState({
     name: "",
     description: "",
@@ -357,8 +360,11 @@ function AdminPage() {
     setProductImageFile(null);
     setProductImagePreview("");
     setCatalogEditorMode(null);
+    setUploadingProductImageId("");
+    quickProductImageTargetRef.current = "";
     if (coverImageInputRef.current) coverImageInputRef.current.value = "";
     if (productImageInputRef.current) productImageInputRef.current.value = "";
+    if (quickProductImageInputRef.current) quickProductImageInputRef.current.value = "";
   }, [activeBranchId]);
 
   useEffect(() => () => {
@@ -1060,6 +1066,56 @@ function AdminPage() {
     }
   }
 
+  function openQuickProductImage(productId: string) {
+    if (uploadingProductImageId) return;
+    quickProductImageTargetRef.current = productId;
+    if (quickProductImageInputRef.current) {
+      quickProductImageInputRef.current.value = "";
+      quickProductImageInputRef.current.click();
+    }
+  }
+
+  async function updateQuickProductImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const productId = quickProductImageTargetRef.current;
+    const product = products.find((item) => item.id === productId);
+    if (!file || !product || !supabase || !activeBranchId || uploadingProductImageId) return;
+
+    const validationMessage = validateCatalogImage(file);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      return;
+    }
+
+    setUploadingProductImageId(productId);
+    setMessage(`Enviando foto de ${product.name}...`);
+    let uploadedPath = "";
+    try {
+      const uploaded = await uploadCatalogImage(file, "products");
+      uploadedPath = uploaded.path;
+      const { error } = await supabase
+        .from("products")
+        .update({ image_url: uploaded.url, updated_at: new Date().toISOString() })
+        .eq("id", productId)
+        .eq("store_id", activeBranchId);
+      if (error) throw error;
+
+      setProducts((current) => current.map((item) => item.id === productId ? { ...item, image_url: uploaded.url } : item));
+      const previousPath = storagePathFromPublicUrl(product.image_url);
+      if (previousPath && previousPath !== uploaded.path) {
+        await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+      }
+      setMessage(`Foto de ${product.name} atualizada.`);
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      setMessage(error instanceof Error ? `Não foi possível atualizar a foto: ${error.message}` : "Não foi possível atualizar a foto do produto.");
+    } finally {
+      setUploadingProductImageId("");
+      quickProductImageTargetRef.current = "";
+    }
+  }
+
   async function deleteProduct(productId: string) {
     if (!supabase || !window.confirm("Remover este produto do catálogo?")) return;
     const { error } = await supabase.from("products").update({ is_active: false }).eq("id", productId);
@@ -1166,7 +1222,8 @@ function AdminPage() {
               </section>
               <section className="admin-form-panel">
                 <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
-                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}</small></div><button title="Remover produto" aria-label={`Remover ${product.name}`} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
+                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div className="product-admin-info"><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}{product.image_url ? " · Com foto" : " · Sem foto"}</small></div><div className="product-admin-actions"><button className="product-photo-button" type="button" title={product.image_url ? "Trocar foto" : "Adicionar ou tirar foto"} aria-label={`${product.image_url ? "Trocar" : "Adicionar"} foto de ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button><button className="product-delete-button" type="button" title="Remover produto" aria-label={`Remover ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
+                <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
               </section>
             </div>
           </>

@@ -1406,18 +1406,47 @@ img {
   color: var(--muted);
 }
 
-.product-admin-row > div {
+.product-admin-info {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
-.product-admin-row button {
+.product-admin-info strong,
+.product-admin-info small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-admin-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.product-admin-actions button {
   display: grid;
   place-items: center;
   width: 36px;
   height: 36px;
-  border: 1px solid rgba(196, 67, 44, 0.25);
   border-radius: 8px;
+}
+
+.product-admin-actions button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.product-photo-button {
+  border: 1px solid rgba(23, 107, 82, 0.28);
+  background: rgba(23, 107, 82, 0.08);
+  color: var(--primary-dark);
+}
+
+.product-delete-button {
+  border: 1px solid rgba(196, 67, 44, 0.25);
   background: rgba(196, 67, 44, 0.07);
   color: #a33d2a;
 }

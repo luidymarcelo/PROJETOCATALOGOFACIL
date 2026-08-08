@@ -95,6 +95,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /catalog-images/);
   assert.match(adminPage, /async function saveBranchCover/);
   assert.match(adminPage, /Foto do produto/);
+  assert.match(adminPage, /async function updateQuickProductImage/);
+  assert.match(adminPage, /Adicionar ou tirar foto/);
+  assert.match(adminPage, /product-photo-button/);
   assert.match(adminPage, /set_store_cover/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(createCompanyFunction, /get-company-settings/);
