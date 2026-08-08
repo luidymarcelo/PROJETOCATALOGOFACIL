@@ -51,6 +51,13 @@ type CatalogImportRow = {
   sku: string | null;
 };
 
+type CatalogImportCategory = {
+  name: string;
+  sortOrder: number | null;
+};
+
+type CatalogEditorMode = "product" | "category";
+
 const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
 const CATALOG_IMAGE_BUCKET = "catalog-images";
 const CATALOG_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
@@ -61,6 +68,7 @@ const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
 };
 const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "URL da imagem", "Selo", "Código/SKU"] as const;
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
+const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
 
 function normalizeText(value: string) {
   return value
@@ -148,6 +156,7 @@ function AdminPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deletingCompany, setDeletingCompany] = useState(false);
   const [importingCatalog, setImportingCatalog] = useState(false);
+  const [exportingCatalog, setExportingCatalog] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [coverImagePreview, setCoverImagePreview] = useState("");
@@ -157,6 +166,7 @@ function AdminPage() {
   const [productImageFile, setProductImageFile] = useState<File | null>(null);
   const [productImagePreview, setProductImagePreview] = useState("");
   const [savingProduct, setSavingProduct] = useState(false);
+  const [catalogEditorMode, setCatalogEditorMode] = useState<CatalogEditorMode | null>(null);
   const productImageInputRef = useRef<HTMLInputElement>(null);
   const [productForm, setProductForm] = useState({
     name: "",
@@ -346,6 +356,7 @@ function AdminPage() {
     setCoverImagePreview("");
     setProductImageFile(null);
     setProductImagePreview("");
+    setCatalogEditorMode(null);
     if (coverImageInputRef.current) coverImageInputRef.current.value = "";
     if (productImageInputRef.current) productImageInputRef.current.value = "";
   }, [activeBranchId]);
@@ -406,6 +417,7 @@ function AdminPage() {
     if (!error) {
       setCategoryName("");
       await refreshBranchCatalog(activeBranchId);
+      setCatalogEditorMode(null);
     }
   }
 
@@ -655,17 +667,32 @@ function AdminPage() {
   }
 
   async function downloadCatalogTemplate() {
+    if (!activeBranchId || exportingCatalog) return;
+    setExportingCatalog(true);
     setMessage("");
     try {
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
       workbook.creator = "Catálogo Fácil";
       workbook.created = new Date();
+      workbook.subject = `Catálogo de ${activeBranch?.name ?? "filial"}`;
 
       const productsSheet = workbook.addWorksheet("Produtos", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
       productsSheet.addRow([...IMPORT_HEADERS]);
+      const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
+      productsSheet.addRows(products.map((product) => [
+        product.category_id ? categoryNameById.get(product.category_id) ?? "" : "",
+        product.name,
+        product.description ?? "",
+        Number(product.price),
+        product.unit ?? "",
+        product.stock_quantity ?? "",
+        product.image_url ?? "",
+        product.badge ?? "",
+        product.external_id ?? `CAT-${product.id}`,
+      ]));
       productsSheet.columns = [
         { width: 24 },
         { width: 32 },
@@ -688,11 +715,27 @@ function AdminPage() {
       productsSheet.getColumn(6).numFmt = "0.000";
       productsSheet.getColumn(9).numFmt = "@";
 
+      const categoriesSheet = workbook.addWorksheet("Categorias", {
+        views: [{ state: "frozen", ySplit: 1 }],
+      });
+      categoriesSheet.addRow([...CATEGORY_IMPORT_HEADERS]);
+      categoriesSheet.addRows(categories.map((category) => [category.name, category.sort_order]));
+      categoriesSheet.columns = [{ width: 36 }, { width: 12 }];
+      categoriesSheet.autoFilter = { from: "A1", to: "B1" };
+      categoriesSheet.getRow(1).height = 25;
+      categoriesSheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
+        cell.alignment = { vertical: "middle" };
+      });
+
       const instructionsSheet = workbook.addWorksheet("Instruções");
       instructionsSheet.columns = [{ width: 24 }, { width: 88 }];
       instructionsSheet.addRows([
         ["Campo", "Preenchimento"],
-        ["Categoria", "Obrigatório. Se ainda não existir na filial, será criada automaticamente."],
+        ["Produtos", "A aba Produtos já contém o catálogo atual. Você pode editar as linhas ou acrescentar produtos."],
+        ["Categorias", "A aba Categorias contém todas as categorias, inclusive as que ainda não possuem produtos."],
+        ["Categoria", "Opcional no produto. Se preenchida e ainda não existir, será criada automaticamente."],
         ["Produto", "Obrigatório. Nome exibido no catálogo."],
         ["Descrição", "Opcional."],
         ["Preço", "Obrigatório. Aceita 12,50 ou 12.50."],
@@ -700,8 +743,8 @@ function AdminPage() {
         ["Estoque", "Opcional. Aceita números inteiros ou decimais."],
         ["URL da imagem", "Opcional. Endereço público da imagem do produto."],
         ["Selo", "Opcional. Exemplo: Mais vendido."],
-        ["Código/SKU", "Opcional e recomendado. Ao importar novamente o mesmo código, o produto será atualizado."],
-        ["Importação", "Somente a aba Produtos é importada. Não altere o nome dessa aba nem os títulos das colunas."],
+        ["Código/SKU", "Não altere os códigos já exportados. Em produtos novos, informe um código próprio para permitir futuras atualizações."],
+        ["Importação", "As abas Produtos e Categorias são importadas. Não altere os nomes das abas nem os títulos das colunas."],
       ]);
       instructionsSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -734,14 +777,16 @@ function AdminPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `modelo-catalogo-${slugify(activeBranch?.name ?? "filial")}.xlsx`;
+      link.download = `catalogo-${slugify(activeBranch?.name ?? "filial")}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setMessage("Modelo Excel baixado.");
+      setMessage(`${products.length} produto(s) e ${categories.length} categoria(s) exportados para o Excel.`);
     } catch (error) {
-      setMessage(error instanceof Error ? `Não foi possível gerar o modelo: ${error.message}` : "Não foi possível gerar o modelo Excel.");
+      setMessage(error instanceof Error ? `Não foi possível exportar o catálogo: ${error.message}` : "Não foi possível exportar o catálogo para o Excel.");
+    } finally {
+      setExportingCatalog(false);
     }
   }
 
@@ -767,6 +812,35 @@ function AdminPage() {
       await workbook.xlsx.load(await file.arrayBuffer());
       const sheet = workbook.getWorksheet("Produtos");
       if (!sheet) throw new Error('A planilha precisa ter uma aba chamada "Produtos".');
+      const categoriesSheet = workbook.getWorksheet("Categorias");
+      const importedCategories: CatalogImportCategory[] = [];
+
+      if (categoriesSheet) {
+        const categoryHeaderColumns = new Map<string, number>();
+        categoriesSheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+          const header = normalizeText(excelValueToText(cell.value));
+          if (header) categoryHeaderColumns.set(header, columnNumber);
+        });
+        const categoryNameColumn = categoryHeaderColumns.get(normalizeText("Categoria"));
+        const categoryOrderColumn = categoryHeaderColumns.get(normalizeText("Ordem"));
+        if (!categoryNameColumn) throw new Error('A aba "Categorias" precisa ter a coluna "Categoria".');
+
+        const importedCategoryKeys = new Set<string>();
+        for (let rowNumber = 2; rowNumber <= categoriesSheet.rowCount; rowNumber += 1) {
+          const name = excelValueToText(categoriesSheet.getRow(rowNumber).getCell(categoryNameColumn).value);
+          const orderValue = categoryOrderColumn
+            ? parseBrazilianNumber(categoriesSheet.getRow(rowNumber).getCell(categoryOrderColumn).value)
+            : Number.NaN;
+          if (!name) continue;
+          const key = normalizeText(name);
+          if (importedCategoryKeys.has(key)) continue;
+          importedCategoryKeys.add(key);
+          importedCategories.push({
+            name,
+            sortOrder: Number.isFinite(orderValue) && orderValue >= 0 ? orderValue : null,
+          });
+        }
+      }
 
       const headerColumns = new Map<string, number>();
       sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
@@ -783,6 +857,7 @@ function AdminPage() {
       const importedRows: CatalogImportRow[] = [];
       const validationErrors: string[] = [];
       const usedSkus = new Set<string>();
+      const usedProductsWithoutSku = new Set<string>();
 
       for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
         const values = IMPORT_HEADERS.map((header) => columnValue(rowNumber, header));
@@ -794,14 +869,18 @@ function AdminPage() {
         const stockText = excelValueToText(columnValue(rowNumber, "Estoque"));
         const stock = stockText ? parseBrazilianNumber(columnValue(rowNumber, "Estoque")) : null;
         const skuText = excelValueToText(columnValue(rowNumber, "Código/SKU"));
-        const sku = skuText ? skuText.toUpperCase() : null;
+        const sku = skuText || null;
 
-        if (!category) validationErrors.push(`linha ${rowNumber}: categoria vazia`);
         if (!name) validationErrors.push(`linha ${rowNumber}: produto vazio`);
         if (!Number.isFinite(price) || price < 0) validationErrors.push(`linha ${rowNumber}: preço inválido`);
         if (stock !== null && (!Number.isFinite(stock) || stock < 0)) validationErrors.push(`linha ${rowNumber}: estoque inválido`);
         if (sku && usedSkus.has(normalizeText(sku))) validationErrors.push(`linha ${rowNumber}: Código/SKU repetido (${sku})`);
         if (sku) usedSkus.add(normalizeText(sku));
+        if (!sku && name) {
+          const productKey = `${normalizeText(name)}::${normalizeText(category)}`;
+          if (usedProductsWithoutSku.has(productKey)) validationErrors.push(`linha ${rowNumber}: produto repetido sem Código/SKU (${name})`);
+          usedProductsWithoutSku.add(productKey);
+        }
 
         importedRows.push({
           rowNumber,
@@ -817,14 +896,16 @@ function AdminPage() {
         });
       }
 
-      if (!importedRows.length) throw new Error("A aba Produtos não possui produtos preenchidos.");
+      if (!importedRows.length && !importedCategories.length) {
+        throw new Error("A planilha não possui produtos nem categorias preenchidos.");
+      }
       if (validationErrors.length) {
         const details = validationErrors.slice(0, 6).join("; ");
         const remaining = validationErrors.length > 6 ? `; e mais ${validationErrors.length - 6} erro(s)` : "";
         throw new Error(`Corrija a planilha antes de importar: ${details}${remaining}.`);
       }
 
-      setMessage(`Importando ${importedRows.length} produto(s)...`);
+      setMessage(`Importando ${importedRows.length} produto(s) e sincronizando categorias...`);
       const { data: existingCategories, error: categoryLoadError } = await supabase
         .from("categories")
         .select("id, name, sort_order, is_active")
@@ -838,19 +919,26 @@ function AdminPage() {
         if (!categoryByName.has(key)) categoryByName.set(key, { id: category.id, is_active: category.is_active });
       }
 
-      const missingCategoryNames = new Map<string, string>();
-      for (const row of importedRows) {
-        const key = normalizeText(row.category);
-        if (!categoryByName.has(key) && !missingCategoryNames.has(key)) missingCategoryNames.set(key, row.category);
+      const requestedCategories = new Map<string, CatalogImportCategory>();
+      for (const category of importedCategories) {
+        requestedCategories.set(normalizeText(category.name), category);
       }
-      if (missingCategoryNames.size) {
+      for (const row of importedRows) {
+        if (!row.category) continue;
+        const key = normalizeText(row.category);
+        if (!requestedCategories.has(key)) requestedCategories.set(key, { name: row.category, sortOrder: null });
+      }
+      const missingCategories = [...requestedCategories.entries()]
+        .filter(([key]) => !categoryByName.has(key))
+        .map(([, category]) => category);
+      if (missingCategories.length) {
         const nextSortOrder = (existingCategories ?? []).reduce((highest, category) => Math.max(highest, category.sort_order), -1) + 1;
         const { data: createdCategories, error: categoryCreateError } = await supabase
           .from("categories")
-          .insert([...missingCategoryNames.values()].map((name, index) => ({
+          .insert(missingCategories.map((category, index) => ({
             store_id: branchId,
-            name,
-            sort_order: nextSortOrder + index,
+            name: category.name,
+            sort_order: category.sortOrder ?? nextSortOrder + index,
             is_active: true,
           })))
           .select("id, name, is_active");
@@ -858,8 +946,7 @@ function AdminPage() {
         for (const category of createdCategories ?? []) categoryByName.set(normalizeText(category.name), { id: category.id, is_active: true });
       }
 
-      const usedCategoryKeys = new Set(importedRows.map((row) => normalizeText(row.category)));
-      const categoriesToReactivate = [...usedCategoryKeys]
+      const categoriesToReactivate = [...requestedCategories.keys()]
         .map((key) => categoryByName.get(key))
         .filter((category): category is { id: string; is_active: boolean } => Boolean(category && !category.is_active))
         .map((category) => category.id);
@@ -868,23 +955,49 @@ function AdminPage() {
         if (reactivateError) throw reactivateError;
       }
 
-      const productRows = importedRows.map((row) => ({
-        store_id: branchId,
-        category_id: categoryByName.get(normalizeText(row.category))?.id ?? null,
-        external_id: row.sku,
-        name: row.name,
-        description: row.description,
-        price: row.price,
-        unit: row.unit,
-        stock_quantity: row.stock,
-        image_url: row.imageUrl,
-        badge: row.badge,
-        is_active: true,
-        updated_at: new Date().toISOString(),
-      }));
-      const rowsWithSku = productRows.filter((row) => row.external_id);
-      const rowsWithoutSku = productRows.filter((row) => !row.external_id).map(({ external_id: _externalId, ...row }) => row);
+      const currentCategoryNameById = new Map(categories.map((category) => [category.id, category.name]));
+      const existingProductIdByName = new Map<string, string>();
+      for (const product of products) {
+        const categoryName = product.category_id ? currentCategoryNameById.get(product.category_id) ?? "" : "";
+        const key = `${normalizeText(product.name)}::${normalizeText(categoryName)}`;
+        if (!existingProductIdByName.has(key)) existingProductIdByName.set(key, product.id);
+      }
+      const knownProductIds = new Set(products.map((product) => product.id));
+      const productRows = importedRows.map((row) => {
+        const catalogIdMatch = row.sku?.match(/^CAT-([0-9a-f-]{36})$/i);
+        const catalogId = catalogIdMatch?.[1].toLowerCase() ?? null;
+        const catalogProductId = catalogId && knownProductIds.has(catalogId) ? catalogId : null;
+        const nameMatchKey = `${normalizeText(row.name)}::${normalizeText(row.category)}`;
+        const matchedProductId = catalogProductId ?? (!row.sku ? existingProductIdByName.get(nameMatchKey) ?? null : null);
 
+        return {
+          id: matchedProductId,
+          store_id: branchId,
+          category_id: row.category ? categoryByName.get(normalizeText(row.category))?.id ?? null : null,
+          external_id: row.sku ?? (matchedProductId ? `CAT-${matchedProductId}` : null),
+          name: row.name,
+          description: row.description,
+          price: row.price,
+          unit: row.unit,
+          stock_quantity: row.stock,
+          image_url: row.imageUrl,
+          badge: row.badge,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        };
+      });
+      const rowsWithId = productRows.filter((row) => row.id);
+      const rowsWithSku = productRows
+        .filter((row) => !row.id && row.external_id)
+        .map(({ id: _id, ...row }) => row);
+      const rowsWithoutSku = productRows
+        .filter((row) => !row.id && !row.external_id)
+        .map(({ id: _id, external_id: _externalId, ...row }) => row);
+
+      for (const rows of chunkRows(rowsWithId)) {
+        const { error } = await supabase.from("products").upsert(rows, { onConflict: "id" });
+        if (error) throw error;
+      }
       for (const rows of chunkRows(rowsWithSku)) {
         const { error } = await supabase.from("products").upsert(rows, { onConflict: "store_id,external_id" });
         if (error) throw error;
@@ -895,7 +1008,7 @@ function AdminPage() {
       }
 
       await refreshBranchCatalog(branchId);
-      setMessage(`${importedRows.length} produto(s) importado(s) para ${activeBranch?.name ?? "a filial"}. Categorias novas foram criadas automaticamente.`);
+      setMessage(`${importedRows.length} produto(s) e ${requestedCategories.size} categoria(s) sincronizados em ${activeBranch?.name ?? "a filial"}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível importar a planilha.");
     } finally {
@@ -916,8 +1029,11 @@ function AdminPage() {
         uploadedPath = uploaded.path;
         imageUrl = uploaded.url;
       }
+      const productId = crypto.randomUUID();
       const { error } = await supabase.from("products").insert({
+        id: productId,
         store_id: activeBranchId,
+        external_id: `CAT-${productId}`,
         category_id: productForm.categoryId || null,
         name: productForm.name.trim(),
         description: productForm.description.trim() || null,
@@ -934,6 +1050,7 @@ function AdminPage() {
       setProductImagePreview("");
       if (productImageInputRef.current) productImageInputRef.current.value = "";
       await refreshBranchCatalog(activeBranchId);
+      setCatalogEditorMode(null);
       setMessage("Produto adicionado ao catálogo.");
     } catch (error) {
       if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
@@ -1005,21 +1122,30 @@ function AdminPage() {
               </div>
             </section>
             <section className="catalog-import-panel">
-              <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Importação por Excel</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong></div></div>
+              <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Planilha do catálogo</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong><small>{products.length} produto(s) · {categories.length} categoria(s)</small></div></div>
               <div className="catalog-import-actions">
-                <button className="admin-secondary" type="button" onClick={downloadCatalogTemplate} disabled={!activeBranchId || importingCatalog}><Download size={16} /> Baixar modelo</button>
-                <button className="admin-primary" type="button" onClick={() => importInputRef.current?.click()} disabled={!activeBranchId || importingCatalog}><Upload size={16} /> {importingCatalog ? "Importando..." : "Importar Excel"}</button>
+                <button className="admin-secondary" type="button" onClick={downloadCatalogTemplate} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Download size={16} /> {exportingCatalog ? "Exportando..." : "Exportar catálogo"}</button>
+                <button className="admin-primary" type="button" onClick={() => importInputRef.current?.click()} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Upload size={16} /> {importingCatalog ? "Importando..." : "Importar Excel"}</button>
                 <input ref={importInputRef} className="catalog-import-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={importCatalog} />
               </div>
             </section>
-            <div className="admin-columns">
-              <section className="admin-form-panel">
-                <h2>Categorias</h2>
-                <form className="inline-form" onSubmit={createCategory}><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Ex.: Material de construção" required /><button className="admin-primary" type="submit"><Plus size={16} /> Adicionar</button></form>
-                <div className="admin-list">{categories.map((category) => <div className="admin-list-row" key={category.id}><span>{category.name}</span><small>{products.filter((product) => product.category_id === category.id).length} produtos</small></div>)}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
-              </section>
-              <section className="admin-form-panel">
-                <h2>Novo produto</h2>
+            <section className="catalog-management-bar">
+              <div className="catalog-management-copy"><span>Cadastro manual</span><strong>Produtos e categorias</strong></div>
+              <button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => setCatalogEditorMode((current) => current ? null : "product")}>
+                {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
+                {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
+              </button>
+            </section>
+            {catalogEditorMode ? (
+              <section className="admin-form-panel catalog-editor-panel">
+                <div className="branch-form-heading"><div><span>Cadastro manual</span><h2>{catalogEditorMode === "product" ? "Novo produto" : "Nova categoria"}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar cadastro" onClick={() => setCatalogEditorMode(null)}><X size={18} /></button></div>
+                <div className="catalog-editor-tabs" role="tablist" aria-label="Tipo de cadastro">
+                  <button className={catalogEditorMode === "product" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "product"} onClick={() => setCatalogEditorMode("product")}>Produto</button>
+                  <button className={catalogEditorMode === "category" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "category"} onClick={() => setCatalogEditorMode("category")}>Categoria</button>
+                </div>
+                {catalogEditorMode === "category" ? (
+                  <form className="inline-form" onSubmit={createCategory}><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Ex.: Material de construção" required /><button className="admin-primary" type="submit"><Plus size={16} /> Adicionar categoria</button></form>
+                ) : (
                 <form className="admin-product-form" onSubmit={createProduct}>
                   <label>Nome<input value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} required /></label>
                   <label>Descrição<textarea value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} /></label>
@@ -1030,9 +1156,19 @@ function AdminPage() {
                   <label>Selo opcional<input value={productForm.badge} onChange={(event) => setProductForm({ ...productForm, badge: event.target.value })} placeholder="Mais vendido" /></label>
                   <button className="admin-primary" type="submit" disabled={savingProduct}><Plus size={16} /> {savingProduct ? "Salvando..." : "Adicionar produto"}</button>
                 </form>
+                )}
+              </section>
+            ) : null}
+            <div className="admin-columns catalog-overview">
+              <section className="admin-form-panel">
+                <h2>Categorias <span className="count-badge">{categories.length}</span></h2>
+                <div className="admin-list">{categories.map((category) => <div className="admin-list-row" key={category.id}><span>{category.name}</span><small>{products.filter((product) => product.category_id === category.id).length} produtos</small></div>)}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
+              </section>
+              <section className="admin-form-panel">
+                <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
+                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}</small></div><button title="Remover produto" aria-label={`Remover ${product.name}`} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
               </section>
             </div>
-            <section className="admin-form-panel"><h2>Produtos da filial <span className="count-badge">{products.length}</span></h2><div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}</small></div><button title="Remover produto" onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div>)}{!products.length ? <p className="admin-muted">Nenhum produto ainda. Use o formulário acima para começar.</p> : null}</div></section>
           </>
         )}
         {message ? <p className="admin-message">{message}</p> : null}

@@ -84,7 +84,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Excluir definitivamente/);
   assert.match(adminPage, /async function downloadCatalogTemplate/);
   assert.match(adminPage, /async function importCatalog/);
-  assert.match(adminPage, /Importação por Excel/);
+  assert.match(adminPage, /Exportar catálogo/);
+  assert.match(adminPage, /Adicionar ao catálogo/);
+  assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
+  assert.match(adminPage, /productsSheet\.addRows\(products\.map/);
+  assert.match(adminPage, /external_id: `CAT-\$\{productId\}`/);
+  assert.doesNotMatch(adminPage, /skuText\.toUpperCase/);
   assert.match(adminPage, /Código\/SKU/);
   assert.match(adminPage, /onConflict: "store_id,external_id"/);
   assert.match(adminPage, /catalog-images/);
