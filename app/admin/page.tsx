@@ -8,6 +8,7 @@ import {
   ImagePlus,
   LogOut,
   Package,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -57,6 +58,17 @@ type CatalogImportCategory = {
 };
 
 type CatalogEditorMode = "product" | "category";
+
+const EMPTY_PRODUCT_FORM = {
+  name: "",
+  description: "",
+  price: "",
+  unit: "unidade",
+  stock: "",
+  image: "",
+  badge: "",
+  categoryId: "",
+};
 
 const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
 const CATALOG_IMAGE_BUCKET = "catalog-images";
@@ -167,21 +179,60 @@ function AdminPage() {
   const [productImagePreview, setProductImagePreview] = useState("");
   const [savingProduct, setSavingProduct] = useState(false);
   const [catalogEditorMode, setCatalogEditorMode] = useState<CatalogEditorMode | null>(null);
+  const [editingProductId, setEditingProductId] = useState("");
   const productImageInputRef = useRef<HTMLInputElement>(null);
   const quickProductImageInputRef = useRef<HTMLInputElement>(null);
   const quickProductImageTargetRef = useRef("");
   const [uploadingProductImageId, setUploadingProductImageId] = useState("");
-  const [productForm, setProductForm] = useState({
-    name: "",
-    description: "",
-    price: "",
-    unit: "unidade",
-    stock: "",
-    image: "",
-    badge: "",
-    categoryId: "",
-  });
+  const [productForm, setProductForm] = useState({ ...EMPTY_PRODUCT_FORM });
   const [accessDenied, setAccessDenied] = useState(false);
+
+  function resetProductEditor() {
+    setEditingProductId("");
+    setProductForm({ ...EMPTY_PRODUCT_FORM });
+    setProductImageFile(null);
+    setProductImagePreview("");
+    if (productImageInputRef.current) productImageInputRef.current.value = "";
+  }
+
+  function closeCatalogEditor() {
+    setCatalogEditorMode(null);
+    setCategoryName("");
+    resetProductEditor();
+  }
+
+  function openNewProductEditor() {
+    setCategoryName("");
+    resetProductEditor();
+    setCatalogEditorMode("product");
+  }
+
+  function openCategoryEditor() {
+    resetProductEditor();
+    setCatalogEditorMode("category");
+  }
+
+  function editProduct(product: Product) {
+    setEditingProductId(product.id);
+    setProductForm({
+      name: product.name,
+      description: product.description ?? "",
+      price: Number(product.price).toFixed(2).replace(".", ","),
+      unit: product.unit ?? "",
+      stock: product.stock_quantity === null ? "" : String(product.stock_quantity).replace(".", ","),
+      image: product.image_url ?? "",
+      badge: product.badge ?? "",
+      categoryId: product.category_id ?? "",
+    });
+    setProductImageFile(null);
+    setProductImagePreview(product.image_url ?? "");
+    if (productImageInputRef.current) productImageInputRef.current.value = "";
+    setCatalogEditorMode("product");
+    setMessage("");
+    requestAnimationFrame(() => {
+      document.querySelector(".catalog-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
 
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
@@ -359,6 +410,8 @@ function AdminPage() {
     setCoverImagePreview("");
     setProductImageFile(null);
     setProductImagePreview("");
+    setEditingProductId("");
+    setProductForm({ ...EMPTY_PRODUCT_FORM });
     setCatalogEditorMode(null);
     setUploadingProductImageId("");
     quickProductImageTargetRef.current = "";
@@ -423,7 +476,7 @@ function AdminPage() {
     if (!error) {
       setCategoryName("");
       await refreshBranchCatalog(activeBranchId);
-      setCatalogEditorMode(null);
+      closeCatalogEditor();
     }
   }
 
@@ -673,10 +726,31 @@ function AdminPage() {
   }
 
   async function downloadCatalogTemplate() {
-    if (!activeBranchId || exportingCatalog) return;
+    if (!supabase || !activeBranchId || exportingCatalog) return;
     setExportingCatalog(true);
     setMessage("");
     try {
+      const [categoryResult, productResult] = await Promise.all([
+        supabase
+          .from("categories")
+          .select("id, name, sort_order")
+          .eq("store_id", activeBranchId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("products")
+          .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
+          .eq("store_id", activeBranchId)
+          .eq("is_active", true)
+          .order("name", { ascending: true }),
+      ]);
+      if (categoryResult.error) throw categoryResult.error;
+      if (productResult.error) throw productResult.error;
+      const exportCategories = (categoryResult.data ?? []) as Category[];
+      const exportProducts = (productResult.data ?? []) as Product[];
+      setCategories(exportCategories);
+      setProducts(exportProducts);
+
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
       workbook.creator = "Catálogo Fácil";
@@ -687,8 +761,8 @@ function AdminPage() {
         views: [{ state: "frozen", ySplit: 1 }],
       });
       productsSheet.addRow([...IMPORT_HEADERS]);
-      const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
-      productsSheet.addRows(products.map((product) => [
+      const categoryNameById = new Map(exportCategories.map((category) => [category.id, category.name]));
+      productsSheet.addRows(exportProducts.map((product) => [
         product.category_id ? categoryNameById.get(product.category_id) ?? "" : "",
         product.name,
         product.description ?? "",
@@ -725,7 +799,7 @@ function AdminPage() {
         views: [{ state: "frozen", ySplit: 1 }],
       });
       categoriesSheet.addRow([...CATEGORY_IMPORT_HEADERS]);
-      categoriesSheet.addRows(categories.map((category) => [category.name, category.sort_order]));
+      categoriesSheet.addRows(exportCategories.map((category) => [category.name, category.sort_order]));
       categoriesSheet.columns = [{ width: 36 }, { width: 12 }];
       categoriesSheet.autoFilter = { from: "A1", to: "B1" };
       categoriesSheet.getRow(1).height = 25;
@@ -788,7 +862,7 @@ function AdminPage() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setMessage(`${products.length} produto(s) e ${categories.length} categoria(s) exportados para o Excel.`);
+      setMessage(`${exportProducts.length} produto(s) e ${exportCategories.length} categoria(s) exportados para o Excel.`);
     } catch (error) {
       setMessage(error instanceof Error ? `Não foi possível exportar o catálogo: ${error.message}` : "Não foi possível exportar o catálogo para o Excel.");
     } finally {
@@ -1029,17 +1103,15 @@ function AdminPage() {
     setMessage("");
     let uploadedPath = "";
     try {
+      const editingProduct = editingProductId ? products.find((product) => product.id === editingProductId) : null;
+      if (editingProductId && !editingProduct) throw new Error("O produto selecionado não está mais disponível.");
       let imageUrl = productForm.image.trim() || null;
       if (productImageFile) {
         const uploaded = await uploadCatalogImage(productImageFile, "products");
         uploadedPath = uploaded.path;
         imageUrl = uploaded.url;
       }
-      const productId = crypto.randomUUID();
-      const { error } = await supabase.from("products").insert({
-        id: productId,
-        store_id: activeBranchId,
-        external_id: `CAT-${productId}`,
+      const productData = {
         category_id: productForm.categoryId || null,
         name: productForm.name.trim(),
         description: productForm.description.trim() || null,
@@ -1049,18 +1121,39 @@ function AdminPage() {
         image_url: imageUrl,
         badge: productForm.badge.trim() || null,
         is_active: true,
-      });
+        updated_at: new Date().toISOString(),
+      };
+      let error;
+      if (editingProduct) {
+        ({ error } = await supabase
+          .from("products")
+          .update(productData)
+          .eq("id", editingProduct.id)
+          .eq("store_id", activeBranchId));
+      } else {
+        const productId = crypto.randomUUID();
+        ({ error } = await supabase.from("products").insert({
+          id: productId,
+          store_id: activeBranchId,
+          external_id: `CAT-${productId}`,
+          ...productData,
+        }));
+      }
       if (error) throw error;
-      setProductForm({ name: "", description: "", price: "", unit: "unidade", stock: "", image: "", badge: "", categoryId: "" });
-      setProductImageFile(null);
-      setProductImagePreview("");
-      if (productImageInputRef.current) productImageInputRef.current.value = "";
+
+      const previousImagePath = storagePathFromPublicUrl(editingProduct?.image_url);
+      if (previousImagePath && previousImagePath !== uploadedPath && editingProduct?.image_url !== imageUrl) {
+        await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousImagePath]);
+      }
+
+      const wasEditing = Boolean(editingProduct);
+      resetProductEditor();
       await refreshBranchCatalog(activeBranchId);
       setCatalogEditorMode(null);
-      setMessage("Produto adicionado ao catálogo.");
+      setMessage(wasEditing ? "Produto atualizado no catálogo e pronto para a próxima exportação." : "Produto adicionado ao catálogo.");
     } catch (error) {
       if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
-      setMessage(error instanceof Error ? error.message : "Não foi possível adicionar o produto.");
+      setMessage(error instanceof Error ? error.message : `Não foi possível ${editingProductId ? "atualizar" : "adicionar"} o produto.`);
     } finally {
       setSavingProduct(false);
     }
@@ -1187,17 +1280,17 @@ function AdminPage() {
             </section>
             <section className="catalog-management-bar">
               <div className="catalog-management-copy"><span>Cadastro manual</span><strong>Produtos e categorias</strong></div>
-              <button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => setCatalogEditorMode((current) => current ? null : "product")}>
+              <button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
                 {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
                 {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
               </button>
             </section>
             {catalogEditorMode ? (
               <section className="admin-form-panel catalog-editor-panel">
-                <div className="branch-form-heading"><div><span>Cadastro manual</span><h2>{catalogEditorMode === "product" ? "Novo produto" : "Nova categoria"}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar cadastro" onClick={() => setCatalogEditorMode(null)}><X size={18} /></button></div>
+                <div className="branch-form-heading"><div><span>Cadastro manual</span><h2>{catalogEditorMode === "product" ? (editingProductId ? "Editar produto" : "Novo produto") : "Nova categoria"}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar cadastro" onClick={closeCatalogEditor}><X size={18} /></button></div>
                 <div className="catalog-editor-tabs" role="tablist" aria-label="Tipo de cadastro">
-                  <button className={catalogEditorMode === "product" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "product"} onClick={() => setCatalogEditorMode("product")}>Produto</button>
-                  <button className={catalogEditorMode === "category" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "category"} onClick={() => setCatalogEditorMode("category")}>Categoria</button>
+                  <button className={catalogEditorMode === "product" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "product"} onClick={() => { if (catalogEditorMode !== "product") openNewProductEditor(); }}>Produto</button>
+                  <button className={catalogEditorMode === "category" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "category"} onClick={openCategoryEditor}>Categoria</button>
                 </div>
                 {catalogEditorMode === "category" ? (
                   <form className="inline-form" onSubmit={createCategory}><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Ex.: Material de construção" required /><button className="admin-primary" type="submit"><Plus size={16} /> Adicionar categoria</button></form>
@@ -1210,7 +1303,7 @@ function AdminPage() {
                   <div className="product-image-field"><div className="product-image-preview">{productImagePreview ? <img src={productImagePreview} alt="Prévia do produto" /> : <Package size={25} />}</div><div><strong>Foto do produto</strong><small>{productImageFile?.name ?? "JPG, PNG ou WebP · máximo 5 MB"}</small><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()}><ImagePlus size={16} /> Escolher foto</button><input ref={productImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectProductImage} /></div></div>
                   <label>Imagem por link (opcional)<input value={productForm.image} onChange={(event) => setProductForm({ ...productForm, image: event.target.value })} placeholder="https://..." /></label>
                   <label>Selo opcional<input value={productForm.badge} onChange={(event) => setProductForm({ ...productForm, badge: event.target.value })} placeholder="Mais vendido" /></label>
-                  <button className="admin-primary" type="submit" disabled={savingProduct}><Plus size={16} /> {savingProduct ? "Salvando..." : "Adicionar produto"}</button>
+                  <button className="admin-primary" type="submit" disabled={savingProduct}>{editingProductId ? <Save size={16} /> : <Plus size={16} />} {savingProduct ? "Salvando..." : editingProductId ? "Salvar alterações" : "Adicionar produto"}</button>
                 </form>
                 )}
               </section>
@@ -1222,7 +1315,7 @@ function AdminPage() {
               </section>
               <section className="admin-form-panel">
                 <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
-                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div className="product-admin-info"><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}{product.image_url ? " · Com foto" : " · Sem foto"}</small></div><div className="product-admin-actions"><button className="product-photo-button" type="button" title={product.image_url ? "Trocar foto" : "Adicionar ou tirar foto"} aria-label={`${product.image_url ? "Trocar" : "Adicionar"} foto de ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button><button className="product-delete-button" type="button" title="Remover produto" aria-label={`Remover ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
+                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div className="product-admin-info"><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}{product.image_url ? " · Com foto" : " · Sem foto"}</small></div><div className="product-admin-actions"><button className="product-photo-button" type="button" title={product.image_url ? "Trocar foto" : "Adicionar ou tirar foto"} aria-label={`${product.image_url ? "Trocar" : "Adicionar"} foto de ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button><button className="product-edit-button" type="button" title="Editar produto" aria-label={`Editar ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => editProduct(product)}><Pencil size={17} /></button><button className="product-delete-button" type="button" title="Remover produto" aria-label={`Remover ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
                 <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
               </section>
             </div>

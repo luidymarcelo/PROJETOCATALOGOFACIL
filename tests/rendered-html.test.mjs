@@ -87,7 +87,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Exportar catálogo/);
   assert.match(adminPage, /Adicionar ao catálogo/);
   assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
-  assert.match(adminPage, /productsSheet\.addRows\(products\.map/);
+  assert.match(adminPage, /productsSheet\.addRows\(exportProducts\.map/);
+  assert.match(adminPage, /const \[categoryResult, productResult\] = await Promise\.all/);
   assert.match(adminPage, /external_id: `CAT-\$\{productId\}`/);
   assert.doesNotMatch(adminPage, /skuText\.toUpperCase/);
   assert.match(adminPage, /Código\/SKU/);
@@ -98,6 +99,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /async function updateQuickProductImage/);
   assert.match(adminPage, /Adicionar ou tirar foto/);
   assert.match(adminPage, /product-photo-button/);
+  assert.match(adminPage, /function editProduct/);
+  assert.match(adminPage, /product-edit-button/);
+  assert.match(adminPage, /Salvar alterações/);
   assert.match(adminPage, /set_store_cover/);
   assert.match(companyWorkspaceSql, /create or replace function public\.get_company_workspace/);
   assert.match(createCompanyFunction, /get-company-settings/);

@@ -1445,6 +1445,12 @@ img {
   color: var(--primary-dark);
 }
 
+.product-edit-button {
+  border: 1px solid rgba(54, 87, 123, 0.25);
+  background: rgba(54, 87, 123, 0.08);
+  color: #36577b;
+}
+
 .product-delete-button {
   border: 1px solid rgba(196, 67, 44, 0.25);
   background: rgba(196, 67, 44, 0.07);
