@@ -39,13 +39,14 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, layout, packageJson, schema] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/006_catalog_images.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/007_fix_catalog_image_rls.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/008_add_anderson_platform_admin.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -66,6 +67,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /CatalogImage/);
   assert.match(page, /store\.cover_image_url \?\? baseMerchant\.cover/);
   assert.match(adminPage, /adminSection === "companies"/);
+  assert.match(adminPage, /rpc\("is_platform_admin"\)/);
+  assert.doesNotMatch(adminPage, /ADMIN_EMAILS/);
   assert.match(adminPage, /company: \{/);
   assert.doesNotMatch(adminPage, /createStoreUser|storeUserForm|Salvar acesso principal/);
   assert.match(createCompanyFunction, /tenant_members/);
@@ -116,6 +119,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(catalogImagesSql, /store members upload catalog images/);
   assert.match(catalogImageRlsFixSql, /function public\.can_manage_catalog_image/);
   assert.match(catalogImageRlsFixSql, /function public\.set_store_cover/);
+  assert.match(addAndersonAdminSql, /andersonrozwot@gmail\.com/);
+  assert.match(addAndersonAdminSql, /insert into public\.platform_admins/);
+  assert.match(addAndersonAdminSql, /on conflict \(user_id\) do nothing/);
   assert.match(layout, /lang="pt-BR"/);
   assert.match(packageJson, /"exceljs"/);
   assert.match(packageJson, /"uuid": "\^11\.1\.0"/);

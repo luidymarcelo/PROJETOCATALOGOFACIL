@@ -68,7 +68,6 @@ const EMPTY_PRODUCT_FORM = {
   categoryId: "",
 };
 
-const ADMIN_EMAILS = ["luidy123neres@gmail.com"];
 const CATALOG_IMAGE_BUCKET = "catalog-images";
 const CATALOG_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
 const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
@@ -284,41 +283,31 @@ function AdminPage() {
       setLoading(false);
       return;
     }
-    const { data: memberships, error: membershipError } = await supabase
-      .from("tenant_members")
-      .select("tenant_id, role")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: true });
-
-    if (membershipError || !memberships?.length) {
-      setTenant(null);
-      setBranches([]);
-      setLoading(false);
-      return;
-    }
-
-    const tenantIds = memberships.map((membership) => membership.tenant_id as string);
-    const tenantId = (preferredTenantId ?? tenantIds[0]) as string;
-    if (!memberships.some((membership) => membership.tenant_id === tenantId)) {
-      setTenant(null);
-      setBranches([]);
-      setMessage("Esta empresa foi criada por outro usuário. Entre com o e-mail que a criou ou peça para um administrador vincular seu acesso.");
-      setLoading(false);
-      return;
-    }
-    const [{ data: tenantRows }, { data: allBranchRows }] = await Promise.all([
-      supabase.from("tenants").select("id, name, slug").in("id", tenantIds).order("created_at", { ascending: true }),
+    const [{ data: tenantRows, error: tenantError }, { data: allBranchRows, error: branchError }] = await Promise.all([
+      supabase.from("tenants").select("id, name, slug").order("created_at", { ascending: true }),
       supabase
         .from("stores")
         .select("id, name, slug, tenant_id")
-        .in("tenant_id", tenantIds)
         .order("created_at", { ascending: true }),
     ]);
+
+    if (tenantError || branchError) {
+      setTenant(null);
+      setBranches([]);
+      setAdminTenants([]);
+      setAdminBranches([]);
+      setMessage(tenantError?.message ?? branchError?.message ?? "Não foi possível carregar as empresas.");
+      setLoading(false);
+      return;
+    }
 
     const nextTenants = (tenantRows ?? []) as Tenant[];
     const allBranches = (allBranchRows ?? []) as Branch[];
     setAdminTenants(nextTenants);
     setAdminBranches(allBranches);
+    const tenantId = preferredTenantId && nextTenants.some((item) => item.id === preferredTenantId)
+      ? preferredTenantId
+      : nextTenants[0]?.id ?? "";
     const tenantRow = nextTenants.find((item) => item.id === tenantId) ?? null;
     setTenant(tenantRow);
     const nextBranches = allBranches.filter((branch) => branch.tenant_id === tenantId);
@@ -331,33 +320,41 @@ function AdminPage() {
     setLoading(false);
   }
 
+  async function authorizeSession(nextSession: Session | null) {
+    if (!supabase) return;
+    if (!nextSession) {
+      setSession(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    if (!isCompanyPortal) {
+      const { data: isAdmin, error } = await supabase.rpc("is_platform_admin");
+      if (error || !isAdmin) {
+        setSession(null);
+        setAccessDenied(true);
+        setLoading(false);
+        await supabase.auth.signOut();
+        return;
+      }
+    }
+
+    setAccessDenied(false);
+    setSession(nextSession);
+    await loadWorkspace(nextSession.user.id);
+  }
+
   useEffect(() => {
     if (!supabase) {
       setLoading(false);
       return;
     }
 
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session?.user.id && (isCompanyPortal || ADMIN_EMAILS.includes(data.session.user.email?.toLowerCase() ?? ""))) void loadWorkspace(data.session.user.id);
-      else if (data.session) {
-        setAccessDenied(true);
-        setLoading(false);
-        void supabase.auth.signOut();
-      }
-      else setLoading(false);
-    });
+    void supabase.auth.getSession().then(({ data }) => authorizeSession(data.session));
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (nextSession && !isCompanyPortal && !ADMIN_EMAILS.includes(nextSession.user.email?.toLowerCase() ?? "")) {
-        setAccessDenied(true);
-        setLoading(false);
-        void supabase.auth.signOut();
-        return;
-      }
-      setSession(nextSession);
-      if (nextSession?.user.id) void loadWorkspace(nextSession.user.id);
-      else setLoading(false);
+      window.setTimeout(() => void authorizeSession(nextSession), 0);
     });
 
     return () => data.subscription.unsubscribe();
