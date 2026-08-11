@@ -1340,7 +1340,10 @@ function AdminLogin() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!supabase) return;
+    if (!supabase) {
+      setMessage("Supabase não configurado neste computador. Configure o arquivo .env.local e reinicie o servidor.");
+      return;
+    }
     const result = await supabase.auth.signInWithPassword({ email, password });
     if (result.error) setMessage(result.error.message);
   }

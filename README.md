@@ -11,11 +11,29 @@ npm run dev
 
 Os scripts usam Node 22 temporario via `npx`, porque o ambiente local atual tem Node 18 e o stack do projeto exige Node 22+.
 
+## Configurar o Supabase em outro computador
+
+O arquivo `.env.local` nao e enviado ao GitHub. Cada computador precisa criar o seu:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+Depois, edite o `.env.local` e preencha os dois valores usando os dados do mesmo projeto no painel do Supabase:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-chave-publica-anon
+```
+
+Use somente a chave publica `anon`. Nunca coloque a `service_role` no frontend. Depois de salvar o arquivo, encerre e execute `npm run dev` novamente.
+
 ## Estrutura principal
 
 - `app/page.tsx`: experiencia do catalogo, carrinho, checkout e painel interno.
 - `app/globals.css`: layout responsivo e identidade visual.
 - `supabase/schema.sql`: schema inicial para multiempresa, lojas, produtos, integracoes, sincronizacoes e pedidos.
+- `.env.example`: modelo das variaveis locais necessarias para conectar ao Supabase.
 
 ## Integracoes previstas
 
