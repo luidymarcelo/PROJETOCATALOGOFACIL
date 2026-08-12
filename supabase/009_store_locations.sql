@@ -75,6 +75,7 @@ begin
         'name', s.name,
         'slug', s.slug,
         'tenant_id', s.tenant_id,
+        'address', s.address,
         'cover_image_url', s.cover_image_url,
         'latitude', s.latitude,
         'longitude', s.longitude

@@ -1240,6 +1240,10 @@ img {
   margin-bottom: 14px;
 }
 
+.branch-location-panel {
+  margin-bottom: 14px;
+}
+
 .branch-location-button {
   justify-self: start;
 }

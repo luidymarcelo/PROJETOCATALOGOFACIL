@@ -78,6 +78,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Supabase não configurado neste computador/);
   assert.match(adminPage, /captureBranchLocation/);
   assert.match(adminPage, /Usar localização atual da filial/);
+  assert.match(adminPage, /saveExistingBranchLocation/);
+  assert.match(adminPage, /Salvar localização/);
   assert.match(adminPage, /rpc\("is_platform_admin"\)/);
   assert.doesNotMatch(adminPage, /ADMIN_EMAILS/);
   assert.match(adminPage, /company: \{/);
