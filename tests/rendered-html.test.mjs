@@ -39,8 +39,9 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema, viteConfig, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema, viteConfig, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
@@ -76,6 +77,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /commerce-grid direct-store/);
   assert.match(page, /!directStoreId \? <aside/);
   assert.match(page, /!directStoreId \? <button className="location-pill"/);
+  assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
   assert.match(page, /calculatesDeliveryFee/);
