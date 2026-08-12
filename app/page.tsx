@@ -122,6 +122,10 @@ function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function storeCatalogUrl(storeId: StoreId) {
+  return `/?loja=${encodeURIComponent(storeId)}`;
+}
+
 function normalizeWhatsapp(value: string) {
   const digits = value.replace(/\D/g, "");
   return digits.startsWith("55") ? digits : `55${digits}`;
@@ -708,6 +712,7 @@ export default function Home() {
   const [locationStatus, setLocationStatus] = useState("");
   const [locatingUser, setLocatingUser] = useState(false);
   const [showAllStores, setShowAllStores] = useState(false);
+  const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
@@ -719,6 +724,13 @@ export default function Home() {
     merchants.find((store) => store.id === activeStoreId) ??
     merchants[0] ??
     fallbackMerchants[0];
+
+  useEffect(() => {
+    const requestedStoreId = new URLSearchParams(window.location.search).get("loja")?.trim();
+    if (!requestedStoreId) return;
+    setDirectStoreId(requestedStoreId);
+    setActiveStoreId(requestedStoreId);
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -935,9 +947,9 @@ export default function Home() {
   }, [merchantDistances, merchants, showAllStores, userLocation]);
 
   useEffect(() => {
-    if (!userLocation || showAllStores || !nearbyMerchants.length) return;
+    if (directStoreId || !userLocation || showAllStores || !nearbyMerchants.length) return;
     if (!nearbyMerchants.some((store) => store.id === activeStoreId)) setActiveStoreId(nearbyMerchants[0].id);
-  }, [activeStoreId, nearbyMerchants, showAllStores, userLocation]);
+  }, [activeStoreId, directStoreId, nearbyMerchants, showAllStores, userLocation]);
 
   useEffect(() => {
     if (!isCartOpen) return;
@@ -1089,7 +1101,7 @@ export default function Home() {
       <header className="topbar">
         <button
           className="brand-lockup"
-          onClick={() => setView("catalog")}
+          onClick={() => directStoreId ? window.location.assign("/") : setView("catalog")}
           aria-label="Abrir catalogo"
         >
           <span className="brand-mark">
@@ -1145,9 +1157,11 @@ export default function Home() {
       {view === "catalog" ? (
         !merchants.length ? (
           <EmptyCatalog />
+        ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
+          <StoreNotFound />
         ) : (
-        <section className="commerce-grid">
-          <aside className="store-rail" aria-label="Lojas">
+        <section className={directStoreId ? "commerce-grid direct-store" : "commerce-grid"}>
+          {!directStoreId ? <aside className="store-rail" aria-label="Lojas">
             {userLocation ? (
               <div className="nearby-filter">
                 <span>{showAllStores ? "Todas as lojas" : `Raio de ${STORE_RADIUS_KM} km`}</span>
@@ -1160,11 +1174,13 @@ export default function Home() {
               const currentDistance = merchantDistances.get(store.id);
 
               return (
-                <button
+                <a
                   className={active ? "store-tile active" : "store-tile"}
                   key={store.id}
-                  onClick={() => openCatalog(store.id)}
-                  aria-pressed={active}
+                  href={storeCatalogUrl(store.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Abrir catálogo de ${store.name} em uma nova aba`}
                   style={{ "--store-color": store.palette } as CSSProperties}
                 >
                   <span className="store-avatar">
@@ -1174,13 +1190,13 @@ export default function Home() {
                     <strong>{store.name}</strong>
                     <small>{store.segment}{currentDistance === undefined ? "" : ` · ${distanceLabel(currentDistance)}`}</small>
                   </span>
-                </button>
+                </a>
               );
             })}
             {userLocation && !nearbyMerchants.length ? (
               <div className="nearby-empty"><MapPin size={20} /><strong>Nenhuma loja em até {STORE_RADIUS_KM} km</strong><button type="button" onClick={() => setShowAllStores(true)}>Mostrar todas</button></div>
             ) : null}
-          </aside>
+          </aside> : null}
 
           <section className="catalog-surface" key={merchant.id}>
             <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
@@ -1405,6 +1421,17 @@ function EmptyCatalog() {
       <button className="primary-button" onClick={() => window.location.reload()}>
         Atualizar
       </button>
+    </section>
+  );
+}
+
+function StoreNotFound() {
+  return (
+    <section className="empty-catalog" aria-live="polite">
+      <Store size={30} />
+      <h1>Loja não encontrada</h1>
+      <p>Este catálogo não está disponível ou o endereço informado está incorreto.</p>
+      <a className="primary-button" href="/">Ver todas as lojas</a>
     </section>
   );
 }

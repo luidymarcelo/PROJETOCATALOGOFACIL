@@ -198,6 +198,11 @@ img {
   align-items: start;
 }
 
+.commerce-grid.direct-store {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  width: min(1288px, calc(100% - 32px));
+}
+
 .store-rail {
   position: sticky;
   top: 86px;
@@ -258,6 +263,7 @@ img {
   background: var(--surface);
   color: var(--foreground);
   text-align: left;
+  text-decoration: none;
   box-shadow: 0 8px 24px rgba(31, 36, 32, 0.05);
 }
 
@@ -2183,6 +2189,10 @@ img {
 @media (max-width: 1280px) {
   .commerce-grid {
     grid-template-columns: 220px minmax(0, 1fr) 340px;
+  }
+
+  .commerce-grid.direct-store {
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .product-grid {
