@@ -57,9 +57,13 @@ Deno.serve(async (request) => {
     const branchSlug = String(company.branch_slug ?? "").trim();
     const whatsappPhone = String(company.whatsapp_phone ?? "").replace(/\D/g, "");
     const address = String(company.address ?? "").trim();
-    if (!companyName || !companySlug || !branchName || !branchSlug || !whatsappPhone || !address) {
+    const latitude = Number(company.latitude);
+    const longitude = Number(company.longitude);
+    const validLocation = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+      && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+    if (!companyName || !companySlug || !branchName || !branchSlug || !whatsappPhone || !address || !validLocation) {
       if (managedUser.wasCreated) await adminClient.auth.admin.deleteUser(managedUser.id);
-      throw new Error("Preencha todos os dados da empresa e da primeira filial.");
+      throw new Error("Preencha todos os dados e uma localização válida para a primeira filial.");
     }
 
     const { data: existingMembership } = await adminClient.from("tenant_members").select("tenant_id").eq("user_id", managedUser.id).in("role", ["manager", "staff"]).maybeSingle();
@@ -84,8 +88,10 @@ Deno.serve(async (request) => {
         segment: "retail",
         whatsapp_phone: whatsappPhone,
         address,
+        latitude,
+        longitude,
         is_active: true,
-      }).select("id, name, slug, tenant_id, cover_image_url").single();
+      }).select("id, name, slug, tenant_id, cover_image_url, latitude, longitude").single();
       if (branchError || !branch) throw branchError ?? new Error("Não foi possível criar a filial.");
 
       const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
@@ -157,7 +163,7 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
 
   const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
     adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-    adminClient.from("stores").select("id, name, slug, tenant_id, cover_image_url").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+    adminClient.from("stores").select("id, name, slug, tenant_id, cover_image_url, latitude, longitude").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
   ]);
   if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
   if (branchError) throw branchError;

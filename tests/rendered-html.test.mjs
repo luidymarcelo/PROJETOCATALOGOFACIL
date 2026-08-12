@@ -39,7 +39,7 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, layout, packageJson, schema] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
@@ -47,6 +47,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/006_catalog_images.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/007_fix_catalog_image_rls.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/008_add_anderson_platform_admin.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/009_store_locations.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -58,6 +59,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /Complemento ou referência \(opcional\)/);
   assert.match(page, /Aguardando confirmação da loja/);
   assert.match(page, /whatsapp: normalizeWhatsapp\(store\.whatsapp_phone\)/);
+  assert.match(page, /function useCurrentLocation/);
+  assert.match(page, /Localização no mapa/);
+  assert.match(page, /Mapa da filial/);
+  assert.match(page, /Ver carrinho/);
+  assert.match(page, /STORE_RADIUS_KM = 30/);
+  assert.doesNotMatch(page, /setIsCartOpen\(true\);\s*\n\s*}/);
+  assert.doesNotMatch(page, /checkout\.phone/);
   assert.match(page, /Farmacia Vida/);
   assert.match(page, /Construmais Obras/);
   assert.match(page, /Obra grossa/);
@@ -68,6 +76,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /store\.cover_image_url \?\? baseMerchant\.cover/);
   assert.match(adminPage, /adminSection === "companies"/);
   assert.match(adminPage, /Supabase não configurado neste computador/);
+  assert.match(adminPage, /captureBranchLocation/);
+  assert.match(adminPage, /Usar localização atual da filial/);
   assert.match(adminPage, /rpc\("is_platform_admin"\)/);
   assert.doesNotMatch(adminPage, /ADMIN_EMAILS/);
   assert.match(adminPage, /company: \{/);
@@ -123,6 +133,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(addAndersonAdminSql, /andersonrozwot@gmail\.com/);
   assert.match(addAndersonAdminSql, /insert into public\.platform_admins/);
   assert.match(addAndersonAdminSql, /on conflict \(user_id\) do nothing/);
+  assert.match(storeLocationsSql, /add column if not exists latitude/);
+  assert.match(storeLocationsSql, /add column if not exists longitude/);
+  assert.match(createCompanyFunction, /latitude/);
+  assert.match(createCompanyFunction, /longitude/);
   assert.match(layout, /lang="pt-BR"/);
   assert.match(packageJson, /"exceljs"/);
   assert.match(packageJson, /"uuid": "\^11\.1\.0"/);

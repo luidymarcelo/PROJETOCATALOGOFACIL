@@ -10,6 +10,7 @@ import {
   Hammer,
   HeartPulse,
   Home,
+  LocateFixed,
   LogOut,
   MapPin,
   MessageCircle,
@@ -63,6 +64,8 @@ type Merchant = {
   deliveryFee: number;
   whatsapp: string;
   address: string;
+  latitude: number | null;
+  longitude: number | null;
   cover: string | null;
   icon: "pizza" | "pill" | "hammer" | "store";
   palette: string;
@@ -85,13 +88,18 @@ type CartItem = {
 
 type Checkout = {
   name: string;
-  phone: string;
   address: string;
   reference: string;
   payment: string;
   changeFor: string;
   notes: string;
+  latitude: number | null;
+  longitude: number | null;
 };
+
+type Coordinates = { latitude: number; longitude: number };
+
+const STORE_RADIUS_KM = 30;
 
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -127,6 +135,8 @@ const fallbackMerchants: Merchant[] = [
     deliveryFee: 5.99,
     whatsapp: "5599999990001",
     address: "Av. Central, 320",
+    latitude: -7.1908,
+    longitude: -48.2073,
     cover:
       "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1400&q=80",
     icon: "pizza",
@@ -192,6 +202,8 @@ const fallbackMerchants: Merchant[] = [
     deliveryFee: 3.99,
     whatsapp: "5599999990002",
     address: "Rua das Flores, 88",
+    latitude: -7.1842,
+    longitude: -48.2101,
     cover:
       "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&w=1400&q=80",
     icon: "pill",
@@ -258,6 +270,8 @@ const fallbackMerchants: Merchant[] = [
     deliveryFee: 18,
     whatsapp: "5599999990003",
     address: "Av. Filadelfia, 1280 - Setor Industrial",
+    latitude: -7.2056,
+    longitude: -48.2254,
     cover:
       "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1400&q=80",
     icon: "hammer",
@@ -432,7 +446,7 @@ const segmentLabels: Record<string, string> = {
   retail: "Comércio",
 };
 
-function neutralMerchant(store: { id: string; slug: string; name: string; segment?: string | null }): Merchant {
+function neutralMerchant(store: { id: string; slug: string; name: string; segment?: string | null; latitude?: number | null; longitude?: number | null }): Merchant {
   return {
     id: store.slug,
     name: store.name,
@@ -445,6 +459,8 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     deliveryFee: 0,
     whatsapp: "",
     address: "Endereço não informado",
+    latitude: store.latitude == null ? null : Number(store.latitude),
+    longitude: store.longitude == null ? null : Number(store.longitude),
     cover: null,
     icon: "store",
     palette: "#176b52",
@@ -478,12 +494,13 @@ const categoryIcons = {
 
 const initialCheckout: Checkout = {
   name: "",
-  phone: "",
   address: "",
   reference: "",
   payment: "Pix",
   changeFor: "",
   notes: "",
+  latitude: null,
+  longitude: null,
 };
 
 const hasSupabaseConfig = Boolean(
@@ -538,6 +555,32 @@ function formatOrderMoment(now: Date) {
   }).format(now);
 }
 
+function hasCoordinates(value: { latitude: number | null; longitude: number | null }): value is Coordinates {
+  return Number.isFinite(value.latitude) && Number.isFinite(value.longitude);
+}
+
+function mapsUrl({ latitude, longitude }: Coordinates) {
+  return `https://www.google.com/maps?q=${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+}
+
+function distanceInKm(origin: Coordinates, destination: Coordinates) {
+  const earthRadiusKm = 6371;
+  const toRadians = (value: number) => value * Math.PI / 180;
+  const latitudeDelta = toRadians(destination.latitude - origin.latitude);
+  const longitudeDelta = toRadians(destination.longitude - origin.longitude);
+  const originLatitude = toRadians(origin.latitude);
+  const destinationLatitude = toRadians(destination.latitude);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(originLatitude) * Math.cos(destinationLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function distanceLabel(distanceKm: number) {
+  return distanceKm < 1
+    ? `${Math.max(1, Math.round(distanceKm * 1000))} m`
+    : `${distanceKm.toFixed(1).replace(".", ",")} km`;
+}
+
 function buildWhatsappMessage({
   merchant,
   cart,
@@ -578,6 +621,7 @@ function buildWhatsappMessage({
           "*ENTREGA*",
           "Modalidade: Entrega",
           `Endereço: ${cleanOrderText(checkout.address)}`,
+          ...(hasCoordinates(checkout) ? [`Localização no mapa: ${mapsUrl(checkout)}`] : []),
           `Complemento/referência: ${cleanOrderText(
             checkout.reference,
             "Não informado",
@@ -588,6 +632,7 @@ function buildWhatsappMessage({
           "*RETIRADA*",
           "Modalidade: Retirada no local",
           `Local: ${cleanOrderText(merchant.address)}`,
+          ...(hasCoordinates(merchant) ? [`Mapa da filial: ${mapsUrl(merchant)}`] : []),
           `Previsão informada: ${cleanOrderText(merchant.deliveryTime)}`,
         ];
 
@@ -614,7 +659,6 @@ function buildWhatsappMessage({
     "----------------------------",
     "*CLIENTE*",
     `Nome: ${cleanOrderText(checkout.name)}`,
-    `WhatsApp: ${cleanOrderText(checkout.phone)}`,
     "",
     ...fulfillmentSection,
     "",
@@ -649,6 +693,10 @@ export default function Home() {
   const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
   const [checkoutError, setCheckoutError] = useState("");
+  const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
+  const [locationStatus, setLocationStatus] = useState("");
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [showAllStores, setShowAllStores] = useState(false);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
@@ -726,6 +774,8 @@ export default function Home() {
             id: store.slug,
             name: store.name,
             address: store.address ?? baseMerchant.address,
+            latitude: store.latitude == null ? null : Number(store.latitude),
+            longitude: store.longitude == null ? null : Number(store.longitude),
             whatsapp: normalizeWhatsapp(store.whatsapp_phone),
             minimumOrder: Number(store.minimum_order),
             deliveryFee: Number(store.delivery_fee),
@@ -767,10 +817,15 @@ export default function Home() {
     }
 
     if (savedCheckout) {
-      setCheckout({
+      const restoredCheckout = {
         ...initialCheckout,
         ...(JSON.parse(savedCheckout) as Partial<Checkout>),
-      });
+      };
+      setCheckout(restoredCheckout);
+      if (hasCoordinates(restoredCheckout)) {
+        setUserLocation({ latitude: restoredCheckout.latitude, longitude: restoredCheckout.longitude });
+        setLocationStatus(`Localização ativa · lojas em até ${STORE_RADIUS_KM} km`);
+      }
     }
   }, []);
 
@@ -830,6 +885,66 @@ export default function Home() {
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartIsFromActiveStore = !cartMerchant || cartMerchant.id === merchant.id;
 
+  const merchantDistances = useMemo(() => {
+    const distances = new Map<StoreId, number>();
+    if (!userLocation) return distances;
+    for (const store of merchants) {
+      if (hasCoordinates(store)) distances.set(store.id, distanceInKm(userLocation, store));
+    }
+    return distances;
+  }, [merchants, userLocation]);
+
+  const nearbyMerchants = useMemo(() => {
+    if (!userLocation || showAllStores) return merchants;
+    return merchants
+      .filter((store) => (merchantDistances.get(store.id) ?? Number.POSITIVE_INFINITY) <= STORE_RADIUS_KM)
+      .sort((left, right) => (merchantDistances.get(left.id) ?? 0) - (merchantDistances.get(right.id) ?? 0));
+  }, [merchantDistances, merchants, showAllStores, userLocation]);
+
+  useEffect(() => {
+    if (!userLocation || showAllStores || !nearbyMerchants.length) return;
+    if (!nearbyMerchants.some((store) => store.id === activeStoreId)) setActiveStoreId(nearbyMerchants[0].id);
+  }, [activeStoreId, nearbyMerchants, showAllStores, userLocation]);
+
+  useEffect(() => {
+    if (!isCartOpen) return;
+    document.body.classList.add("cart-open");
+    return () => document.body.classList.remove("cart-open");
+  }, [isCartOpen]);
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setLocationStatus("Localização não disponível neste navegador.");
+      return;
+    }
+
+    setLocatingUser(true);
+    setLocationStatus("Obtendo sua localização...");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const currentLocation = { latitude: coords.latitude, longitude: coords.longitude };
+        const generatedAddress = `Localização atual (${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)})`;
+        setUserLocation(currentLocation);
+        setCheckout((current) => ({
+          ...current,
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+          address: !current.address || current.address.startsWith("Localização atual (") ? generatedAddress : current.address,
+        }));
+        setShowAllStores(false);
+        setLocationStatus(`Localização ativa · lojas em até ${STORE_RADIUS_KM} km`);
+        setCheckoutError("");
+        setLocatingUser(false);
+      },
+      (error) => {
+        const denied = error.code === error.PERMISSION_DENIED;
+        setLocationStatus(denied ? "Permissão de localização negada." : "Não foi possível obter sua localização.");
+        setLocatingUser(false);
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+    );
+  }
+
   function addToCart(product: Product) {
     setCart((current) => {
       const currentMerchantId = current[0]?.merchantId;
@@ -850,7 +965,6 @@ export default function Home() {
           : item,
       );
     });
-    setIsCartOpen(true);
   }
 
   function updateQuantity(productId: string, nextQuantity: number) {
@@ -867,8 +981,6 @@ export default function Home() {
 
   function sendWhatsappOrder() {
     const targetMerchant = cartMerchant ?? merchant;
-    const phoneDigits = checkout.phone.replace(/\D/g, "").replace(/^55/, "");
-
     if (!cart.length) {
       setCheckoutError("Adicione pelo menos um produto ao pedido.");
       return;
@@ -879,13 +991,8 @@ export default function Home() {
       return;
     }
 
-    if (phoneDigits.length < 10) {
-      setCheckoutError("Informe um telefone válido com DDD.");
-      return;
-    }
-
-    if (fulfillment === "delivery" && checkout.address.trim().length < 5) {
-      setCheckoutError("Informe rua, número e bairro para a entrega.");
+    if (fulfillment === "delivery" && checkout.address.trim().length < 5 && !hasCoordinates(checkout)) {
+      setCheckoutError("Informe o endereço ou use sua localização atual.");
       return;
     }
 
@@ -961,11 +1068,11 @@ export default function Home() {
           </span>
         </button>
 
-        <div className="location-pill">
-          <MapPin size={17} />
-          <span>Entrega em Araguaina</span>
+        <button className="location-pill" type="button" onClick={useCurrentLocation} disabled={locatingUser}>
+          {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
+          <span>{locationStatus || "Usar minha localização"}</span>
           <ChevronRight size={16} />
-        </div>
+        </button>
 
         <label className="search-box">
           <Search size={18} />
@@ -1008,9 +1115,16 @@ export default function Home() {
         ) : (
         <section className="commerce-grid">
           <aside className="store-rail" aria-label="Lojas">
-            {merchants.map((store) => {
+            {userLocation ? (
+              <div className="nearby-filter">
+                <span>{showAllStores ? "Todas as lojas" : `Raio de ${STORE_RADIUS_KM} km`}</span>
+                <button type="button" onClick={() => setShowAllStores((current) => !current)}>{showAllStores ? "Ver próximas" : "Ver todas"}</button>
+              </div>
+            ) : null}
+            {nearbyMerchants.map((store) => {
               const Icon = iconByMerchant[store.icon];
               const active = store.id === merchant.id;
+              const currentDistance = merchantDistances.get(store.id);
 
               return (
                 <button
@@ -1025,15 +1139,18 @@ export default function Home() {
                   </span>
                   <span>
                     <strong>{store.name}</strong>
-                    <small>{store.segment}</small>
+                    <small>{store.segment}{currentDistance === undefined ? "" : ` · ${distanceLabel(currentDistance)}`}</small>
                   </span>
                 </button>
               );
             })}
+            {userLocation && !nearbyMerchants.length ? (
+              <div className="nearby-empty"><MapPin size={20} /><strong>Nenhuma loja em até {STORE_RADIUS_KM} km</strong><button type="button" onClick={() => setShowAllStores(true)}>Mostrar todas</button></div>
+            ) : null}
           </aside>
 
           <section className="catalog-surface" key={merchant.id}>
-            <MerchantHero merchant={merchant} />
+            <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
 
             <nav className="category-strip" aria-label="Categorias">
               {merchant.categories.map((category) => {
@@ -1149,6 +1266,9 @@ export default function Home() {
             }}
             onQuantityChange={updateQuantity}
             onSendOrder={sendWhatsappOrder}
+            locatingUser={locatingUser}
+            locationStatus={locationStatus}
+            onUseCurrentLocation={useCurrentLocation}
           />
 
           {cartCount > 0 ? (
@@ -1158,7 +1278,7 @@ export default function Home() {
             >
               <span>
                 <ShoppingCart size={18} />
-                {cartCount} itens
+                Ver carrinho · {cartCount} {cartCount === 1 ? "item" : "itens"}
               </span>
               <strong>{formatPrice(totals.total)}</strong>
             </button>
@@ -1325,6 +1445,9 @@ function CartPanel({
   onFulfillmentChange,
   onQuantityChange,
   onSendOrder,
+  locatingUser,
+  locationStatus,
+  onUseCurrentLocation,
 }: {
   cart: CartItem[];
   cartMerchant: Merchant;
@@ -1339,11 +1462,16 @@ function CartPanel({
   onFulfillmentChange: (mode: FulfillmentMode) => void;
   onQuantityChange: (productId: string, nextQuantity: number) => void;
   onSendOrder: () => void;
+  locatingUser: boolean;
+  locationStatus: string;
+  onUseCurrentLocation: () => void;
 }) {
   const disabled = cart.length === 0;
 
   return (
-    <aside className={isCartOpen ? "cart-panel open" : "cart-panel"}>
+    <>
+    <button className={isCartOpen ? "cart-backdrop open" : "cart-backdrop"} type="button" aria-label="Fechar carrinho" onClick={onClose} />
+    <aside className={isCartOpen ? "cart-panel open" : "cart-panel"} aria-label="Carrinho e finalização do pedido">
       <div className="cart-header">
         <div>
           <span>Carrinho</span>
@@ -1354,6 +1482,7 @@ function CartPanel({
         </button>
       </div>
 
+      <div className="cart-scroll-area">
       {!cartIsFromActiveStore ? (
         <div className="cart-warning">
           Pedido iniciado em {cartMerchant.name}.
@@ -1433,24 +1562,22 @@ function CartPanel({
           />
         </label>
 
-        <label>
-          <MessageCircle size={16} />
-          <input
-            value={checkout.phone}
-            onChange={(event) =>
-              onCheckoutChange({
-                ...checkout,
-                phone: formatWhatsapp(event.target.value),
-              })
-            }
-            placeholder="Telefone com DDD"
-            inputMode="tel"
-            autoComplete="tel"
-            aria-invalid={Boolean(
-              checkoutError && checkout.phone.replace(/\D/g, "").length < 10,
-            )}
-          />
-        </label>
+        {fulfillment === "delivery" ? (
+          <button className="checkout-location-button" type="button" onClick={onUseCurrentLocation} disabled={locatingUser}>
+            {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
+            {locatingUser ? "Obtendo localização..." : hasCoordinates(checkout) ? "Atualizar minha localização" : "Usar minha localização"}
+          </button>
+        ) : null}
+
+        {fulfillment === "delivery" && hasCoordinates(checkout) ? (
+          <div className="checkout-location-confirmation">
+            <CheckCircle2 size={16} />
+            <span>Localização anexada à comanda</span>
+            <a href={mapsUrl(checkout)} target="_blank" rel="noreferrer">Ver mapa</a>
+          </div>
+        ) : fulfillment === "delivery" && locationStatus ? (
+          <p className="location-feedback">{locationStatus}</p>
+        ) : null}
 
         {fulfillment === "delivery" ? (
           <label>
@@ -1463,7 +1590,7 @@ function CartPanel({
               placeholder="Rua, número e bairro"
               autoComplete="street-address"
               aria-invalid={Boolean(
-                checkoutError && checkout.address.trim().length < 5,
+                checkoutError && checkout.address.trim().length < 5 && !hasCoordinates(checkout),
               )}
             />
           </label>
@@ -1471,6 +1598,7 @@ function CartPanel({
           <div className="pickup-address">
             <MapPin size={16} />
             <span>{cartMerchant.address}</span>
+            {hasCoordinates(cartMerchant) ? <a href={mapsUrl(cartMerchant)} target="_blank" rel="noreferrer">Ver mapa</a> : null}
           </div>
         )}
 
@@ -1535,7 +1663,9 @@ function CartPanel({
           </p>
         ) : null}
       </div>
+      </div>
 
+      <div className="cart-footer">
       <div className="cart-total">
         <span>
           Subtotal <strong>{formatPrice(totals.subtotal)}</strong>
@@ -1556,7 +1686,9 @@ function CartPanel({
         <MessageCircle size={19} />
         Enviar comanda
       </button>
+      </div>
     </aside>
+    </>
   );
 }
 

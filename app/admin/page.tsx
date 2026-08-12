@@ -6,6 +6,7 @@ import {
   Download,
   FileSpreadsheet,
   ImagePlus,
+  LocateFixed,
   LogOut,
   Package,
   Pencil,
@@ -23,7 +24,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { supabase } from "../../lib/supabase";
 
 type Tenant = { id: string; name: string; slug: string };
-type Branch = { id: string; name: string; slug: string; tenant_id: string; cover_image_url?: string | null };
+type Branch = { id: string; name: string; slug: string; tenant_id: string; cover_image_url?: string | null; latitude?: number | null; longitude?: number | null };
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
   id: string;
@@ -141,6 +142,13 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+function validCoordinate(value: string, min: number, max: number) {
+  const normalized = value.trim().replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
+}
+
 function AdminPage() {
   const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
   const [session, setSession] = useState<Session | null>(null);
@@ -154,8 +162,9 @@ function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [message, setMessage] = useState("");
-  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", userName: "", userEmail: "", userPassword: "" });
-  const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "" });
+  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
+  const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "" });
+  const [locatingBranchForm, setLocatingBranchForm] = useState<"company" | "branch" | "">("");
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
@@ -267,7 +276,7 @@ function AdminPage() {
       const [{ data: portalTenant, error: tenantError }, { data: portalBranches, error: branchError }] = tenantId
         ? await Promise.all([
             supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-            supabase.from("stores").select("id, name, slug, tenant_id").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+            supabase.from("stores").select("id, name, slug, tenant_id, cover_image_url, latitude, longitude").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
           ])
         : [{ data: null, error: null }, { data: null, error: null }];
       if (!portalTenant || !portalBranches?.length) {
@@ -287,7 +296,7 @@ function AdminPage() {
       supabase.from("tenants").select("id, name, slug").order("created_at", { ascending: true }),
       supabase
         .from("stores")
-        .select("id, name, slug, tenant_id")
+        .select("id, name, slug, tenant_id, cover_image_url, latitude, longitude")
         .order("created_at", { ascending: true }),
     ]);
 
@@ -422,10 +431,39 @@ function AdminPage() {
     if (productImagePreview.startsWith("blob:")) URL.revokeObjectURL(productImagePreview);
   }, [productImagePreview]);
 
+  function captureBranchLocation(target: "company" | "branch") {
+    if (!navigator.geolocation) {
+      setMessage("A localização não está disponível neste navegador.");
+      return;
+    }
+    setLocatingBranchForm(target);
+    setMessage("Obtendo a localização da filial...");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const location = { latitude: coords.latitude.toFixed(6), longitude: coords.longitude.toFixed(6) };
+        if (target === "company") setCompanyForm((current) => ({ ...current, ...location }));
+        else setBranchForm((current) => ({ ...current, ...location }));
+        setMessage("Localização da filial preenchida.");
+        setLocatingBranchForm("");
+      },
+      (error) => {
+        setMessage(error.code === error.PERMISSION_DENIED ? "Permissão de localização negada." : "Não foi possível obter a localização da filial.");
+        setLocatingBranchForm("");
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+    );
+  }
+
   async function createCompany(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
     setMessage("");
+    const latitude = validCoordinate(companyForm.latitude, -90, 90);
+    const longitude = validCoordinate(companyForm.longitude, -180, 180);
+    if (latitude === null || longitude === null) {
+      setMessage("Informe uma localização válida para a primeira filial.");
+      return;
+    }
     const { data, error } = await supabase.functions.invoke("create-store-user", {
       body: {
         name: companyForm.userName.trim(),
@@ -438,6 +476,8 @@ function AdminPage() {
           branch_slug: slugify(companyForm.branch),
           whatsapp_phone: companyForm.phone.replace(/\D/g, ""),
           address: companyForm.address.trim(),
+          latitude,
+          longitude,
         },
       },
     });
@@ -454,7 +494,7 @@ function AdminPage() {
     setAdminTenants((current) => [...current, tenantRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setAdminSection("companies");
-    setCompanyForm({ name: "", branch: "", phone: "", address: "", userName: "", userEmail: "", userPassword: "" });
+    setCompanyForm({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
   }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
@@ -575,6 +615,12 @@ function AdminPage() {
       setMessage("Informe um WhatsApp válido para a filial.");
       return;
     }
+    const latitude = validCoordinate(branchForm.latitude, -90, 90);
+    const longitude = validCoordinate(branchForm.longitude, -180, 180);
+    if (latitude === null || longitude === null) {
+      setMessage("Informe uma localização válida para a filial.");
+      return;
+    }
 
     setSavingBranch(true);
     setMessage("");
@@ -595,9 +641,11 @@ function AdminPage() {
         segment: sourceBranch?.segment ?? "retail",
         whatsapp_phone: phone,
         address: branchForm.address.trim(),
+        latitude,
+        longitude,
         is_active: true,
       })
-      .select("id, name, slug, tenant_id")
+      .select("id, name, slug, tenant_id, latitude, longitude")
       .single();
 
     setSavingBranch(false);
@@ -610,7 +658,7 @@ function AdminPage() {
     setBranches((current) => [...current, branchRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setActiveBranchId(branchRow.id);
-    setBranchForm({ name: "", phone: "", address: "" });
+    setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "" });
     setShowBranchForm(false);
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
@@ -1238,7 +1286,10 @@ function AdminPage() {
               <label>E-mail de acesso<input type="email" value={companyForm.userEmail} onChange={(event) => setCompanyForm({ ...companyForm, userEmail: event.target.value })} placeholder="cliente@empresa.com" required /></label>
               <label>Senha de acesso<input type="password" minLength={6} value={companyForm.userPassword} onChange={(event) => setCompanyForm({ ...companyForm, userPassword: event.target.value })} placeholder="Mínimo de 6 caracteres" required /></label>
               <label>Endereço<input value={companyForm.address} onChange={(event) => setCompanyForm({ ...companyForm, address: event.target.value })} placeholder="Rua e número" required /></label>
+              <label>Latitude<input value={companyForm.latitude} onChange={(event) => setCompanyForm({ ...companyForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label>
+              <label>Longitude<input value={companyForm.longitude} onChange={(event) => setCompanyForm({ ...companyForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label>
             </div>
+            <button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("company")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "company" ? "Obtendo localização..." : "Usar localização atual da filial"}</button>
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
         ) : !isCompanyPortal && adminSection === "settings" ? (
@@ -1246,7 +1297,7 @@ function AdminPage() {
         ) : (
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
-            {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
+            {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label><label>Latitude<input value={branchForm.latitude} onChange={(event) => setBranchForm({ ...branchForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label><label>Longitude<input value={branchForm.longitude} onChange={(event) => setBranchForm({ ...branchForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("branch")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "branch" ? "Obtendo localização..." : "Usar localização atual da filial"}</button><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
             <section className="catalog-media-panel">
               <div className="branch-cover-preview">

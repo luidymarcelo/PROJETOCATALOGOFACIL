@@ -47,6 +47,8 @@ create table public.stores (
   segment store_segment not null default 'retail',
   whatsapp_phone text not null,
   address text,
+  latitude numeric(9, 6) check (latitude is null or latitude between -90 and 90),
+  longitude numeric(9, 6) check (longitude is null or longitude between -180 and 180),
   minimum_order numeric(12, 2) not null default 0,
   delivery_fee numeric(12, 2) not null default 0,
   delivery_time_label text,
