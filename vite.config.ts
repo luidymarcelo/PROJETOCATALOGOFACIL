@@ -11,6 +11,17 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 
+function stableEntryName(chunk: { facadeModuleId?: string | null; name: string }) {
+  const moduleId = chunk.facadeModuleId?.replace(/\\/g, "/") ?? "";
+  if (moduleId === "app/page.tsx" || moduleId.endsWith("/app/page.tsx")) return "assets/catalog-page.js";
+  if (moduleId === "app/admin/page.tsx" || moduleId.endsWith("/app/admin/page.tsx")) return "assets/admin-page.js";
+  if (moduleId === "app/empresa/page.tsx" || moduleId.endsWith("/app/empresa/page.tsx")) return "assets/company-page.js";
+  if (moduleId === "app/acesso/page.tsx" || moduleId.endsWith("/app/acesso/page.tsx")) return "assets/access-page.js";
+  if (moduleId.includes("exceljs")) return "assets/exceljs.min.js";
+  if (moduleId.includes("virtual:vinext-app-browser-entry")) return "assets/app.js";
+  return `assets/${chunk.name}.js`;
+}
+
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
@@ -44,6 +55,22 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    environments: {
+      client: {
+        build: {
+          cssCodeSplit: false,
+          rollupOptions: {
+            output: {
+              entryFileNames: stableEntryName,
+              chunkFileNames: stableEntryName,
+              assetFileNames: (asset) => asset.names.some((name) => name.endsWith(".css"))
+                ? "assets/app.css"
+                : "assets/[name][extname]",
+            },
+          },
+        },
+      },
+    },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,

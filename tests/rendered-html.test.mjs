@@ -39,7 +39,7 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema] = await Promise.all([
+  const [page, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema, viteConfig, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
@@ -52,6 +52,10 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
+    readFile(new URL("vite.config.ts", projectRoot), "utf8"),
+    readFile(new URL("public/_headers", projectRoot), "utf8"),
+    readFile(new URL("public/assets/page-qV5W06Af.js", projectRoot), "utf8"),
+    readFile(new URL("public/assets/index-jblei2xc.css", projectRoot), "utf8"),
   ]);
 
   assert.match(page, /buildWhatsappMessage/);
@@ -168,4 +172,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(schema, /create table public\.integration_sources/);
   assert.match(schema, /create table public\.sync_jobs/);
   assert.match(schema, /create table public\.orders/);
+  assert.match(viteConfig, /catalog-page\.js/);
+  assert.match(viteConfig, /chunkFileNames: stableEntryName/);
+  assert.match(viteConfig, /cssCodeSplit: false/);
+  assert.match(headers, /Cache-Control: no-cache, must-revalidate/);
+  assert.ok(legacyCatalogBundle.length > 30000);
+  assert.ok(legacyStyles.length > 30000);
 });
