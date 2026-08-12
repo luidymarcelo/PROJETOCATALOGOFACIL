@@ -62,6 +62,7 @@ type Merchant = {
   deliveryTime: string;
   minimumOrder: number;
   deliveryFee: number;
+  calculatesDeliveryFee: boolean;
   whatsapp: string;
   address: string;
   latitude: number | null;
@@ -117,6 +118,10 @@ function formatWhatsapp(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
+function parameterBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 function normalizeWhatsapp(value: string) {
   const digits = value.replace(/\D/g, "");
   return digits.startsWith("55") ? digits : `55${digits}`;
@@ -133,6 +138,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryTime: "35-45 min",
     minimumOrder: 25,
     deliveryFee: 5.99,
+    calculatesDeliveryFee: true,
     whatsapp: "5599999990001",
     address: "Av. Central, 320",
     latitude: -7.1908,
@@ -200,6 +206,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryTime: "20-30 min",
     minimumOrder: 15,
     deliveryFee: 3.99,
+    calculatesDeliveryFee: true,
     whatsapp: "5599999990002",
     address: "Rua das Flores, 88",
     latitude: -7.1842,
@@ -268,6 +275,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryTime: "2-4 h",
     minimumOrder: 80,
     deliveryFee: 18,
+    calculatesDeliveryFee: true,
     whatsapp: "5599999990003",
     address: "Av. Filadelfia, 1280 - Setor Industrial",
     latitude: -7.2056,
@@ -457,6 +465,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     deliveryTime: "Consulte a filial",
     minimumOrder: 0,
     deliveryFee: 0,
+    calculatesDeliveryFee: true,
     whatsapp: "",
     address: "Endereço não informado",
     latitude: store.latitude == null ? null : Number(store.latitude),
@@ -638,6 +647,7 @@ function buildWhatsappMessage({
 
   const changeAmount =
     checkout.payment === "Dinheiro" ? parseMoney(checkout.changeFor) : null;
+  const deliveryIsPending = fulfillment === "delivery" && !merchant.calculatesDeliveryFee;
   const paymentSection = [
     "*PAGAMENTO*",
     `Forma: ${cleanOrderText(checkout.payment)}`,
@@ -645,8 +655,9 @@ function buildWhatsappMessage({
 
   if (changeAmount !== null) {
     paymentSection.push(`Troco para: ${formatPrice(changeAmount)}`);
-    paymentSection.push(
-      `Troco a devolver: ${formatPrice(Math.max(0, changeAmount - totals.total))}`,
+    paymentSection.push(deliveryIsPending
+      ? "Troco a devolver: Confirmar após calcular o frete"
+      : `Troco a devolver: ${formatPrice(Math.max(0, changeAmount - totals.total))}`,
     );
   } else if (checkout.payment === "Dinheiro") {
     paymentSection.push("Troco: Não solicitado");
@@ -668,8 +679,8 @@ function buildWhatsappMessage({
     "----------------------------",
     "*RESUMO DE VALORES*",
     `Subtotal: ${formatPrice(totals.subtotal)}`,
-    `Taxa de entrega: ${formatPrice(totals.delivery)}`,
-    `*TOTAL: ${formatPrice(totals.total)}*`,
+    `Taxa de entrega: ${deliveryIsPending ? "A combinar" : formatPrice(totals.delivery)}`,
+    `*${deliveryIsPending ? "TOTAL PARCIAL" : "TOTAL"}: ${formatPrice(totals.total)}*`,
     "",
     ...paymentSection,
     "",
@@ -729,17 +740,35 @@ export default function Home() {
     async function loadCatalog() {
       if (!supabase) return;
 
-      const { data, error } = await supabase
-        .from("stores")
-        .select("*, categories(*), products(*)")
-        .eq("is_active", true)
-        .order("created_at", { ascending: true });
+      const [storeResult, tenantParameterResult, storeParameterResult] = await Promise.all([
+        supabase
+          .from("stores")
+          .select("*, categories(*), products(*)")
+          .eq("is_active", true)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("tenant_parameters")
+          .select("tenant_id, parameter_value")
+          .eq("parameter_key", "calculate_delivery_fee"),
+        supabase
+          .from("store_parameters")
+          .select("store_id, parameter_value")
+          .eq("parameter_key", "calculate_delivery_fee"),
+      ]);
+      const { data, error } = storeResult;
 
       if (error || cancelled) return;
       if (!data?.length) {
         setMerchants([]);
         return;
       }
+
+      const tenantFreightParameters = new Map(
+        (tenantParameterResult.data ?? []).map((row) => [row.tenant_id, parameterBoolean(row.parameter_value, true)]),
+      );
+      const storeFreightParameters = new Map(
+        (storeParameterResult.data ?? []).map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+      );
 
       const loadedMerchants = data.flatMap((store) => {
         const demoMerchant = fallbackMerchants.find(
@@ -779,6 +808,9 @@ export default function Home() {
             whatsapp: normalizeWhatsapp(store.whatsapp_phone),
             minimumOrder: Number(store.minimum_order),
             deliveryFee: Number(store.delivery_fee),
+            calculatesDeliveryFee: storeFreightParameters.has(store.id)
+              ? storeFreightParameters.get(store.id)!
+              : tenantFreightParameters.get(store.tenant_id) ?? true,
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
             categories: [
@@ -873,14 +905,15 @@ export default function Home() {
       0,
     );
     const deliveryFee = cartMerchant?.deliveryFee ?? merchant.deliveryFee;
-    const delivery = subtotal > 0 && fulfillment === "delivery" ? deliveryFee : 0;
+    const calculatesDeliveryFee = cartMerchant?.calculatesDeliveryFee ?? merchant.calculatesDeliveryFee;
+    const delivery = subtotal > 0 && fulfillment === "delivery" && calculatesDeliveryFee ? deliveryFee : 0;
 
     return {
       subtotal,
       delivery,
       total: subtotal + delivery,
     };
-  }, [cart, cartMerchant?.deliveryFee, fulfillment, merchant.deliveryFee]);
+  }, [cart, cartMerchant?.calculatesDeliveryFee, cartMerchant?.deliveryFee, fulfillment, merchant.calculatesDeliveryFee, merchant.deliveryFee]);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartIsFromActiveStore = !cartMerchant || cartMerchant.id === merchant.id;
@@ -1671,10 +1704,10 @@ function CartPanel({
           Subtotal <strong>{formatPrice(totals.subtotal)}</strong>
         </span>
         <span>
-          Taxa <strong>{formatPrice(totals.delivery)}</strong>
+          Taxa <strong>{fulfillment === "delivery" && !cartMerchant.calculatesDeliveryFee ? "A combinar" : formatPrice(totals.delivery)}</strong>
         </span>
         <span className="grand-total">
-          Total <strong>{formatPrice(totals.total)}</strong>
+          {fulfillment === "delivery" && !cartMerchant.calculatesDeliveryFee ? "Total parcial" : "Total"} <strong>{formatPrice(totals.total)}</strong>
         </span>
       </div>
 

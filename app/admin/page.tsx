@@ -17,6 +17,7 @@ import {
   Settings,
   Store,
   Trash2,
+  Truck,
   Upload,
   X,
 } from "lucide-react";
@@ -25,7 +26,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { supabase } from "../../lib/supabase";
 
 type Tenant = { id: string; name: string; slug: string };
-type Branch = { id: string; name: string; slug: string; tenant_id: string; address?: string | null; cover_image_url?: string | null; latitude?: number | null; longitude?: number | null };
+type Branch = { id: string; name: string; slug: string; tenant_id: string; address?: string | null; cover_image_url?: string | null; latitude?: number | null; longitude?: number | null; delivery_fee?: number | null };
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
   id: string;
@@ -59,6 +60,9 @@ type CatalogImportCategory = {
 };
 
 type CatalogEditorMode = "product" | "category";
+type FreightParameterMode = "inherit" | "enabled" | "disabled";
+
+const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 
 const EMPTY_PRODUCT_FORM = {
   name: "",
@@ -150,6 +154,10 @@ function validCoordinate(value: string, min: number, max: number) {
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
 }
 
+function parameterBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 function AdminPage() {
   const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
   const [session, setSession] = useState<Session | null>(null);
@@ -173,6 +181,10 @@ function AdminPage() {
   const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
+  const [companyCalculatesDeliveryFee, setCompanyCalculatesDeliveryFee] = useState(true);
+  const [branchFreightModes, setBranchFreightModes] = useState<Record<string, FreightParameterMode>>({});
+  const [branchDeliveryFees, setBranchDeliveryFees] = useState<Record<string, string>>({});
+  const [savingParameters, setSavingParameters] = useState(false);
   const [showDeleteCompany, setShowDeleteCompany] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deletingCompany, setDeletingCompany] = useState(false);
@@ -279,7 +291,7 @@ function AdminPage() {
       const [{ data: portalTenant, error: tenantError }, { data: portalBranches, error: branchError }] = tenantId
         ? await Promise.all([
             supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-            supabase.from("stores").select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+            supabase.from("stores").select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
           ])
         : [{ data: null, error: null }, { data: null, error: null }];
       if (!portalTenant || !portalBranches?.length) {
@@ -299,7 +311,7 @@ function AdminPage() {
       supabase.from("tenants").select("id, name, slug").order("created_at", { ascending: true }),
       supabase
         .from("stores")
-        .select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude")
+        .select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee")
         .order("created_at", { ascending: true }),
     ]);
 
@@ -545,18 +557,41 @@ function AdminPage() {
     setBranches(selectedBranches);
     setActiveBranchId(selectedBranches[0]?.id ?? "");
     setAccessForm({ name: "", email: "", password: "" });
+    setCompanyCalculatesDeliveryFee(true);
+    setBranchFreightModes({});
+    setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
+    ])));
     setShowDeleteCompany(false);
     setDeleteConfirmation("");
     setAdminSection("settings");
     setLoadingSettings(true);
     setMessage("");
 
-    const { data, error } = await supabase.functions.invoke("create-store-user", {
-      body: { action: "get-company-settings", tenant_id: tenantId },
-    });
+    const branchParameterRequest = selectedBranches.length
+      ? supabase
+          .from("store_parameters")
+          .select("store_id, parameter_value")
+          .eq("parameter_key", FREIGHT_PARAMETER_KEY)
+          .in("store_id", selectedBranches.map((branch) => branch.id))
+      : Promise.resolve({ data: [], error: null });
+    const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
+      supabase.functions.invoke("create-store-user", {
+        body: { action: "get-company-settings", tenant_id: tenantId },
+      }),
+      supabase
+        .from("tenant_parameters")
+        .select("parameter_value")
+        .eq("tenant_id", tenantId)
+        .eq("parameter_key", FREIGHT_PARAMETER_KEY)
+        .maybeSingle(),
+      branchParameterRequest,
+    ]);
     setLoadingSettings(false);
-    if (error || data?.error) {
-      setMessage(data?.error ?? error?.message ?? "Não foi possível carregar as configurações da empresa.");
+    const { data, error } = settingsResult;
+    if (error || data?.error || tenantParameterResult.error || branchParameterResult.error) {
+      setMessage(data?.error ?? error?.message ?? tenantParameterResult.error?.message ?? branchParameterResult.error?.message ?? "Não foi possível carregar as configurações da empresa.");
       return;
     }
     setAccessForm({
@@ -564,6 +599,85 @@ function AdminPage() {
       email: data?.account?.email ?? "",
       password: "",
     });
+    setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameterResult.data?.parameter_value, true));
+    const parameterByStore = new Map(
+      (branchParameterResult.data ?? []).map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+    );
+    setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      parameterByStore.has(branch.id)
+        ? parameterByStore.get(branch.id) ? "enabled" : "disabled"
+        : "inherit",
+    ])));
+  }
+
+  async function saveCompanyParameters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !tenant || savingParameters) return;
+
+    const parsedFees = new Map<string, number>();
+    for (const branch of branches) {
+      const fee = parseBrazilianNumber(branchDeliveryFees[branch.id] ?? "0");
+      if (!Number.isFinite(fee) || fee < 0) {
+        setMessage(`Informe uma taxa de entrega válida para ${branch.name}.`);
+        return;
+      }
+      parsedFees.set(branch.id, fee);
+    }
+
+    setSavingParameters(true);
+    setMessage("");
+    const { error: tenantParameterError } = await supabase.from("tenant_parameters").upsert({
+      tenant_id: tenant.id,
+      parameter_key: FREIGHT_PARAMETER_KEY,
+      parameter_value: companyCalculatesDeliveryFee,
+      is_public: true,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "tenant_id,parameter_key" });
+
+    if (tenantParameterError) {
+      setSavingParameters(false);
+      setMessage(tenantParameterError.message);
+      return;
+    }
+
+    for (const branch of branches) {
+      const mode = branchFreightModes[branch.id] ?? "inherit";
+      const parameterResult = mode === "inherit"
+        ? await supabase
+            .from("store_parameters")
+            .delete()
+            .eq("store_id", branch.id)
+            .eq("parameter_key", FREIGHT_PARAMETER_KEY)
+        : await supabase.from("store_parameters").upsert({
+            store_id: branch.id,
+            parameter_key: FREIGHT_PARAMETER_KEY,
+            parameter_value: mode === "enabled",
+            is_public: true,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "store_id,parameter_key" });
+      if (parameterResult.error) {
+        setSavingParameters(false);
+        setMessage(parameterResult.error.message);
+        return;
+      }
+
+      const { error: feeError } = await supabase
+        .from("stores")
+        .update({ delivery_fee: parsedFees.get(branch.id) ?? 0 })
+        .eq("id", branch.id);
+      if (feeError) {
+        setSavingParameters(false);
+        setMessage(feeError.message);
+        return;
+      }
+    }
+
+    const updateFee = (branch: Branch) => ({ ...branch, delivery_fee: parsedFees.get(branch.id) ?? branch.delivery_fee });
+    setBranches((current) => current.map(updateFee));
+    setAdminBranches((current) => current.map(updateFee));
+    setSavingParameters(false);
+    setMessage("Parâmetros da empresa e das filiais atualizados.");
   }
 
   async function saveCompanyAccess(event: FormEvent<HTMLFormElement>) {
@@ -658,7 +772,7 @@ function AdminPage() {
         longitude,
         is_active: true,
       })
-      .select("id, name, slug, tenant_id, address, latitude, longitude")
+      .select("id, name, slug, tenant_id, address, latitude, longitude, delivery_fee")
       .single();
 
     setSavingBranch(false);
@@ -1336,7 +1450,39 @@ function AdminPage() {
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
         ) : !isCompanyPortal && adminSection === "settings" ? (
-          <section className="company-settings-view"><div className="admin-list-heading"><div><span>Configurações da empresa</span><h2>{tenant.name}</h2><p>{branches.length} filial(is) vinculada(s)</p></div></div><form className="admin-form-panel company-settings-panel" onSubmit={saveCompanyAccess}><div className="branch-form-heading"><div><span>Acesso principal</span><h2>E-mail e senha da empresa</h2></div><Settings size={21} /></div>{loadingSettings ? <p className="admin-muted">Carregando configurações...</p> : <><label>Nome do responsável<input value={accessForm.name} onChange={(event) => setAccessForm({ ...accessForm, name: event.target.value })} required /></label><label>E-mail de acesso<input type="email" value={accessForm.email} onChange={(event) => setAccessForm({ ...accessForm, email: event.target.value })} required /></label><label>Nova senha<input type="password" minLength={6} value={accessForm.password} onChange={(event) => setAccessForm({ ...accessForm, password: event.target.value })} placeholder="Deixe em branco para manter a senha atual" /></label><div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingAccess}><Save size={16} /> {savingAccess ? "Salvando..." : "Salvar acesso"}</button></div></>}</form><section className="admin-form-panel company-settings-panel danger-zone"><div><span>Zona de exclusão</span><h2>Excluir empresa</h2><p>Remove definitivamente a empresa, todas as filiais, produtos, integrações, pedidos e o acesso principal.</p></div>{showDeleteCompany ? <><label>Digite <strong>{tenant.name}</strong> para confirmar<input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} autoComplete="off" /></label><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => { setShowDeleteCompany(false); setDeleteConfirmation(""); }}>Cancelar</button><button className="admin-danger" type="button" disabled={deletingCompany || deleteConfirmation.trim() !== tenant.name} onClick={deleteCompany}><Trash2 size={16} /> {deletingCompany ? "Excluindo..." : "Excluir definitivamente"}</button></div></> : <button className="admin-danger" type="button" onClick={() => setShowDeleteCompany(true)}><Trash2 size={16} /> Excluir empresa</button>}</section></section>
+          <section className="company-settings-view">
+            <div className="admin-list-heading">
+              <div><span>Configurações da empresa</span><h2>{tenant.name}</h2><p>{branches.length} filial(is) vinculada(s)</p></div>
+            </div>
+            <form className="admin-form-panel company-settings-panel" onSubmit={saveCompanyAccess}>
+              <div className="branch-form-heading"><div><span>Acesso principal</span><h2>E-mail e senha da empresa</h2></div><Settings size={21} /></div>
+              {loadingSettings ? <p className="admin-muted">Carregando configurações...</p> : <>
+                <label>Nome do responsável<input value={accessForm.name} onChange={(event) => setAccessForm({ ...accessForm, name: event.target.value })} required /></label>
+                <label>E-mail de acesso<input type="email" value={accessForm.email} onChange={(event) => setAccessForm({ ...accessForm, email: event.target.value })} required /></label>
+                <label>Nova senha<input type="password" minLength={6} value={accessForm.password} onChange={(event) => setAccessForm({ ...accessForm, password: event.target.value })} placeholder="Deixe em branco para manter a senha atual" /></label>
+                <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingAccess}><Save size={16} /> {savingAccess ? "Salvando..." : "Salvar acesso"}</button></div>
+              </>}
+            </form>
+            <FreightParametersPanel
+              branches={branches}
+              companyEnabled={companyCalculatesDeliveryFee}
+              branchModes={branchFreightModes}
+              branchFees={branchDeliveryFees}
+              loading={loadingSettings}
+              saving={savingParameters}
+              onCompanyEnabledChange={setCompanyCalculatesDeliveryFee}
+              onBranchModeChange={(branchId, mode) => setBranchFreightModes((current) => ({ ...current, [branchId]: mode }))}
+              onBranchFeeChange={(branchId, fee) => setBranchDeliveryFees((current) => ({ ...current, [branchId]: fee }))}
+              onSubmit={saveCompanyParameters}
+            />
+            <section className="admin-form-panel company-settings-panel danger-zone">
+              <div><span>Zona de exclusão</span><h2>Excluir empresa</h2><p>Remove definitivamente a empresa, todas as filiais, produtos, integrações, pedidos e o acesso principal.</p></div>
+              {showDeleteCompany ? <>
+                <label>Digite <strong>{tenant.name}</strong> para confirmar<input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} autoComplete="off" /></label>
+                <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => { setShowDeleteCompany(false); setDeleteConfirmation(""); }}>Cancelar</button><button className="admin-danger" type="button" disabled={deletingCompany || deleteConfirmation.trim() !== tenant.name} onClick={deleteCompany}><Trash2 size={16} /> {deletingCompany ? "Excluindo..." : "Excluir definitivamente"}</button></div>
+              </> : <button className="admin-danger" type="button" onClick={() => setShowDeleteCompany(true)}><Trash2 size={16} /> Excluir empresa</button>}
+            </section>
+          </section>
         ) : (
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
@@ -1408,6 +1554,67 @@ function AdminPage() {
         {message ? <p className="admin-message">{message}</p> : null}
       </section>
     </main>
+  );
+}
+
+function FreightParametersPanel({
+  branches,
+  companyEnabled,
+  branchModes,
+  branchFees,
+  loading,
+  saving,
+  onCompanyEnabledChange,
+  onBranchModeChange,
+  onBranchFeeChange,
+  onSubmit,
+}: {
+  branches: Branch[];
+  companyEnabled: boolean;
+  branchModes: Record<string, FreightParameterMode>;
+  branchFees: Record<string, string>;
+  loading: boolean;
+  saving: boolean;
+  onCompanyEnabledChange: (enabled: boolean) => void;
+  onBranchModeChange: (branchId: string, mode: FreightParameterMode) => void;
+  onBranchFeeChange: (branchId: string, fee: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSubmit}>
+      <div className="branch-form-heading">
+        <div><span>Parâmetros comerciais</span><h2>Frete e entrega</h2></div>
+        <Truck size={21} />
+      </div>
+      {loading ? <p className="admin-muted">Carregando parâmetros...</p> : <>
+        <label className="parameter-toggle-row">
+          <span><strong>Calcular taxa de entrega</strong><small>Padrão da empresa</small></span>
+          <input
+            type="checkbox"
+            checked={companyEnabled}
+            onChange={(event) => onCompanyEnabledChange(event.target.checked)}
+          />
+          <i aria-hidden="true"><b /></i>
+        </label>
+        <div className="branch-parameter-list">
+          {branches.map((branch) => {
+            const mode = branchModes[branch.id] ?? "inherit";
+            const effectiveEnabled = mode === "inherit" ? companyEnabled : mode === "enabled";
+            return (
+              <div className="branch-parameter-row" key={branch.id}>
+                <div className="branch-parameter-name">
+                  <Store size={17} />
+                  <span><strong>{branch.name}</strong><small>{effectiveEnabled ? "Frete ativo" : "Frete a combinar"}</small></span>
+                </div>
+                <label>Regra<select value={mode} onChange={(event) => onBranchModeChange(branch.id, event.target.value as FreightParameterMode)}><option value="inherit">Herdar da empresa</option><option value="enabled">Ativar nesta filial</option><option value="disabled">Desativar nesta filial</option></select></label>
+                <label>Taxa fixa<input value={branchFees[branch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(branch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!effectiveEnabled} /></label>
+              </div>
+            );
+          })}
+        </div>
+        <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar parâmetros"}</button></div>
+      </>}
+    </form>
   );
 }
 

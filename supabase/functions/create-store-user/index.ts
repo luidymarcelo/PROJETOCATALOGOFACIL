@@ -80,6 +80,13 @@ Deno.serve(async (request) => {
       if (ownerError) throw ownerError;
       const { error: companyUserError } = await adminClient.from("tenant_members").insert({ tenant_id: tenant.id, user_id: managedUser.id, role: "manager" });
       if (companyUserError) throw companyUserError;
+      const { error: parameterError } = await adminClient.from("tenant_parameters").insert({
+        tenant_id: tenant.id,
+        parameter_key: "calculate_delivery_fee",
+        parameter_value: true,
+        is_public: true,
+      });
+      if (parameterError) throw parameterError;
       await adminClient.from("profiles").upsert({ id: managedUser.id, full_name: name });
       const { data: branch, error: branchError } = await adminClient.from("stores").insert({
         tenant_id: tenant.id,
@@ -91,7 +98,7 @@ Deno.serve(async (request) => {
         latitude,
         longitude,
         is_active: true,
-      }).select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude").single();
+      }).select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee").single();
       if (branchError || !branch) throw branchError ?? new Error("Não foi possível criar a filial.");
 
       const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
@@ -163,7 +170,7 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
 
   const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
     adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-    adminClient.from("stores").select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+    adminClient.from("stores").select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
   ]);
   if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
   if (branchError) throw branchError;

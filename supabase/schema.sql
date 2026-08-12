@@ -58,6 +58,24 @@ create table public.stores (
   unique (tenant_id, slug)
 );
 
+create table public.tenant_parameters (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  parameter_key text not null check (parameter_key ~ '^[a-z][a-z0-9_]*$'),
+  parameter_value jsonb not null,
+  is_public boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (tenant_id, parameter_key)
+);
+
+create table public.store_parameters (
+  store_id uuid not null references public.stores(id) on delete cascade,
+  parameter_key text not null check (parameter_key ~ '^[a-z][a-z0-9_]*$'),
+  parameter_value jsonb not null,
+  is_public boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (store_id, parameter_key)
+);
+
 create table public.categories (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references public.stores(id) on delete cascade,
@@ -135,5 +153,7 @@ create table public.order_items (
 
 create index products_store_active_idx on public.products (store_id, is_active);
 create index categories_store_order_idx on public.categories (store_id, sort_order);
+create index tenant_parameters_key_idx on public.tenant_parameters (parameter_key);
+create index store_parameters_key_idx on public.store_parameters (parameter_key);
 create index sync_jobs_source_status_idx on public.sync_jobs (integration_source_id, status);
 create index orders_store_created_idx on public.orders (store_id, created_at desc);
