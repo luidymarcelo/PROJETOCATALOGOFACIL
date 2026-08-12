@@ -202,6 +202,11 @@ img {
   align-items: start;
 }
 
+.commerce-grid.direct-store {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  width: min(1288px, calc(100% - 32px));
+}
+
 .store-rail {
   position: sticky;
   top: 86px;
@@ -2188,6 +2193,10 @@ img {
 @media (max-width: 1280px) {
   .commerce-grid {
     grid-template-columns: 220px minmax(0, 1fr) 340px;
+  }
+
+  .commerce-grid.direct-store {
+    grid-template-columns: minmax(0, 1fr) 340px;
   }
 
   .product-grid {

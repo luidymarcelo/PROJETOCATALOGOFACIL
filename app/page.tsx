@@ -1155,15 +1155,15 @@ export default function Home() {
         ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
           <StoreNotFound />
         ) : (
-        <section className="commerce-grid">
-          <aside className={directStoreId ? "store-rail direct-store-rail" : "store-rail"} aria-label={directStoreId ? "Loja selecionada" : "Lojas"}>
-            {!directStoreId && userLocation ? (
+        <section className={directStoreId ? "commerce-grid direct-store" : "commerce-grid"}>
+          {!directStoreId ? <aside className="store-rail" aria-label="Lojas">
+            {userLocation ? (
               <div className="nearby-filter">
                 <span>{showAllStores ? "Todas as lojas" : `Raio de ${STORE_RADIUS_KM} km`}</span>
                 <button type="button" onClick={() => setShowAllStores((current) => !current)}>{showAllStores ? "Ver próximas" : "Ver todas"}</button>
               </div>
             ) : null}
-            {(directStoreId ? [merchant] : nearbyMerchants).map((store) => {
+            {nearbyMerchants.map((store) => {
               const Icon = iconByMerchant[store.icon];
               const active = store.id === merchant.id;
               const currentDistance = merchantDistances.get(store.id);
@@ -1172,10 +1172,10 @@ export default function Home() {
                 <a
                   className={active ? "store-tile active" : "store-tile"}
                   key={store.id}
-                  href={directStoreId ? "#catalogo" : storeCatalogUrl(store.id)}
-                  target={directStoreId ? undefined : "_blank"}
-                  rel={directStoreId ? undefined : "noopener noreferrer"}
-                  aria-label={directStoreId ? `Catálogo de ${store.name}` : `Abrir catálogo de ${store.name} em uma nova aba`}
+                  href={storeCatalogUrl(store.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Abrir catálogo de ${store.name} em uma nova aba`}
                   style={{ "--store-color": store.palette } as CSSProperties}
                 >
                   <span className="store-avatar">
@@ -1188,10 +1188,10 @@ export default function Home() {
                 </a>
               );
             })}
-            {!directStoreId && userLocation && !nearbyMerchants.length ? (
+            {userLocation && !nearbyMerchants.length ? (
               <div className="nearby-empty"><MapPin size={20} /><strong>Nenhuma loja em até {STORE_RADIUS_KM} km</strong><button type="button" onClick={() => setShowAllStores(true)}>Mostrar todas</button></div>
             ) : null}
-          </aside>
+          </aside> : null}
 
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
