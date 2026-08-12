@@ -83,6 +83,10 @@ img {
   backdrop-filter: blur(18px);
 }
 
+.topbar.direct-store-topbar {
+  grid-template-columns: auto minmax(260px, 1fr) auto;
+}
+
 .brand-lockup,
 .location-pill,
 .search-box,
@@ -196,11 +200,6 @@ img {
   width: min(1560px, calc(100% - 32px));
   margin: 22px auto 0;
   align-items: start;
-}
-
-.commerce-grid.direct-store {
-  grid-template-columns: minmax(0, 1fr) 380px;
-  width: min(1288px, calc(100% - 32px));
 }
 
 .store-rail {
@@ -2191,10 +2190,6 @@ img {
     grid-template-columns: 220px minmax(0, 1fr) 340px;
   }
 
-  .commerce-grid.direct-store {
-    grid-template-columns: minmax(0, 1fr) 340px;
-  }
-
   .product-grid {
     grid-template-columns: 1fr;
   }
@@ -2202,6 +2197,10 @@ img {
 
 @media (max-width: 1080px) {
   .topbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .topbar.direct-store-topbar {
     grid-template-columns: 1fr auto;
   }
 
@@ -2305,6 +2304,10 @@ img {
 
   .topbar {
     padding: 12px;
+  }
+
+  .direct-store-topbar .topbar-actions {
+    display: none;
   }
 
   .location-pill {

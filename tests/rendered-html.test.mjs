@@ -68,7 +68,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /function storeCatalogUrl/);
   assert.match(page, /new URLSearchParams\(window\.location\.search\)\.get\("loja"\)/);
   assert.match(page, /target="_blank"/);
-  assert.match(page, /commerce-grid direct-store/);
+  assert.match(page, /direct-store-topbar/);
+  assert.match(page, /direct-store-rail/);
+  assert.match(page, /!directStoreId && userLocation/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
   assert.match(page, /calculatesDeliveryFee/);

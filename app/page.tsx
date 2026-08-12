@@ -726,13 +726,6 @@ export default function Home() {
     fallbackMerchants[0];
 
   useEffect(() => {
-    const requestedStoreId = new URLSearchParams(window.location.search).get("loja")?.trim();
-    if (!requestedStoreId) return;
-    setDirectStoreId(requestedStoreId);
-    setActiveStoreId(requestedStoreId);
-  }, []);
-
-  useEffect(() => {
     if (!supabase) return;
 
     void supabase.auth.getSession().then(({ data }) => {
@@ -751,6 +744,8 @@ export default function Home() {
 
     async function loadCatalog() {
       if (!supabase) return;
+      const requestedStoreId = new URLSearchParams(window.location.search).get("loja")?.trim() || null;
+      setDirectStoreId(requestedStoreId);
 
       const [storeResult, tenantParameterResult, storeParameterResult] = await Promise.all([
         supabase
@@ -836,9 +831,9 @@ export default function Home() {
 
       if (loadedMerchants.length) {
         setMerchants(loadedMerchants);
-        setActiveStoreId((current) =>
-          loadedMerchants.some((store) => store.id === current)
-            ? current
+        setActiveStoreId(
+          requestedStoreId && loadedMerchants.some((store) => store.id === requestedStoreId)
+            ? requestedStoreId
             : loadedMerchants[0].id,
         );
       }
@@ -1098,7 +1093,7 @@ export default function Home() {
 
   return (
     <main className="shell">
-      <header className="topbar">
+      <header className={directStoreId ? "topbar direct-store-topbar" : "topbar"}>
         <button
           className="brand-lockup"
           onClick={() => directStoreId ? window.location.assign("/") : setView("catalog")}
@@ -1113,11 +1108,11 @@ export default function Home() {
           </span>
         </button>
 
-        <button className="location-pill" type="button" onClick={useCurrentLocation} disabled={locatingUser}>
+        {!directStoreId ? <button className="location-pill" type="button" onClick={useCurrentLocation} disabled={locatingUser}>
           {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
           <span>{locationStatus || "Usar minha localização"}</span>
           <ChevronRight size={16} />
-        </button>
+        </button> : null}
 
         <label className="search-box">
           <Search size={18} />
@@ -1160,15 +1155,15 @@ export default function Home() {
         ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
           <StoreNotFound />
         ) : (
-        <section className={directStoreId ? "commerce-grid direct-store" : "commerce-grid"}>
-          {!directStoreId ? <aside className="store-rail" aria-label="Lojas">
-            {userLocation ? (
+        <section className="commerce-grid">
+          <aside className={directStoreId ? "store-rail direct-store-rail" : "store-rail"} aria-label={directStoreId ? "Loja selecionada" : "Lojas"}>
+            {!directStoreId && userLocation ? (
               <div className="nearby-filter">
                 <span>{showAllStores ? "Todas as lojas" : `Raio de ${STORE_RADIUS_KM} km`}</span>
                 <button type="button" onClick={() => setShowAllStores((current) => !current)}>{showAllStores ? "Ver próximas" : "Ver todas"}</button>
               </div>
             ) : null}
-            {nearbyMerchants.map((store) => {
+            {(directStoreId ? [merchant] : nearbyMerchants).map((store) => {
               const Icon = iconByMerchant[store.icon];
               const active = store.id === merchant.id;
               const currentDistance = merchantDistances.get(store.id);
@@ -1177,10 +1172,10 @@ export default function Home() {
                 <a
                   className={active ? "store-tile active" : "store-tile"}
                   key={store.id}
-                  href={storeCatalogUrl(store.id)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Abrir catálogo de ${store.name} em uma nova aba`}
+                  href={directStoreId ? "#catalogo" : storeCatalogUrl(store.id)}
+                  target={directStoreId ? undefined : "_blank"}
+                  rel={directStoreId ? undefined : "noopener noreferrer"}
+                  aria-label={directStoreId ? `Catálogo de ${store.name}` : `Abrir catálogo de ${store.name} em uma nova aba`}
                   style={{ "--store-color": store.palette } as CSSProperties}
                 >
                   <span className="store-avatar">
@@ -1193,12 +1188,12 @@ export default function Home() {
                 </a>
               );
             })}
-            {userLocation && !nearbyMerchants.length ? (
+            {!directStoreId && userLocation && !nearbyMerchants.length ? (
               <div className="nearby-empty"><MapPin size={20} /><strong>Nenhuma loja em até {STORE_RADIUS_KM} km</strong><button type="button" onClick={() => setShowAllStores(true)}>Mostrar todas</button></div>
             ) : null}
-          </aside> : null}
+          </aside>
 
-          <section className="catalog-surface" key={merchant.id}>
+          <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
 
             <nav className="category-strip" aria-label="Categorias">
