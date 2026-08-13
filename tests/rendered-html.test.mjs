@@ -29,6 +29,7 @@ test("server-renders the catalog shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+  assert.equal(response.headers.get("permissions-policy"), "geolocation=(self)");
 
   const html = await response.text();
   assert.match(html, /<title>Catalogo Facil<\/title>/i);
@@ -39,7 +40,7 @@ test("server-renders the catalog shell", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema, viteConfig, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -54,6 +55,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
     readFile(new URL("vite.config.ts", projectRoot), "utf8"),
+    readFile(new URL("worker/index.ts", projectRoot), "utf8"),
     readFile(new URL("public/_headers", projectRoot), "utf8"),
     readFile(new URL("public/assets/page-qV5W06Af.js", projectRoot), "utf8"),
     readFile(new URL("public/assets/index-jblei2xc.css", projectRoot), "utf8"),
@@ -111,6 +113,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.company-settings-layout/);
   assert.match(pageStyles, /\.parameter-workspace/);
   assert.match(headers, /Permissions-Policy: geolocation=\(self\)/);
+  assert.match(worker, /headers\.set\("Permissions-Policy", "geolocation=\(self\)"\)/);
   assert.match(adminPage, /Supabase não configurado neste computador/);
   assert.match(adminPage, /captureBranchLocation/);
   assert.match(adminPage, /Usar localização atual da filial/);
