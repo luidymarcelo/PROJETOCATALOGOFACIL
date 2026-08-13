@@ -94,6 +94,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /CatalogImage/);
   assert.match(page, /store\.cover_image_url \?\? baseMerchant\.cover/);
   assert.match(adminPage, /adminSection === "companies"/);
+  assert.match(adminPage, /function PlatformAdminSidebar/);
+  assert.match(adminPage, /function CompanySettingsNav/);
+  assert.match(adminPage, /companySettingsSection === "parameters"/);
+  assert.match(adminPage, /Buscar por empresa ou filial/);
+  assert.match(adminPage, /Configuração por filial/);
+  assert.match(pageStyles, /\.admin-console-layout/);
+  assert.match(pageStyles, /\.company-settings-layout/);
   assert.match(adminPage, /Supabase não configurado neste computador/);
   assert.match(adminPage, /captureBranchLocation/);
   assert.match(adminPage, /Usar localização atual da filial/);

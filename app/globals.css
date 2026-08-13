@@ -2614,3 +2614,690 @@ img {
     display: grid;
   }
 }
+
+/* Platform administration workspace */
+.admin-page-inner.admin-page-inner-platform {
+  width: min(1440px, calc(100% - 40px));
+  padding-top: 28px;
+}
+
+.admin-console-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.admin-console-sidebar {
+  position: sticky;
+  top: 20px;
+  display: grid;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(29, 38, 31, 0.07);
+}
+
+.admin-sidebar-brand {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding: 2px 2px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-sidebar-brand > div,
+.admin-sidebar-nav button > span,
+.company-settings-nav button > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.admin-sidebar-brand small,
+.admin-sidebar-nav small,
+.company-settings-nav small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.admin-sidebar-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--foreground);
+  color: #fff;
+}
+
+.admin-sidebar-nav {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-sidebar-nav button,
+.company-settings-nav button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.admin-sidebar-nav button:hover,
+.company-settings-nav button:hover {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+.admin-sidebar-nav button.active,
+.company-settings-nav button.active {
+  border-color: rgba(15, 167, 111, 0.28);
+  background: rgba(15, 167, 111, 0.09);
+  color: var(--primary-dark);
+}
+
+.admin-sidebar-nav button.active small,
+.company-settings-nav button.active small {
+  color: #39715e;
+}
+
+.admin-sidebar-company {
+  display: grid;
+  gap: 3px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-sidebar-company > span,
+.company-settings-nav > span,
+.company-settings-header span,
+.company-overview-banner span,
+.admin-company-toolbar span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.admin-sidebar-company > strong {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-sidebar-company > small {
+  color: var(--muted);
+}
+
+.admin-sidebar-company-nav {
+  margin-top: 10px;
+}
+
+.admin-console-content {
+  min-width: 0;
+}
+
+.admin-console-content .admin-page-heading {
+  margin-bottom: 22px;
+  padding: 4px 0 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-console-content .admin-page-heading h1 {
+  margin-top: 5px;
+  font-size: clamp(1.9rem, 3vw, 2.65rem);
+}
+
+.admin-console-message {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 167, 111, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 167, 111, 0.07);
+}
+
+.new-company-form {
+  max-width: 920px;
+  box-shadow: 0 8px 24px rgba(29, 38, 31, 0.06);
+}
+
+.admin-company-list {
+  gap: 16px;
+}
+
+.admin-company-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-company-summary > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 2px 10px;
+  align-items: center;
+  min-height: 82px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.admin-company-summary svg {
+  grid-row: 1 / 3;
+  color: var(--primary-dark);
+}
+
+.admin-company-summary span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.admin-company-summary strong {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  font-size: 1.65rem;
+}
+
+.admin-company-toolbar,
+.company-settings-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.admin-company-toolbar h2,
+.company-settings-header h2 {
+  margin: 4px 0 0;
+  font-size: 1.45rem;
+}
+
+.admin-company-toolbar p,
+.company-settings-header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.admin-company-search {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.admin-company-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.admin-company-table {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.company-table-head,
+.company-admin-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.15fr) minmax(210px, 0.9fr) auto;
+  gap: 18px;
+  align-items: center;
+}
+
+.company-table-head {
+  min-height: 42px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.company-admin-card {
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.company-admin-card:last-child {
+  border-bottom: 0;
+}
+
+.company-admin-info {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+}
+
+.company-admin-info > span:last-child,
+.company-branch-preview {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.company-admin-info strong,
+.company-admin-info small,
+.company-branch-preview strong,
+.company-branch-preview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-admin-avatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(243, 111, 69, 0.12);
+  color: #a74729;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.company-branch-preview small {
+  color: var(--muted);
+}
+
+.company-card-actions {
+  justify-content: flex-end;
+}
+
+.company-card-actions .admin-secondary,
+.company-card-actions .admin-primary {
+  min-height: 38px;
+  padding: 0 11px;
+  font-size: 0.82rem;
+}
+
+.admin-company-empty {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 38px 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.admin-company-empty strong {
+  color: var(--foreground);
+}
+
+.company-settings-view {
+  gap: 20px;
+}
+
+.company-settings-header {
+  margin-top: 0;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.company-settings-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.company-settings-nav {
+  position: sticky;
+  top: 20px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.company-settings-nav > span {
+  padding: 4px 8px 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.company-settings-content,
+.settings-overview {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.company-settings-panel,
+.parameter-settings-panel {
+  width: 100%;
+}
+
+.company-settings-content .admin-form-panel {
+  box-shadow: 0 8px 24px rgba(29, 38, 31, 0.06);
+}
+
+.branch-form-heading p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.company-overview-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.company-overview-banner h2,
+.company-overview-banner p {
+  margin: 4px 0 0;
+}
+
+.company-overview-banner p {
+  color: var(--muted);
+}
+
+.company-overview-icon,
+.settings-branch-avatar {
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(15, 167, 111, 0.1);
+  color: var(--primary-dark);
+}
+
+.company-overview-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.settings-metric-grid {
+  display: grid;
+  grid-template-columns: 0.7fr 1.5fr 0.9fr;
+  gap: 10px;
+}
+
+.settings-metric {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 9px;
+  align-items: center;
+  min-height: 84px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.settings-metric svg {
+  grid-row: 1 / 3;
+  color: #b64e2d;
+}
+
+.settings-metric span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.settings-metric strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+}
+
+.settings-branch-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.settings-branch-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  min-height: 64px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-branch-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-branch-avatar {
+  width: 38px;
+  height: 38px;
+}
+
+.settings-branch-row > div:nth-child(2) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-branch-row small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-branch-row > span {
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.parameter-branch-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.parameter-branch-heading > span {
+  display: grid;
+  gap: 3px;
+}
+
+.parameter-branch-heading small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.parameter-branch-heading > b {
+  display: grid;
+  min-width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.parameter-settings-panel .branch-parameter-list {
+  border-top: 0;
+}
+
+@media (max-width: 1100px) {
+  .admin-console-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .company-table-head,
+  .company-admin-card {
+    grid-template-columns: minmax(200px, 1fr) minmax(160px, 0.7fr);
+  }
+
+  .company-table-head span:last-child,
+  .company-card-actions {
+    grid-column: 1 / -1;
+  }
+
+  .company-table-head span:last-child {
+    display: none;
+  }
+
+  .company-card-actions {
+    justify-content: flex-start;
+  }
+
+  .company-settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .company-settings-nav {
+    position: static;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .company-settings-nav > span {
+    grid-column: 1 / -1;
+  }
+
+  .company-settings-nav button {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .company-settings-nav button > svg:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .admin-page-inner.admin-page-inner-platform {
+    width: calc(100% - 20px);
+  }
+
+  .admin-console-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-console-sidebar {
+    position: static;
+  }
+
+  .admin-sidebar-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-sidebar-company-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-sidebar-nav button > svg:last-child {
+    display: none;
+  }
+
+  .admin-company-summary,
+  .settings-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-metric {
+    min-height: 72px;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-console-sidebar {
+    padding: 12px;
+  }
+
+  .admin-sidebar-nav,
+  .admin-sidebar-company-nav,
+  .company-settings-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-company-toolbar,
+  .company-settings-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-company-toolbar .admin-primary,
+  .company-settings-header .admin-secondary {
+    width: 100%;
+  }
+
+  .company-table-head {
+    display: none;
+  }
+
+  .company-admin-card {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .company-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .company-card-actions button {
+    width: 100%;
+  }
+
+  .settings-branch-row {
+    grid-template-columns: 38px minmax(0, 1fr);
+    padding: 10px 0;
+  }
+
+  .settings-branch-row > span {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .parameter-branch-heading {
+    align-items: flex-start;
+  }
+}
