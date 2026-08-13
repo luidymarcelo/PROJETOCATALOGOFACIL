@@ -68,6 +68,9 @@ type CatalogImportCategory = {
 type CatalogEditorMode = "product" | "category";
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
 type CompanySettingsSection = "overview" | "access" | "parameters" | "danger";
+type ParameterScope = "company" | "branch";
+type BranchLocationTarget = "company" | "branch" | "existing";
+type LocationIssue = { target: BranchLocationTarget; message: string };
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 
@@ -165,6 +168,19 @@ function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function requestBrowserLocation(options: PositionOptions) {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+function locationErrorMessage(error: GeolocationPositionError) {
+  if (error.code === error.PERMISSION_DENIED) return "O Chrome bloqueou a localização. Clique no cadeado ao lado do endereço, permita Localização e recarregue a página.";
+  if (error.code === error.POSITION_UNAVAILABLE) return "O dispositivo não informou a posição. Ative a localização do aparelho e tente novamente.";
+  if (error.code === error.TIMEOUT) return "A localização demorou para responder. Verifique o GPS ou Wi-Fi e tente novamente.";
+  return "Não foi possível obter a localização da filial.";
+}
+
 function AdminPage() {
   const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
   const [session, setSession] = useState<Session | null>(null);
@@ -175,6 +191,7 @@ function AdminPage() {
   const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
   const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
   const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
+  const [parameterScope, setParameterScope] = useState<ParameterScope>("company");
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -182,7 +199,8 @@ function AdminPage() {
   const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
   const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "" });
   const [branchLocationForm, setBranchLocationForm] = useState({ address: "", latitude: "", longitude: "" });
-  const [locatingBranchForm, setLocatingBranchForm] = useState<"company" | "branch" | "existing" | "">("");
+  const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
+  const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
   const [savingBranchLocation, setSavingBranchLocation] = useState(false);
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
@@ -463,28 +481,73 @@ function AdminPage() {
     if (productImagePreview.startsWith("blob:")) URL.revokeObjectURL(productImagePreview);
   }, [productImagePreview]);
 
-  function captureBranchLocation(target: "company" | "branch" | "existing") {
+  async function captureBranchLocation(target: BranchLocationTarget) {
     if (!navigator.geolocation) {
-      setMessage("A localização não está disponível neste navegador.");
+      const issue = "A localização não está disponível neste navegador.";
+      setMessage(issue);
+      setLocationIssue({ target, message: issue });
       return;
     }
+
+    if (window.self !== window.top) {
+      const opened = window.open(window.location.href, "_blank", "noopener,noreferrer");
+      const issue = opened
+        ? "O painel foi aberto em uma nova aba. Use o botão de localização novamente nessa aba."
+        : "Abra o painel em uma nova aba para o Chrome permitir a localização.";
+      setMessage(issue);
+      setLocationIssue({ target, message: issue });
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      const issue = "O Chrome só libera localização em uma conexão HTTPS segura.";
+      setMessage(issue);
+      setLocationIssue({ target, message: issue });
+      return;
+    }
+
     setLocatingBranchForm(target);
     setMessage("Obtendo a localização da filial...");
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const location = { latitude: coords.latitude.toFixed(6), longitude: coords.longitude.toFixed(6) };
-        if (target === "company") setCompanyForm((current) => ({ ...current, ...location }));
-        else if (target === "branch") setBranchForm((current) => ({ ...current, ...location }));
-        else setBranchLocationForm((current) => ({ ...current, ...location }));
-        setMessage("Localização da filial preenchida.");
-        setLocatingBranchForm("");
-      },
-      (error) => {
-        setMessage(error.code === error.PERMISSION_DENIED ? "Permissão de localização negada." : "Não foi possível obter a localização da filial.");
-        setLocatingBranchForm("");
-      },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
-    );
+    setLocationIssue(null);
+
+    try {
+      if (navigator.permissions) {
+        try {
+          const permission = await navigator.permissions.query({ name: "geolocation" });
+          if (permission.state === "denied") {
+            const issue = "A localização está bloqueada no Chrome. Clique no cadeado ao lado do endereço, altere Localização para Permitir e recarregue a página.";
+            setMessage(issue);
+            setLocationIssue({ target, message: issue });
+            setLocatingBranchForm("");
+            return;
+          }
+        } catch {
+          // Some browsers expose geolocation but not the related Permissions API entry.
+        }
+      }
+
+      let position: GeolocationPosition;
+      try {
+        position = await requestBrowserLocation({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      } catch (firstError) {
+        const geolocationError = firstError as GeolocationPositionError;
+        if (geolocationError.code === geolocationError.PERMISSION_DENIED) throw geolocationError;
+        position = await requestBrowserLocation({ enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 });
+      }
+
+      const location = { latitude: position.coords.latitude.toFixed(6), longitude: position.coords.longitude.toFixed(6) };
+      if (target === "company") setCompanyForm((current) => ({ ...current, ...location }));
+      else if (target === "branch") setBranchForm((current) => ({ ...current, ...location }));
+      else setBranchLocationForm((current) => ({ ...current, ...location }));
+      setMessage("Localização da filial preenchida.");
+      setLocationIssue(null);
+    } catch (error) {
+      const issue = locationErrorMessage(error as GeolocationPositionError);
+      setMessage(issue);
+      setLocationIssue({ target, message: issue });
+    } finally {
+      setLocatingBranchForm("");
+    }
   }
 
   async function createCompany(event: FormEvent<HTMLFormElement>) {
@@ -575,6 +638,7 @@ function AdminPage() {
     setDeleteConfirmation("");
     setAdminSection("settings");
     setCompanySettingsSection(section);
+    setParameterScope("company");
     setLoadingSettings(true);
     setMessage("");
 
@@ -623,17 +687,6 @@ function AdminPage() {
   async function saveCompanyParameters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !tenant || savingParameters) return;
-
-    const parsedFees = new Map<string, number>();
-    for (const branch of branches) {
-      const fee = parseBrazilianNumber(branchDeliveryFees[branch.id] ?? "0");
-      if (!Number.isFinite(fee) || fee < 0) {
-        setMessage(`Informe uma taxa de entrega válida para ${branch.name}.`);
-        return;
-      }
-      parsedFees.set(branch.id, fee);
-    }
-
     setSavingParameters(true);
     setMessage("");
     const { error: tenantParameterError } = await supabase.from("tenant_parameters").upsert({
@@ -650,43 +703,61 @@ function AdminPage() {
       return;
     }
 
-    for (const branch of branches) {
-      const mode = branchFreightModes[branch.id] ?? "inherit";
-      const parameterResult = mode === "inherit"
-        ? await supabase
-            .from("store_parameters")
-            .delete()
-            .eq("store_id", branch.id)
-            .eq("parameter_key", FREIGHT_PARAMETER_KEY)
-        : await supabase.from("store_parameters").upsert({
-            store_id: branch.id,
-            parameter_key: FREIGHT_PARAMETER_KEY,
-            parameter_value: mode === "enabled",
-            is_public: true,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: "store_id,parameter_key" });
-      if (parameterResult.error) {
-        setSavingParameters(false);
-        setMessage(parameterResult.error.message);
-        return;
-      }
+    setSavingParameters(false);
+    setMessage(`Parâmetros padrão de ${tenant.name} atualizados.`);
+  }
 
-      const { error: feeError } = await supabase
-        .from("stores")
-        .update({ delivery_fee: parsedFees.get(branch.id) ?? 0 })
-        .eq("id", branch.id);
-      if (feeError) {
-        setSavingParameters(false);
-        setMessage(feeError.message);
-        return;
-      }
+  async function saveBranchParameters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !tenant || !activeBranchId || savingParameters) return;
+
+    const branch = branches.find((item) => item.id === activeBranchId);
+    if (!branch) return;
+
+    const fee = parseBrazilianNumber(branchDeliveryFees[branch.id] ?? "0");
+    if (!Number.isFinite(fee) || fee < 0) {
+      setMessage(`Informe uma taxa de entrega válida para ${branch.name}.`);
+      return;
     }
 
-    const updateFee = (branch: Branch) => ({ ...branch, delivery_fee: parsedFees.get(branch.id) ?? branch.delivery_fee });
+    setSavingParameters(true);
+    setMessage("");
+    const mode = branchFreightModes[branch.id] ?? "inherit";
+    const parameterResult = mode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", FREIGHT_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: FREIGHT_PARAMETER_KEY,
+          parameter_value: mode === "enabled",
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
+
+    if (parameterResult.error) {
+      setSavingParameters(false);
+      setMessage(parameterResult.error.message);
+      return;
+    }
+
+    const { error: feeError } = await supabase
+      .from("stores")
+      .update({ delivery_fee: fee })
+      .eq("id", branch.id);
+    if (feeError) {
+      setSavingParameters(false);
+      setMessage(feeError.message);
+      return;
+    }
+
+    const updateFee = (item: Branch) => item.id === branch.id ? { ...item, delivery_fee: fee } : item;
     setBranches((current) => current.map(updateFee));
     setAdminBranches((current) => current.map(updateFee));
     setSavingParameters(false);
-    setMessage("Parâmetros da empresa e das filiais atualizados.");
+    setMessage(`Parâmetros da filial ${branch.name} atualizados.`);
   }
 
   async function saveCompanyAccess(event: FormEvent<HTMLFormElement>) {
@@ -794,6 +865,8 @@ function AdminPage() {
     setBranches((current) => [...current, branchRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setActiveBranchId(branchRow.id);
+    setBranchFreightModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "" });
     setShowBranchForm(false);
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
@@ -1437,7 +1510,6 @@ function AdminPage() {
           {!isCompanyPortal ? (
             <PlatformAdminSidebar
               section={adminSection}
-              settingsSection={companySettingsSection}
               tenant={tenant}
               branchCount={branches.length}
               companyCount={adminTenants.length}
@@ -1469,16 +1541,17 @@ function AdminPage() {
               <label>Longitude<input value={companyForm.longitude} onChange={(event) => setCompanyForm({ ...companyForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label>
             </div>
             <button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("company")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "company" ? "Obtendo localização..." : "Usar localização atual da filial"}</button>
+            {locationIssue?.target === "company" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("company")} /> : null}
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
         ) : !isCompanyPortal && adminSection === "settings" ? (
           <section className="company-settings-view">
             <header className="company-settings-header">
               <div><span>Empresa selecionada</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"}</p></div>
-              <button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button>
+              <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div>
             </header>
             <div className="company-settings-layout">
-              <CompanySettingsNav section={companySettingsSection} onChange={setCompanySettingsSection} />
+              <CompanySettingsNav section={companySettingsSection} onChange={(section) => { setCompanySettingsSection(section); if (section === "parameters") setParameterScope("company"); }} />
               <div className="company-settings-content">
                 {companySettingsSection === "overview" ? (
                   <div className="settings-overview">
@@ -1495,11 +1568,11 @@ function AdminPage() {
                       <div className="branch-form-heading"><div><span>Estrutura</span><h2>Filiais da empresa</h2></div><Store size={21} /></div>
                       <div className="settings-branch-list">
                         {branches.map((branch) => (
-                          <div className="settings-branch-row" key={branch.id}>
+                          <button className="settings-branch-row" type="button" key={branch.id} onClick={() => { setActiveBranchId(branch.id); setParameterScope("branch"); setCompanySettingsSection("parameters"); }}>
                             <div className="settings-branch-avatar"><Store size={17} /></div>
                             <div><strong>{branch.name}</strong><small>{branch.address || "Endereço ainda não informado"}</small></div>
-                            <span>{branch.latitude != null && branch.longitude != null ? "Localização configurada" : "Sem localização"}</span>
-                          </div>
+                            <span>{branch.latitude != null && branch.longitude != null ? "Localização configurada" : "Sem localização"}<ChevronRight size={15} /></span>
+                          </button>
                         ))}
                         {!branches.length ? <p className="admin-muted">Nenhuma filial vinculada.</p> : null}
                       </div>
@@ -1518,17 +1591,23 @@ function AdminPage() {
                   </form>
                 ) : null}
                 {companySettingsSection === "parameters" ? (
-                  <FreightParametersPanel
+                  <ParameterWorkspace
+                    tenant={tenant}
                     branches={branches}
+                    activeBranchId={activeBranchId}
+                    scope={parameterScope}
                     companyEnabled={companyCalculatesDeliveryFee}
                     branchModes={branchFreightModes}
                     branchFees={branchDeliveryFees}
                     loading={loadingSettings}
                     saving={savingParameters}
+                    onScopeChange={setParameterScope}
+                    onBranchChange={(branchId) => { setActiveBranchId(branchId); setParameterScope("branch"); setMessage(""); }}
                     onCompanyEnabledChange={setCompanyCalculatesDeliveryFee}
                     onBranchModeChange={(branchId, mode) => setBranchFreightModes((current) => ({ ...current, [branchId]: mode }))}
                     onBranchFeeChange={(branchId, fee) => setBranchDeliveryFees((current) => ({ ...current, [branchId]: fee }))}
-                    onSubmit={saveCompanyParameters}
+                    onSaveCompany={saveCompanyParameters}
+                    onSaveBranch={saveBranchParameters}
                   />
                 ) : null}
                 {companySettingsSection === "danger" ? (
@@ -1546,9 +1625,9 @@ function AdminPage() {
         ) : (
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
-            {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label><label>Latitude<input value={branchForm.latitude} onChange={(event) => setBranchForm({ ...branchForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label><label>Longitude<input value={branchForm.longitude} onChange={(event) => setBranchForm({ ...branchForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("branch")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "branch" ? "Obtendo localização..." : "Usar localização atual da filial"}</button><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
+            {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label><label>Latitude<input value={branchForm.latitude} onChange={(event) => setBranchForm({ ...branchForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label><label>Longitude<input value={branchForm.longitude} onChange={(event) => setBranchForm({ ...branchForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("branch")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "branch" ? "Obtendo localização..." : "Usar localização atual da filial"}</button>{locationIssue?.target === "branch" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("branch")} /> : null}<div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {!isCompanyPortal && activeBranch ? <form className="admin-form-panel branch-location-panel" onSubmit={saveExistingBranchLocation}><div className="branch-form-heading"><div><span>Localização da filial</span><h2>Endereço e ponto no mapa</h2></div><MapPin size={21} /></div><label>Endereço<input value={branchLocationForm.address} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-grid"><label>Latitude<input value={branchLocationForm.latitude} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, latitude: event.target.value })} inputMode="decimal" required /></label><label>Longitude<input value={branchLocationForm.longitude} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, longitude: event.target.value })} inputMode="decimal" required /></label></div><div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => captureBranchLocation("existing")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "existing" ? "Obtendo..." : "Usar localização atual"}</button><button className="admin-primary" type="submit" disabled={savingBranchLocation}><Save size={16} /> {savingBranchLocation ? "Salvando..." : "Salvar localização"}</button></div></form> : null}
+            {!isCompanyPortal && activeBranch ? <form className="admin-form-panel branch-location-panel" onSubmit={saveExistingBranchLocation}><div className="branch-form-heading"><div><span>Localização da filial</span><h2>Endereço e ponto no mapa</h2></div><MapPin size={21} /></div><label>Endereço<input value={branchLocationForm.address} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-grid"><label>Latitude<input value={branchLocationForm.latitude} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, latitude: event.target.value })} inputMode="decimal" required /></label><label>Longitude<input value={branchLocationForm.longitude} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, longitude: event.target.value })} inputMode="decimal" required /></label></div>{locationIssue?.target === "existing" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("existing")} /> : null}<div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => captureBranchLocation("existing")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "existing" ? "Obtendo..." : "Usar localização atual"}</button><button className="admin-primary" type="submit" disabled={savingBranchLocation}><Save size={16} /> {savingBranchLocation ? "Salvando..." : "Salvar localização"}</button></div></form> : null}
             <section className="catalog-media-panel">
               <div className="branch-cover-preview">
                 {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
@@ -1621,7 +1700,6 @@ function AdminPage() {
 
 function PlatformAdminSidebar({
   section,
-  settingsSection,
   tenant,
   branchCount,
   companyCount,
@@ -1631,7 +1709,6 @@ function PlatformAdminSidebar({
   onSettings,
 }: {
   section: "companies" | "new" | "catalog" | "settings";
-  settingsSection: CompanySettingsSection;
   tenant: Tenant | null;
   branchCount: number;
   companyCount: number;
@@ -1654,8 +1731,7 @@ function PlatformAdminSidebar({
           <small>{branchCount} {branchCount === 1 ? "filial" : "filiais"}</small>
           <nav className="admin-sidebar-nav admin-sidebar-company-nav" aria-label={`Administração de ${tenant.name}`}>
             <button className={section === "catalog" ? "active" : ""} type="button" onClick={onCatalog}><Package size={18} /><span><strong>Catálogo</strong><small>Filiais e produtos</small></span><ChevronRight size={16} /></button>
-            <button className={section === "settings" && settingsSection !== "parameters" ? "active" : ""} type="button" onClick={() => onSettings("overview")}><Settings size={18} /><span><strong>Configurações</strong><small>Acesso e estrutura</small></span><ChevronRight size={16} /></button>
-            <button className={section === "settings" && settingsSection === "parameters" ? "active" : ""} type="button" onClick={() => onSettings("parameters")}><SlidersHorizontal size={18} /><span><strong>Parâmetros</strong><small>Empresa e filiais</small></span><ChevronRight size={16} /></button>
+            <button className={section === "settings" ? "active" : ""} type="button" onClick={() => onSettings("overview")}><Settings size={18} /><span><strong>Configurações</strong><small>Acesso e parâmetros</small></span><ChevronRight size={16} /></button>
           </nav>
         </div>
       ) : null}
@@ -1682,66 +1758,90 @@ function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSec
   );
 }
 
-function FreightParametersPanel({
+function ParameterWorkspace({
+  tenant,
   branches,
+  activeBranchId,
+  scope,
   companyEnabled,
   branchModes,
   branchFees,
   loading,
   saving,
+  onScopeChange,
+  onBranchChange,
   onCompanyEnabledChange,
   onBranchModeChange,
   onBranchFeeChange,
-  onSubmit,
+  onSaveCompany,
+  onSaveBranch,
 }: {
+  tenant: Tenant;
   branches: Branch[];
+  activeBranchId: string;
+  scope: ParameterScope;
   companyEnabled: boolean;
   branchModes: Record<string, FreightParameterMode>;
   branchFees: Record<string, string>;
   loading: boolean;
   saving: boolean;
+  onScopeChange: (scope: ParameterScope) => void;
+  onBranchChange: (branchId: string) => void;
   onCompanyEnabledChange: (enabled: boolean) => void;
   onBranchModeChange: (branchId: string, mode: FreightParameterMode) => void;
   onBranchFeeChange: (branchId: string, fee: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
+  onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const activeBranch = branches.find((branch) => branch.id === activeBranchId) ?? branches[0] ?? null;
+  const activeMode = activeBranch ? branchModes[activeBranch.id] ?? "inherit" : "inherit";
+  const activeEnabled = activeMode === "inherit" ? companyEnabled : activeMode === "enabled";
+
   return (
-    <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSubmit}>
-      <div className="branch-form-heading">
-        <div><span>Parâmetros da empresa</span><h2>Frete e entrega</h2><p>Defina a regra padrão e, quando necessário, personalize cada filial.</p></div>
-        <Truck size={21} />
+    <section className="parameter-workspace">
+      <aside className="parameter-scope-list">
+        <div><span>Escopo dos parâmetros</span><strong>{tenant.name}</strong><small>Escolha a empresa ou uma filial</small></div>
+        <button className={scope === "company" ? "active" : ""} type="button" onClick={() => onScopeChange("company")}><Building2 size={18} /><span><strong>Padrão da empresa</strong><small>Usado por todas as filiais</small></span><ChevronRight size={16} /></button>
+        <div className="parameter-scope-divider"><span>Filiais</span><b>{branches.length}</b></div>
+        {branches.map((branch) => {
+          const mode = branchModes[branch.id] ?? "inherit";
+          const enabled = mode === "inherit" ? companyEnabled : mode === "enabled";
+          return (
+            <button className={scope === "branch" && activeBranch?.id === branch.id ? "active" : ""} type="button" key={branch.id} onClick={() => onBranchChange(branch.id)}>
+              <Store size={18} /><span><strong>{branch.name}</strong><small>{mode === "inherit" ? "Herda da empresa" : enabled ? "Configuração ativa" : "Configuração desativada"}</small></span><ChevronRight size={16} />
+            </button>
+          );
+        })}
+      </aside>
+      <div className="parameter-editor">
+        <div className="parameter-context-bar"><span>Empresa</span><strong>{tenant.name}</strong><ChevronRight size={15} />{scope === "company" ? <b>Padrão da empresa</b> : <><span>Filial</span><b>{activeBranch?.name}</b></>}</div>
+        {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : scope === "company" ? (
+          <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveCompany}>
+            <div className="branch-form-heading"><div><span>Parâmetros padrão</span><h2>{tenant.name}</h2><p>As filiais em modo “herdar” usam exatamente estas configurações.</p></div><Building2 size={21} /></div>
+            <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="Ativa o cálculo de frete como padrão da empresa." onChange={onCompanyEnabledChange} />
+            <div className="parameter-effect-summary"><SlidersHorizontal size={18} /><span><strong>{branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length} filial(is) herdando este padrão</strong><small>As demais possuem configuração própria.</small></span></div>
+            <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar padrão da empresa"}</button></div>
+          </form>
+        ) : activeBranch ? (
+          <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveBranch}>
+            <div className="branch-form-heading"><div><span>Parâmetros da filial</span><h2>{activeBranch.name}</h2><p>Esta configuração afeta somente esta filial.</p></div><Store size={21} /></div>
+            <label>Aplicação do parâmetro<select value={activeMode} onChange={(event) => onBranchModeChange(activeBranch.id, event.target.value as FreightParameterMode)}><option value="inherit">Herdar o padrão da empresa</option><option value="enabled">Ativar somente nesta filial</option><option value="disabled">Desativar somente nesta filial</option></select></label>
+            <div className={activeEnabled ? "parameter-status active" : "parameter-status inactive"}><Truck size={18} /><span><strong>Calcular taxa de entrega: {activeEnabled ? "Ativo" : "Desativado"}</strong><small>{activeMode === "inherit" ? `Resultado herdado de ${tenant.name}.` : `Configuração exclusiva da filial ${activeBranch.name}.`}</small></span></div>
+            <label>Taxa fixa de entrega<input value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></label>
+            <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : `Salvar ${activeBranch.name}`}</button></div>
+          </form>
+        ) : <section className="admin-form-panel"><p className="admin-muted">Cadastre uma filial para configurar parâmetros específicos.</p></section>}
       </div>
-      {loading ? <p className="admin-muted">Carregando parâmetros...</p> : <>
-        <label className="parameter-toggle-row">
-          <span><strong>Calcular taxa de entrega</strong><small>Padrão da empresa</small></span>
-          <input
-            type="checkbox"
-            checked={companyEnabled}
-            onChange={(event) => onCompanyEnabledChange(event.target.checked)}
-          />
-          <i aria-hidden="true"><b /></i>
-        </label>
-        <div className="parameter-branch-heading"><span><strong>Configuração por filial</strong><small>As filiais podem herdar a regra acima ou usar uma configuração própria.</small></span><b>{branches.length}</b></div>
-        <div className="branch-parameter-list">
-          {branches.map((branch) => {
-            const mode = branchModes[branch.id] ?? "inherit";
-            const effectiveEnabled = mode === "inherit" ? companyEnabled : mode === "enabled";
-            return (
-              <div className="branch-parameter-row" key={branch.id}>
-                <div className="branch-parameter-name">
-                  <Store size={17} />
-                  <span><strong>{branch.name}</strong><small>{effectiveEnabled ? "Frete ativo" : "Frete a combinar"}</small></span>
-                </div>
-                <label>Regra<select value={mode} onChange={(event) => onBranchModeChange(branch.id, event.target.value as FreightParameterMode)}><option value="inherit">Herdar da empresa</option><option value="enabled">Ativar nesta filial</option><option value="disabled">Desativar nesta filial</option></select></label>
-                <label>Taxa fixa<input value={branchFees[branch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(branch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!effectiveEnabled} /></label>
-              </div>
-            );
-          })}
-        </div>
-        <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar parâmetros"}</button></div>
-      </>}
-    </form>
+    </section>
   );
+}
+
+function ParameterToggle({ checked, title, description, onChange }: { checked: boolean; title: string; description: string; onChange: (checked: boolean) => void }) {
+  return <label className="parameter-toggle-row"><span><strong>{title}</strong><small>{description}</small></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i aria-hidden="true"><b /></i></label>;
+}
+
+function LocationHelp({ issue, onRetry }: { issue: string; onRetry: () => void }) {
+  return <div className="location-help" role="alert"><MapPin size={18} /><span><strong>Localização não liberada</strong><small>{issue}</small></span><button className="admin-secondary" type="button" onClick={onRetry}>Tentar novamente</button></div>;
 }
 
 function AdminCompanies({

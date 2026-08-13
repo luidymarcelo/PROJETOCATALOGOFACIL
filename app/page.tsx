@@ -122,6 +122,17 @@ function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function requestCurrentPosition(options: PositionOptions) {
+  return new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
+}
+
+function catalogLocationError(error: GeolocationPositionError) {
+  if (error.code === error.PERMISSION_DENIED) return "Localização bloqueada. No Chrome, clique no cadeado ao lado do endereço, permita Localização e recarregue a página.";
+  if (error.code === error.POSITION_UNAVAILABLE) return "Ative a localização do aparelho e tente novamente.";
+  if (error.code === error.TIMEOUT) return "A localização demorou para responder. Verifique o GPS ou Wi-Fi e tente novamente.";
+  return "Não foi possível obter sua localização.";
+}
+
 function storeCatalogUrl(storeId: StoreId) {
   return `/?loja=${encodeURIComponent(storeId)}`;
 }
@@ -952,16 +963,49 @@ export default function Home() {
     return () => document.body.classList.remove("cart-open");
   }, [isCartOpen]);
 
-  function useCurrentLocation() {
+  async function useCurrentLocation() {
     if (!navigator.geolocation) {
       setLocationStatus("Localização não disponível neste navegador.");
       return;
     }
 
+    if (window.self !== window.top) {
+      const opened = window.open(window.location.href, "_blank", "noopener,noreferrer");
+      setLocationStatus(opened ? "Página aberta em nova aba. Use a localização novamente nessa aba." : "Abra o catálogo em uma nova aba para liberar a localização.");
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setLocationStatus("A localização exige uma conexão HTTPS segura.");
+      return;
+    }
+
     setLocatingUser(true);
     setLocationStatus("Obtendo sua localização...");
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
+    try {
+      if (navigator.permissions) {
+        try {
+          const permission = await navigator.permissions.query({ name: "geolocation" });
+          if (permission.state === "denied") {
+            setLocationStatus("Localização bloqueada no Chrome. Clique no cadeado ao lado do endereço, permita Localização e recarregue a página.");
+            setLocatingUser(false);
+            return;
+          }
+        } catch {
+          // Continue with the Geolocation API when permission introspection is unavailable.
+        }
+      }
+
+      let position: GeolocationPosition;
+      try {
+        position = await requestCurrentPosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      } catch (firstError) {
+        const geolocationError = firstError as GeolocationPositionError;
+        if (geolocationError.code === geolocationError.PERMISSION_DENIED) throw geolocationError;
+        position = await requestCurrentPosition({ enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 });
+      }
+
+      const { coords } = position;
         const currentLocation = { latitude: coords.latitude, longitude: coords.longitude };
         const generatedAddress = `Localização atual (${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)})`;
         setUserLocation(currentLocation);
@@ -974,15 +1018,11 @@ export default function Home() {
         setShowAllStores(false);
         setLocationStatus(`Localização ativa · lojas em até ${STORE_RADIUS_KM} km`);
         setCheckoutError("");
-        setLocatingUser(false);
-      },
-      (error) => {
-        const denied = error.code === error.PERMISSION_DENIED;
-        setLocationStatus(denied ? "Permissão de localização negada." : "Não foi possível obter sua localização.");
-        setLocatingUser(false);
-      },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
-    );
+    } catch (error) {
+      setLocationStatus(catalogLocationError(error as GeolocationPositionError));
+    } finally {
+      setLocatingUser(false);
+    }
   }
 
   function addToCart(product: Product) {

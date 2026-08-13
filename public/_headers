@@ -1,5 +1,6 @@
 /*
   Cache-Control: no-cache, must-revalidate
+  Permissions-Policy: geolocation=(self)
 
 /assets/*
   Cache-Control: no-cache, must-revalidate
