@@ -721,7 +721,7 @@ export default function Home() {
   const [merchants, setMerchants] = useState<Merchant[]>(
     hasSupabaseConfig ? [] : fallbackMerchants,
   );
-  const [activeStoreId, setActiveStoreId] = useState<StoreId>("bella-massa");
+  const [activeStoreId, setActiveStoreId] = useState<StoreId>("");
   const [activeCategory, setActiveCategory] = useState("Mais pedidos");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("catalog");
@@ -873,7 +873,7 @@ export default function Home() {
         setActiveStoreId(
           requestedStoreId && loadedMerchants.some((store) => store.id === requestedStoreId)
             ? requestedStoreId
-            : loadedMerchants[0].id,
+            : "",
         );
       }
     }
@@ -980,10 +980,17 @@ export default function Home() {
       .sort((left, right) => (merchantDistances.get(left.id) ?? 0) - (merchantDistances.get(right.id) ?? 0));
   }, [merchantDistances, merchants, showAllStores, userLocation]);
 
-  useEffect(() => {
-    if (directStoreId || !userLocation || showAllStores || !nearbyMerchants.length) return;
-    if (!nearbyMerchants.some((store) => store.id === activeStoreId)) setActiveStoreId(nearbyMerchants[0].id);
-  }, [activeStoreId, directStoreId, nearbyMerchants, showAllStores, userLocation]);
+  const discoveryMerchants = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+    if (!normalizedSearch) return nearbyMerchants;
+    return nearbyMerchants.filter((store) => [
+      store.name,
+      store.segment,
+      store.tagline,
+      ...store.categories,
+      ...store.products.map((product) => product.name),
+    ].join(" ").toLocaleLowerCase("pt-BR").includes(normalizedSearch));
+  }, [nearbyMerchants, search]);
 
   useEffect(() => {
     if (!isCartOpen) return;
@@ -1187,9 +1194,7 @@ export default function Home() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={
-              merchants.length ? `Buscar em ${merchant.name}` : "Buscar no catalogo"
-            }
+            placeholder={directStoreId ? `Buscar em ${merchant.name}` : "Buscar lojas ou produtos"}
           />
         </label>
 
@@ -1223,44 +1228,16 @@ export default function Home() {
         ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
           <StoreNotFound />
         ) : (
-        <section className={directStoreId ? "commerce-grid direct-store" : "commerce-grid"}>
-          {!directStoreId ? <aside className="store-rail" aria-label="Lojas">
-            {userLocation ? (
-              <div className="nearby-filter">
-                <span>{showAllStores ? "Todas as lojas" : `Raio de ${STORE_RADIUS_KM} km`}</span>
-                <button type="button" onClick={() => setShowAllStores((current) => !current)}>{showAllStores ? "Ver próximas" : "Ver todas"}</button>
-              </div>
-            ) : null}
-            {nearbyMerchants.map((store) => {
-              const Icon = iconByMerchant[store.icon];
-              const active = store.id === merchant.id;
-              const currentDistance = merchantDistances.get(store.id);
-
-              return (
-                <a
-                  className={active ? "store-tile active" : "store-tile"}
-                  key={store.id}
-                  href={storeCatalogUrl(store.id)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Abrir catálogo de ${store.name} em uma nova aba`}
-                  style={{ "--store-color": store.palette } as CSSProperties}
-                >
-                  <span className="store-avatar">
-                    <Icon size={20} />
-                  </span>
-                  <span>
-                    <strong>{store.name}</strong>
-                    <small>{store.segment}{currentDistance === undefined ? "" : ` · ${distanceLabel(currentDistance)}`}</small>
-                  </span>
-                </a>
-              );
-            })}
-            {userLocation && !nearbyMerchants.length ? (
-              <div className="nearby-empty"><MapPin size={20} /><strong>Nenhuma loja em até {STORE_RADIUS_KM} km</strong><button type="button" onClick={() => setShowAllStores(true)}>Mostrar todas</button></div>
-            ) : null}
-          </aside> : null}
-
+        <section className={directStoreId ? "commerce-grid direct-store" : "commerce-grid discovery"}>
+          {!directStoreId ? (
+            <StoreDiscovery
+              merchants={discoveryMerchants}
+              distances={merchantDistances}
+              hasLocation={Boolean(userLocation)}
+              showingAll={showAllStores}
+              onToggleAll={() => setShowAllStores((current) => !current)}
+            />
+          ) : <>
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
 
@@ -1395,6 +1372,7 @@ export default function Home() {
               <strong>{formatPrice(totals.total)}</strong>
             </button>
           ) : null}
+          </>}
         </section>
         )
       ) : (
@@ -1499,6 +1477,51 @@ function StoreNotFound() {
   );
 }
 
+function StoreDiscovery({
+  merchants,
+  distances,
+  hasLocation,
+  showingAll,
+  onToggleAll,
+}: {
+  merchants: Merchant[];
+  distances: Map<StoreId, number>;
+  hasLocation: boolean;
+  showingAll: boolean;
+  onToggleAll: () => void;
+}) {
+  return (
+    <section className="store-discovery">
+      <header className="discovery-heading">
+        <div><span>Catálogo Fácil</span><h1>Lojas e catálogos</h1><p>Restaurantes, farmácias, materiais de construção e comércios da sua região.</p></div>
+        {hasLocation ? <div className="discovery-radius"><MapPin size={17} /><span>{showingAll ? "Todas as lojas" : `Lojas em até ${STORE_RADIUS_KM} km`}</span><button type="button" onClick={onToggleAll}>{showingAll ? "Ver próximas" : "Ver todas"}</button></div> : null}
+      </header>
+
+      <div className="discovery-list-heading"><div><strong>Estabelecimentos disponíveis</strong><small>{merchants.length} {merchants.length === 1 ? "loja encontrada" : "lojas encontradas"}</small></div></div>
+      {merchants.length ? (
+        <div className="discovery-store-grid">
+          {merchants.map((store) => {
+            const Icon = iconByMerchant[store.icon];
+            const currentDistance = distances.get(store.id);
+            return (
+              <a className="discovery-store-card" href={storeCatalogUrl(store.id)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
+                <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.name} variant="discovery-store-image" icon="store" /><span>{store.segment}</span></div>
+                <div className="discovery-store-content">
+                  <div className="discovery-store-title"><span className="store-avatar"><Icon size={20} /></span><div><h2>{store.name}</h2><small>{store.address}</small></div></div>
+                  <p>{store.tagline}</p>
+                  <footer><span><Clock size={15} /> {store.deliveryTime}</span>{currentDistance !== undefined ? <span><MapPin size={15} /> {distanceLabel(currentDistance)}</span> : <span><Truck size={15} /> {store.calculatesDeliveryFee ? formatPrice(store.deliveryFee) : "A combinar"}</span>}</footer>
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="discovery-empty"><Search size={24} /><strong>Nenhuma loja encontrada</strong><span>Não encontramos estabelecimentos com os filtros atuais.</span>{hasLocation && !showingAll ? <button type="button" onClick={onToggleAll}>Mostrar todas as lojas</button> : null}</div>
+      )}
+    </section>
+  );
+}
+
 function CatalogImage({
   src,
   alt,
@@ -1507,7 +1530,7 @@ function CatalogImage({
 }: {
   src: string | null;
   alt: string;
-  variant: "merchant-cover" | "product-card-image" | "cart-item-image";
+  variant: "merchant-cover" | "discovery-store-image" | "product-card-image" | "cart-item-image";
   icon?: "store" | "product";
 }) {
   const [failed, setFailed] = useState(false);

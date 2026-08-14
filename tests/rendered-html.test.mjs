@@ -25,7 +25,7 @@ async function render() {
   );
 }
 
-test("server-renders the catalog shell", async () => {
+test("server-renders the store discovery homepage", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -34,7 +34,8 @@ test("server-renders the catalog shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>Catalogo Facil<\/title>/i);
   assert.match(html, /Catalogo Facil/);
-  assert.match(html, /Carrinho|Nenhum catalogo configurado/);
+  assert.match(html, /Lojas e catálogos|Nenhum catalogo configurado/);
+  assert.match(html, /Estabelecimentos disponíveis|Nenhum catalogo configurado/);
   assert.match(html, /Bella Massa Pizzaria|Nenhum catalogo configurado/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|SkeletonPreview/);
 });
@@ -77,10 +78,18 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /function storeCatalogUrl/);
   assert.match(page, /new URLSearchParams\(window\.location\.search\)\.get\("loja"\)/);
   assert.match(page, /target="_blank"/);
+  assert.match(page, /function StoreDiscovery/);
+  assert.match(page, /merchants=\{discoveryMerchants\}/);
+  assert.match(page, /commerce-grid discovery/);
+  assert.match(page, /Buscar lojas ou produtos/);
+  assert.match(page, /Lojas e catálogos/);
+  assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
+  assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
   assert.match(page, /commerce-grid direct-store/);
-  assert.match(page, /!directStoreId \? <aside/);
   assert.match(page, /!directStoreId \? <button className="location-pill"/);
+  assert.match(pageStyles, /\.store-discovery/);
+  assert.match(pageStyles, /\.discovery-store-grid/);
   assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
