@@ -3411,64 +3411,368 @@ img {
 
 .parameter-workspace {
   grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  gap: 14px;
 }
 
 .parameter-scope-control {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
+  gap: 24px;
   align-items: center;
-  padding: 14px 16px;
+  min-height: 76px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  box-shadow: 0 5px 18px rgba(29, 38, 31, 0.04);
 }
 
-.parameter-scope-control > div {
+.parameter-scope-copy {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   min-width: 0;
 }
 
-.parameter-scope-control > div > svg {
+.parameter-scope-icon {
+  display: grid;
   flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(15, 167, 111, 0.09);
   color: var(--primary-dark);
 }
 
-.parameter-scope-control > div > span {
+.parameter-scope-icon.branch {
+  background: rgba(243, 111, 69, 0.1);
+  color: #b94d2d;
+}
+
+.parameter-scope-copy > span:last-child {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.parameter-scope-control small {
+.parameter-scope-copy small {
   color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .parameter-scope-control label {
   display: grid;
-  grid-template-columns: auto minmax(210px, 280px);
-  gap: 9px;
-  align-items: center;
+  grid-template-columns: minmax(220px, 310px);
+  gap: 5px;
   color: var(--muted);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
 .parameter-scope-control select {
   min-height: 42px;
-  padding: 0 10px;
+  padding: 0 34px 0 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
   color: var(--foreground);
   font: inherit;
+  font-weight: 750;
 }
 
 .parameter-editor .parameter-settings-panel {
-  max-width: 760px;
+  max-width: 860px;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.parameter-editor-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.parameter-editor-heading > div {
+  min-width: 0;
+}
+
+.parameter-editor-heading > div > span {
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.parameter-editor-heading h2 {
+  margin: 3px 0 0;
+  font-size: 1.08rem;
+}
+
+.parameter-editor-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.parameter-editor-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--primary-dark);
+}
+
+.parameter-state-badge {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.parameter-state-badge::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.parameter-state-badge.active {
+  color: var(--success);
+}
+
+.parameter-state-badge.inactive {
+  color: var(--warning);
+}
+
+.parameter-setting-row {
+  padding: 7px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.parameter-impact-line {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  margin: 16px 22px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--primary);
+  background: var(--surface-strong);
+}
+
+.parameter-impact-line > svg {
+  flex: 0 0 auto;
+  color: var(--primary-dark);
+}
+
+.parameter-impact-line > span {
+  display: grid;
+  gap: 2px;
+}
+
+.parameter-impact-line small {
+  color: var(--muted);
+}
+
+.parameter-mode-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 18px 22px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.parameter-mode-fieldset legend {
+  padding: 0 0 9px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.parameter-mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.parameter-mode-options label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.parameter-mode-options label:hover {
+  color: var(--foreground);
+}
+
+.parameter-mode-options label.selected {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--primary-dark);
+  box-shadow: 0 2px 7px rgba(29, 35, 30, 0.07);
+}
+
+.parameter-mode-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+}
+
+.parameter-mode-options label:has(input:focus-visible) {
+  outline: 3px solid rgba(15, 167, 111, 0.2);
+  outline-offset: 1px;
+}
+
+.parameter-mode-options label > svg {
+  flex: 0 0 auto;
+}
+
+.parameter-mode-options label > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.parameter-mode-options small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.69rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parameter-effective-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+  margin: 16px 22px;
+  padding: 13px 14px;
+  border: 1px solid rgba(15, 167, 111, 0.24);
+  border-radius: 8px;
+  background: rgba(15, 167, 111, 0.06);
+}
+
+.parameter-effective-result.inactive {
+  border-color: rgba(183, 121, 31, 0.25);
+  background: rgba(183, 121, 31, 0.06);
+}
+
+.parameter-result-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--primary-dark);
+}
+
+.parameter-effective-result.inactive .parameter-result-icon {
+  color: var(--warning);
+}
+
+.parameter-effective-result > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.parameter-effective-result small,
+.parameter-effective-result em {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.parameter-money-field {
+  display: grid;
+  gap: 6px;
+  margin: 0 22px 18px;
+}
+
+.parameter-money-field > div {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 180px);
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.parameter-money-field > div:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(15, 167, 111, 0.12);
+}
+
+.parameter-money-field b {
+  display: grid;
+  place-items: center;
+  border-right: 1px solid var(--line);
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.parameter-money-field input {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  font-weight: 800;
+}
+
+.parameter-money-field small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.parameter-form-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  min-height: 68px;
+  padding: 12px 22px;
+  border-top: 1px solid var(--line);
+  background: #fbfcfa;
+}
+
+.parameter-form-footer > span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 650;
 }
 
 @media (max-width: 760px) {
@@ -3490,6 +3794,60 @@ img {
   }
 
   .parameter-scope-control select {
+    width: 100%;
+  }
+
+  .parameter-editor-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 17px 16px;
+  }
+
+  .parameter-state-badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .parameter-setting-row,
+  .parameter-mode-fieldset {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .parameter-impact-line,
+  .parameter-effective-result {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .parameter-mode-options {
+    grid-template-columns: 1fr;
+  }
+
+  .parameter-mode-options label {
+    min-height: 54px;
+  }
+
+  .parameter-mode-options small {
+    white-space: normal;
+  }
+
+  .parameter-money-field {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .parameter-money-field > div {
+    grid-template-columns: 42px minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .parameter-form-footer {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 14px 16px;
+  }
+
+  .parameter-form-footer .admin-primary {
     width: 100%;
   }
 }

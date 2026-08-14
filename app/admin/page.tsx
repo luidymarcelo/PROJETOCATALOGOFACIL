@@ -1781,28 +1781,50 @@ function ParameterWorkspace({
   const activeBranch = branches.find((branch) => branch.id === activeBranchId) ?? branches[0] ?? null;
   const activeMode = activeBranch ? branchModes[activeBranch.id] ?? "inherit" : "inherit";
   const activeEnabled = activeMode === "inherit" ? companyEnabled : activeMode === "enabled";
+  const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
+  const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
 
   return (
     <section className="parameter-workspace">
       <div className="parameter-scope-control">
-        <div><SlidersHorizontal size={20} /><span><strong>Parâmetros</strong><small>Escolha onde a configuração será aplicada.</small></span></div>
-        <label>Configurar<select value={scope === "company" ? "company" : activeBranch?.id ?? "company"} onChange={(event) => event.target.value === "company" ? onScopeChange("company") : onBranchChange(event.target.value)}><option value="company">Padrão da empresa</option><optgroup label="Filiais">{branches.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</optgroup></select></label>
+        <div className="parameter-scope-copy">
+          <span className={scope === "company" ? "parameter-scope-icon company" : "parameter-scope-icon branch"}>{scope === "company" ? <Building2 size={20} /> : <Store size={20} />}</span>
+          <span><small>{scope === "company" ? "Padrão da empresa" : "Configuração da filial"}</small><strong>{scopeName}</strong></span>
+        </div>
+        <label><span>Aplicar parâmetros em</span><select aria-label="Aplicar parâmetros em" value={scope === "company" ? "company" : activeBranch?.id ?? "company"} onChange={(event) => event.target.value === "company" ? onScopeChange("company") : onBranchChange(event.target.value)}><option value="company">Empresa: {tenant.name}</option><optgroup label="Filiais">{branches.map((branch) => <option value={branch.id} key={branch.id}>Filial: {branch.name}</option>)}</optgroup></select></label>
       </div>
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : scope === "company" ? (
           <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveCompany}>
-            <div className="branch-form-heading"><div><span>Parâmetros padrão</span><h2>{tenant.name}</h2><p>As filiais em modo “herdar” usam exatamente estas configurações.</p></div><Building2 size={21} /></div>
-            <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="Ativa o cálculo de frete como padrão da empresa." onChange={onCompanyEnabledChange} />
-            <div className="parameter-effect-summary"><SlidersHorizontal size={18} /><span><strong>{branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length} filial(is) herdando este padrão</strong><small>As demais possuem configuração própria.</small></span></div>
-            <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar padrão da empresa"}</button></div>
+            <header className="parameter-editor-heading">
+              <span className="parameter-editor-icon"><Truck size={21} /></span>
+              <div><span>Entrega</span><h2>Cálculo da taxa de entrega</h2><p>Defina o comportamento padrão para todas as filiais da empresa.</p></div>
+              <strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? "Ativo" : "Desativado"}</strong>
+            </header>
+            <div className="parameter-setting-row">
+              <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="As filiais que herdam o padrão seguirão esta escolha." onChange={onCompanyEnabledChange} />
+            </div>
+            <div className="parameter-impact-line"><Building2 size={18} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
+            <footer className="parameter-form-footer"><span>Esta alteração afeta apenas filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar padrão"}</button></footer>
           </form>
         ) : activeBranch ? (
           <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveBranch}>
-            <div className="branch-form-heading"><div><span>Parâmetros da filial</span><h2>{activeBranch.name}</h2><p>Esta configuração afeta somente esta filial.</p></div><Store size={21} /></div>
-            <label>Aplicação do parâmetro<select value={activeMode} onChange={(event) => onBranchModeChange(activeBranch.id, event.target.value as FreightParameterMode)}><option value="inherit">Herdar o padrão da empresa</option><option value="enabled">Ativar somente nesta filial</option><option value="disabled">Desativar somente nesta filial</option></select></label>
-            <div className={activeEnabled ? "parameter-status active" : "parameter-status inactive"}><Truck size={18} /><span><strong>Calcular taxa de entrega: {activeEnabled ? "Ativo" : "Desativado"}</strong><small>{activeMode === "inherit" ? `Resultado herdado de ${tenant.name}.` : `Configuração exclusiva da filial ${activeBranch.name}.`}</small></span></div>
-            <label>Taxa fixa de entrega<input value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></label>
-            <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : `Salvar ${activeBranch.name}`}</button></div>
+            <header className="parameter-editor-heading">
+              <span className="parameter-editor-icon"><Truck size={21} /></span>
+              <div><span>Entrega</span><h2>Cálculo da taxa de entrega</h2><p>Configure o comportamento exclusivo de {activeBranch.name}.</p></div>
+              <strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? "Ativo" : "Desativado"}</strong>
+            </header>
+            <fieldset className="parameter-mode-fieldset">
+              <legend>Comportamento nesta filial</legend>
+              <div className="parameter-mode-options">
+                <label className={activeMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="inherit" checked={activeMode === "inherit"} onChange={() => onBranchModeChange(activeBranch.id, "inherit")} /><Building2 size={18} /><span><strong>Herdar</strong><small>Segue {tenant.name}</small></span></label>
+                <label className={activeMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="enabled" checked={activeMode === "enabled"} onChange={() => onBranchModeChange(activeBranch.id, "enabled")} /><Truck size={18} /><span><strong>Ativar</strong><small>Sempre ativo aqui</small></span></label>
+                <label className={activeMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="disabled" checked={activeMode === "disabled"} onChange={() => onBranchModeChange(activeBranch.id, "disabled")} /><X size={18} /><span><strong>Desativar</strong><small>Não usar nesta filial</small></span></label>
+              </div>
+            </fieldset>
+            <div className={activeEnabled ? "parameter-effective-result active" : "parameter-effective-result inactive"}><span className="parameter-result-icon"><Truck size={19} /></span><span><small>Resultado em {activeBranch.name}</small><strong>Taxa de entrega {activeEnabled ? "ativa" : "desativada"}</strong><em>{activeMode === "inherit" ? `Herdado do padrão de ${tenant.name}.` : "Configuração definida exclusivamente para esta filial."}</em></span></div>
+            <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">Taxa fixa de entrega</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? "Valor incluído no total do pedido." : "Ative o cálculo de entrega para informar um valor."}</small></div>
+            <footer className="parameter-form-footer"><span>Esta alteração afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar filial"}</button></footer>
           </form>
         ) : <section className="admin-form-panel"><p className="admin-muted">Cadastre uma filial para configurar parâmetros específicos.</p></section>}
       </div>
