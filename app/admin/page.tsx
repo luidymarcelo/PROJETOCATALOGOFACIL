@@ -67,12 +67,15 @@ type CatalogImportCategory = {
 
 type CatalogEditorMode = "product" | "category";
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
+type CatalogLayout = "horizontal" | "showcase";
+type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type CompanySettingsSection = "overview" | "access" | "parameters" | "danger";
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
+const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
 
 const EMPTY_PRODUCT_FORM = {
   name: "",
@@ -168,6 +171,10 @@ function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizontal"): CatalogLayout {
+  return value === "horizontal" || value === "showcase" ? value : fallback;
+}
+
 function requestBrowserLocation(options: PositionOptions) {
   return new Promise<GeolocationPosition>((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, options);
@@ -210,6 +217,8 @@ function AdminPage() {
   const [companyCalculatesDeliveryFee, setCompanyCalculatesDeliveryFee] = useState(true);
   const [branchFreightModes, setBranchFreightModes] = useState<Record<string, FreightParameterMode>>({});
   const [branchDeliveryFees, setBranchDeliveryFees] = useState<Record<string, string>>({});
+  const [companyCatalogLayout, setCompanyCatalogLayout] = useState<CatalogLayout>("horizontal");
+  const [branchCatalogLayouts, setBranchCatalogLayouts] = useState<Record<string, BranchCatalogLayoutMode>>({});
   const [savingParameters, setSavingParameters] = useState(false);
   const [showDeleteCompany, setShowDeleteCompany] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -639,6 +648,8 @@ function AdminPage() {
     setAccessForm({ name: "", email: "", password: "" });
     setCompanyCalculatesDeliveryFee(true);
     setBranchFreightModes({});
+    setCompanyCatalogLayout("horizontal");
+    setBranchCatalogLayouts({});
     setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
@@ -654,8 +665,8 @@ function AdminPage() {
     const branchParameterRequest = selectedBranches.length
       ? supabase
           .from("store_parameters")
-          .select("store_id, parameter_value")
-          .eq("parameter_key", FREIGHT_PARAMETER_KEY)
+          .select("store_id, parameter_key, parameter_value")
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
@@ -664,10 +675,9 @@ function AdminPage() {
       }),
       supabase
         .from("tenant_parameters")
-        .select("parameter_value")
+        .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
-        .eq("parameter_key", FREIGHT_PARAMETER_KEY)
-        .maybeSingle(),
+        .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY]),
       branchParameterRequest,
     ]);
     setLoadingSettings(false);
@@ -681,15 +691,30 @@ function AdminPage() {
       email: data?.account?.email ?? "",
       password: "",
     });
-    setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameterResult.data?.parameter_value, true));
-    const parameterByStore = new Map(
-      (branchParameterResult.data ?? []).map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+    const tenantParameters = new Map(
+      (tenantParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]),
+    );
+    setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameters.get(FREIGHT_PARAMETER_KEY), true));
+    setCompanyCatalogLayout(catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
+    const freightParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
+        .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+    );
+    const layoutParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === CATALOG_LAYOUT_PARAMETER_KEY)
+        .map((row) => [row.store_id, catalogLayoutValue(row.parameter_value)]),
     );
     setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
-      parameterByStore.has(branch.id)
-        ? parameterByStore.get(branch.id) ? "enabled" : "disabled"
+      freightParameterByStore.has(branch.id)
+        ? freightParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
+    ])));
+    setBranchCatalogLayouts(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      layoutParameterByStore.get(branch.id) ?? "inherit",
     ])));
   }
 
@@ -698,13 +723,23 @@ function AdminPage() {
     if (!supabase || !tenant || savingParameters) return;
     setSavingParameters(true);
     setMessage("");
-    const { error: tenantParameterError } = await supabase.from("tenant_parameters").upsert({
-      tenant_id: tenant.id,
-      parameter_key: FREIGHT_PARAMETER_KEY,
-      parameter_value: companyCalculatesDeliveryFee,
-      is_public: true,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "tenant_id,parameter_key" });
+    const updatedAt = new Date().toISOString();
+    const { error: tenantParameterError } = await supabase.from("tenant_parameters").upsert([
+      {
+        tenant_id: tenant.id,
+        parameter_key: FREIGHT_PARAMETER_KEY,
+        parameter_value: companyCalculatesDeliveryFee,
+        is_public: true,
+        updated_at: updatedAt,
+      },
+      {
+        tenant_id: tenant.id,
+        parameter_key: CATALOG_LAYOUT_PARAMETER_KEY,
+        parameter_value: companyCatalogLayout,
+        is_public: true,
+        updated_at: updatedAt,
+      },
+    ], { onConflict: "tenant_id,parameter_key" });
 
     if (tenantParameterError) {
       setSavingParameters(false);
@@ -731,8 +766,9 @@ function AdminPage() {
 
     setSavingParameters(true);
     setMessage("");
-    const mode = branchFreightModes[branch.id] ?? "inherit";
-    const parameterResult = mode === "inherit"
+    const freightMode = branchFreightModes[branch.id] ?? "inherit";
+    const layoutMode = branchCatalogLayouts[branch.id] ?? "inherit";
+    const freightParameterRequest = freightMode === "inherit"
       ? await supabase
           .from("store_parameters")
           .delete()
@@ -741,14 +777,28 @@ function AdminPage() {
       : await supabase.from("store_parameters").upsert({
           store_id: branch.id,
           parameter_key: FREIGHT_PARAMETER_KEY,
-          parameter_value: mode === "enabled",
+          parameter_value: freightMode === "enabled",
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
+    const layoutParameterRequest = layoutMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", CATALOG_LAYOUT_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: CATALOG_LAYOUT_PARAMETER_KEY,
+          parameter_value: layoutMode,
           is_public: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
 
-    if (parameterResult.error) {
+    const parameterError = freightParameterRequest.error ?? layoutParameterRequest.error;
+    if (parameterError) {
       setSavingParameters(false);
-      setMessage(parameterResult.error.message);
+      setMessage(parameterError.message);
       return;
     }
 
@@ -875,6 +925,7 @@ function AdminPage() {
     setAdminBranches((current) => [...current, branchRow]);
     setActiveBranchId(branchRow.id);
     setBranchFreightModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchCatalogLayouts((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "" });
     setShowBranchForm(false);
@@ -1604,6 +1655,8 @@ function AdminPage() {
                     companyEnabled={companyCalculatesDeliveryFee}
                     branchModes={branchFreightModes}
                     branchFees={branchDeliveryFees}
+                    companyCatalogLayout={companyCatalogLayout}
+                    branchCatalogLayouts={branchCatalogLayouts}
                     loading={loadingSettings}
                     saving={savingParameters}
                     onScopeChange={setParameterScope}
@@ -1611,6 +1664,8 @@ function AdminPage() {
                     onCompanyEnabledChange={setCompanyCalculatesDeliveryFee}
                     onBranchModeChange={(branchId, mode) => setBranchFreightModes((current) => ({ ...current, [branchId]: mode }))}
                     onBranchFeeChange={(branchId, fee) => setBranchDeliveryFees((current) => ({ ...current, [branchId]: fee }))}
+                    onCompanyCatalogLayoutChange={setCompanyCatalogLayout}
+                    onBranchCatalogLayoutChange={(branchId, mode) => setBranchCatalogLayouts((current) => ({ ...current, [branchId]: mode }))}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
                   />
@@ -1751,6 +1806,8 @@ function ParameterWorkspace({
   companyEnabled,
   branchModes,
   branchFees,
+  companyCatalogLayout,
+  branchCatalogLayouts,
   loading,
   saving,
   onScopeChange,
@@ -1758,6 +1815,8 @@ function ParameterWorkspace({
   onCompanyEnabledChange,
   onBranchModeChange,
   onBranchFeeChange,
+  onCompanyCatalogLayoutChange,
+  onBranchCatalogLayoutChange,
   onSaveCompany,
   onSaveBranch,
 }: {
@@ -1768,6 +1827,8 @@ function ParameterWorkspace({
   companyEnabled: boolean;
   branchModes: Record<string, FreightParameterMode>;
   branchFees: Record<string, string>;
+  companyCatalogLayout: CatalogLayout;
+  branchCatalogLayouts: Record<string, BranchCatalogLayoutMode>;
   loading: boolean;
   saving: boolean;
   onScopeChange: (scope: ParameterScope) => void;
@@ -1775,13 +1836,18 @@ function ParameterWorkspace({
   onCompanyEnabledChange: (enabled: boolean) => void;
   onBranchModeChange: (branchId: string, mode: FreightParameterMode) => void;
   onBranchFeeChange: (branchId: string, fee: string) => void;
+  onCompanyCatalogLayoutChange: (layout: CatalogLayout) => void;
+  onBranchCatalogLayoutChange: (branchId: string, mode: BranchCatalogLayoutMode) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const activeBranch = branches.find((branch) => branch.id === activeBranchId) ?? branches[0] ?? null;
   const activeMode = activeBranch ? branchModes[activeBranch.id] ?? "inherit" : "inherit";
   const activeEnabled = activeMode === "inherit" ? companyEnabled : activeMode === "enabled";
+  const activeLayoutMode = activeBranch ? branchCatalogLayouts[activeBranch.id] ?? "inherit" : "inherit";
+  const activeCatalogLayout = activeLayoutMode === "inherit" ? companyCatalogLayout : activeLayoutMode;
   const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
+  const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
   const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
 
   return (
@@ -1796,8 +1862,9 @@ function ParameterWorkspace({
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
           <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>1 parâmetro</span></header>
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>2 parâmetros</span></header>
             {scope === "company" ? (
+              <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
                 <details className="parameter-compact-item">
                   <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · Padrão da empresa</small></span><strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
@@ -1808,7 +1875,25 @@ function ParameterWorkspace({
                   </div>
                 </details>
               </form>
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon layout"><LayoutDashboard size={19} /></span><span className="parameter-item-name"><strong>Layout do catálogo</strong><small>Visual · Padrão da empresa</small></span><strong className="parameter-value-badge">{companyCatalogLayout === "horizontal" ? "Horizontal" : "Vitrine"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset">
+                      <legend>Apresentação dos produtos</legend>
+                      <div className="parameter-mode-options parameter-layout-options two">
+                        <label className={companyCatalogLayout === "horizontal" ? "selected" : ""}><input type="radio" name="company-catalog-layout" value="horizontal" checked={companyCatalogLayout === "horizontal"} onChange={() => onCompanyCatalogLayoutChange("horizontal")} /><LayoutDashboard size={18} /><span><strong>Horizontal</strong><small>Foto ao lado das informações</small></span></label>
+                        <label className={companyCatalogLayout === "showcase" ? "selected" : ""}><input type="radio" name="company-catalog-layout" value="showcase" checked={companyCatalogLayout === "showcase"} onChange={() => onCompanyCatalogLayoutChange("showcase")} /><ImagePlus size={18} /><span><strong>Vitrine</strong><small>Foto acima do nome do produto</small></span></label>
+                      </div>
+                    </fieldset>
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedLayoutBranchCount} {inheritedLayoutBranchCount === 1 ? "filial segue" : "filiais seguem"} este layout</strong><small>{branches.length - inheritedLayoutBranchCount > 0 ? `${branches.length - inheritedLayoutBranchCount} com layout próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Define o visual padrão dos catálogos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              </>
             ) : activeBranch ? (
+              <>
               <form className="parameter-compact-form" onSubmit={onSaveBranch}>
                 <details className="parameter-compact-item">
                   <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · {activeMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
@@ -1826,6 +1911,23 @@ function ParameterWorkspace({
                   </div>
                 </details>
               </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon layout"><LayoutDashboard size={19} /></span><span className="parameter-item-name"><strong>Layout do catálogo</strong><small>Visual · {activeLayoutMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{activeCatalogLayout === "horizontal" ? "Horizontal" : "Vitrine"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset">
+                      <legend>Apresentação nesta filial</legend>
+                      <div className="parameter-mode-options parameter-layout-options">
+                        <label className={activeLayoutMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="inherit" checked={activeLayoutMode === "inherit"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
+                        <label className={activeLayoutMode === "horizontal" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="horizontal" checked={activeLayoutMode === "horizontal"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "horizontal")} /><LayoutDashboard size={17} /><span><strong>Horizontal</strong><small>Foto ao lado</small></span></label>
+                        <label className={activeLayoutMode === "showcase" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="showcase" checked={activeLayoutMode === "showcase"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "showcase")} /><ImagePlus size={17} /><span><strong>Vitrine</strong><small>Foto acima</small></span></label>
+                      </div>
+                    </fieldset>
+                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              </>
             ) : <p className="parameter-empty">Cadastre uma filial para configurar parâmetros específicos.</p>}
           </section>
         )}

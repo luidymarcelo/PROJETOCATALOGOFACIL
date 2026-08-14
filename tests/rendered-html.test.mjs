@@ -85,6 +85,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
   assert.match(page, /calculatesDeliveryFee/);
+  assert.match(page, /catalog_layout/);
+  assert.match(page, /catalogLayout/);
+  assert.match(page, /product-grid \$\{merchant\.catalogLayout\}/);
   assert.match(page, /Total parcial/);
   assert.match(page, /Taxa de entrega:.*A combinar/);
   assert.doesNotMatch(page, /setIsCartOpen\(true\);\s*\n\s*}/);
@@ -113,6 +116,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /className="parameter-mode-options"/);
   assert.match(adminPage, /className="parameter-compact-item"/);
   assert.match(adminPage, /<details className="parameter-compact-item">/);
+  assert.match(adminPage, /CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout"/);
+  assert.match(adminPage, /Layout do catálogo/);
+  assert.match(adminPage, /Foto acima do nome do produto/);
+  assert.match(adminPage, /branchCatalogLayouts/);
   assert.doesNotMatch(adminPage, />Empresa selecionada</);
   assert.doesNotMatch(adminPage, /: nextTenants\[0\]\?\.id/);
   assert.match(pageStyles, /\.admin-console-layout/);
@@ -121,6 +128,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.parameter-mode-options/);
   assert.match(pageStyles, /\.parameter-compact-item/);
   assert.match(pageStyles, /\.parameter-list-panel/);
+  assert.match(pageStyles, /\.product-grid\.showcase/);
+  assert.match(pageStyles, /aspect-ratio: 4 \/ 5/);
   assert.match(headers, /Permissions-Policy: geolocation=\(self\)/);
   assert.match(worker, /headers\.set\("Permissions-Policy", "geolocation=\(self\)"\)/);
   assert.match(adminPage, /Supabase não configurado neste computador/);

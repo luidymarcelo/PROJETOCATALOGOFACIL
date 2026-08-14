@@ -52,6 +52,8 @@ type Product = {
   unit?: string;
 };
 
+type CatalogLayout = "horizontal" | "showcase";
+
 type Merchant = {
   id: StoreId;
   name: string;
@@ -63,6 +65,7 @@ type Merchant = {
   minimumOrder: number;
   deliveryFee: number;
   calculatesDeliveryFee: boolean;
+  catalogLayout: CatalogLayout;
   whatsapp: string;
   address: string;
   latitude: number | null;
@@ -122,6 +125,10 @@ function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizontal"): CatalogLayout {
+  return value === "horizontal" || value === "showcase" ? value : fallback;
+}
+
 function requestCurrentPosition(options: PositionOptions) {
   return new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
 }
@@ -154,6 +161,7 @@ const fallbackMerchants: Merchant[] = [
     minimumOrder: 25,
     deliveryFee: 5.99,
     calculatesDeliveryFee: true,
+    catalogLayout: "horizontal",
     whatsapp: "5599999990001",
     address: "Av. Central, 320",
     latitude: -7.1908,
@@ -222,6 +230,7 @@ const fallbackMerchants: Merchant[] = [
     minimumOrder: 15,
     deliveryFee: 3.99,
     calculatesDeliveryFee: true,
+    catalogLayout: "horizontal",
     whatsapp: "5599999990002",
     address: "Rua das Flores, 88",
     latitude: -7.1842,
@@ -291,6 +300,7 @@ const fallbackMerchants: Merchant[] = [
     minimumOrder: 80,
     deliveryFee: 18,
     calculatesDeliveryFee: true,
+    catalogLayout: "horizontal",
     whatsapp: "5599999990003",
     address: "Av. Filadelfia, 1280 - Setor Industrial",
     latitude: -7.2056,
@@ -481,6 +491,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     minimumOrder: 0,
     deliveryFee: 0,
     calculatesDeliveryFee: true,
+    catalogLayout: "horizontal",
     whatsapp: "",
     address: "Endereço não informado",
     latitude: store.latitude == null ? null : Number(store.latitude),
@@ -766,12 +777,12 @@ export default function Home() {
           .order("created_at", { ascending: true }),
         supabase
           .from("tenant_parameters")
-          .select("tenant_id, parameter_value")
-          .eq("parameter_key", "calculate_delivery_fee"),
+          .select("tenant_id, parameter_key, parameter_value")
+          .in("parameter_key", ["calculate_delivery_fee", "catalog_layout"]),
         supabase
           .from("store_parameters")
-          .select("store_id, parameter_value")
-          .eq("parameter_key", "calculate_delivery_fee"),
+          .select("store_id, parameter_key, parameter_value")
+          .in("parameter_key", ["calculate_delivery_fee", "catalog_layout"]),
       ]);
       const { data, error } = storeResult;
 
@@ -782,10 +793,24 @@ export default function Home() {
       }
 
       const tenantFreightParameters = new Map(
-        (tenantParameterResult.data ?? []).map((row) => [row.tenant_id, parameterBoolean(row.parameter_value, true)]),
+        (tenantParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "calculate_delivery_fee")
+          .map((row) => [row.tenant_id, parameterBoolean(row.parameter_value, true)]),
       );
       const storeFreightParameters = new Map(
-        (storeParameterResult.data ?? []).map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+        (storeParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "calculate_delivery_fee")
+          .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+      );
+      const tenantLayoutParameters = new Map(
+        (tenantParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "catalog_layout")
+          .map((row) => [row.tenant_id, catalogLayoutValue(row.parameter_value)]),
+      );
+      const storeLayoutParameters = new Map(
+        (storeParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "catalog_layout")
+          .map((row) => [row.store_id, catalogLayoutValue(row.parameter_value)]),
       );
 
       const loadedMerchants = data.flatMap((store) => {
@@ -829,6 +854,9 @@ export default function Home() {
             calculatesDeliveryFee: storeFreightParameters.has(store.id)
               ? storeFreightParameters.get(store.id)!
               : tenantFreightParameters.get(store.tenant_id) ?? true,
+            catalogLayout: storeLayoutParameters.get(store.id)
+              ?? tenantLayoutParameters.get(store.tenant_id)
+              ?? "horizontal",
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
             categories: [
@@ -1267,7 +1295,7 @@ export default function Home() {
             </div>
 
             {filteredProducts.length ? (
-              <div className="product-grid">
+              <div className={`product-grid ${merchant.catalogLayout}`}>
                 {filteredProducts.map((product) => {
                 const quantity =
                   cart.find((item) => item.product.id === product.id)?.quantity ??
