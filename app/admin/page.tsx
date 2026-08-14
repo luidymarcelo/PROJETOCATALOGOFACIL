@@ -1794,39 +1794,41 @@ function ParameterWorkspace({
         <label><span>Aplicar parâmetros em</span><select aria-label="Aplicar parâmetros em" value={scope === "company" ? "company" : activeBranch?.id ?? "company"} onChange={(event) => event.target.value === "company" ? onScopeChange("company") : onBranchChange(event.target.value)}><option value="company">Empresa: {tenant.name}</option><optgroup label="Filiais">{branches.map((branch) => <option value={branch.id} key={branch.id}>Filial: {branch.name}</option>)}</optgroup></select></label>
       </div>
       <div className="parameter-editor">
-        {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : scope === "company" ? (
-          <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveCompany}>
-            <header className="parameter-editor-heading">
-              <span className="parameter-editor-icon"><Truck size={21} /></span>
-              <div><span>Entrega</span><h2>Cálculo da taxa de entrega</h2><p>Defina o comportamento padrão para todas as filiais da empresa.</p></div>
-              <strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? "Ativo" : "Desativado"}</strong>
-            </header>
-            <div className="parameter-setting-row">
-              <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="As filiais que herdam o padrão seguirão esta escolha." onChange={onCompanyEnabledChange} />
-            </div>
-            <div className="parameter-impact-line"><Building2 size={18} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
-            <footer className="parameter-form-footer"><span>Esta alteração afeta apenas filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar padrão"}</button></footer>
-          </form>
-        ) : activeBranch ? (
-          <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveBranch}>
-            <header className="parameter-editor-heading">
-              <span className="parameter-editor-icon"><Truck size={21} /></span>
-              <div><span>Entrega</span><h2>Cálculo da taxa de entrega</h2><p>Configure o comportamento exclusivo de {activeBranch.name}.</p></div>
-              <strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? "Ativo" : "Desativado"}</strong>
-            </header>
-            <fieldset className="parameter-mode-fieldset">
-              <legend>Comportamento nesta filial</legend>
-              <div className="parameter-mode-options">
-                <label className={activeMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="inherit" checked={activeMode === "inherit"} onChange={() => onBranchModeChange(activeBranch.id, "inherit")} /><Building2 size={18} /><span><strong>Herdar</strong><small>Segue {tenant.name}</small></span></label>
-                <label className={activeMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="enabled" checked={activeMode === "enabled"} onChange={() => onBranchModeChange(activeBranch.id, "enabled")} /><Truck size={18} /><span><strong>Ativar</strong><small>Sempre ativo aqui</small></span></label>
-                <label className={activeMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="disabled" checked={activeMode === "disabled"} onChange={() => onBranchModeChange(activeBranch.id, "disabled")} /><X size={18} /><span><strong>Desativar</strong><small>Não usar nesta filial</small></span></label>
-              </div>
-            </fieldset>
-            <div className={activeEnabled ? "parameter-effective-result active" : "parameter-effective-result inactive"}><span className="parameter-result-icon"><Truck size={19} /></span><span><small>Resultado em {activeBranch.name}</small><strong>Taxa de entrega {activeEnabled ? "ativa" : "desativada"}</strong><em>{activeMode === "inherit" ? `Herdado do padrão de ${tenant.name}.` : "Configuração definida exclusivamente para esta filial."}</em></span></div>
-            <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">Taxa fixa de entrega</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? "Valor incluído no total do pedido." : "Ative o cálculo de entrega para informar um valor."}</small></div>
-            <footer className="parameter-form-footer"><span>Esta alteração afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar filial"}</button></footer>
-          </form>
-        ) : <section className="admin-form-panel"><p className="admin-muted">Cadastre uma filial para configurar parâmetros específicos.</p></section>}
+        {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
+          <section className="parameter-list-panel">
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>1 parâmetro</span></header>
+            {scope === "company" ? (
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · Padrão da empresa</small></span><strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="As filiais que herdam o padrão seguirão esta escolha." onChange={onCompanyEnabledChange} />
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Afeta somente filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+            ) : activeBranch ? (
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · {activeMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Comportamento nesta filial</legend>
+                      <div className="parameter-mode-options">
+                        <label className={activeMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="inherit" checked={activeMode === "inherit"} onChange={() => onBranchModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
+                        <label className={activeMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="enabled" checked={activeMode === "enabled"} onChange={() => onBranchModeChange(activeBranch.id, "enabled")} /><Truck size={17} /><span><strong>Ativar</strong><small>Sempre ativo</small></span></label>
+                        <label className={activeMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="disabled" checked={activeMode === "disabled"} onChange={() => onBranchModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Não utilizar</small></span></label>
+                      </div>
+                    </fieldset>
+                    <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">Taxa fixa</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? "Incluída no total do pedido." : "Disponível quando o parâmetro estiver ativo."}</small></div>
+                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+            ) : <p className="parameter-empty">Cadastre uma filial para configurar parâmetros específicos.</p>}
+          </section>
+        )}
       </div>
     </section>
   );
