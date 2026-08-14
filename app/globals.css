@@ -467,9 +467,20 @@ img {
   white-space: nowrap;
 }
 
-.discovery-store-title small {
+.discovery-branch-name {
   display: block;
   margin-top: 3px;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discovery-store-title small {
+  display: block;
+  margin-top: 2px;
   overflow: hidden;
   color: var(--muted);
   font-size: 0.72rem;
@@ -603,6 +614,14 @@ img {
   font-size: clamp(2rem, 4vw, 4.2rem);
   line-height: 0.98;
   letter-spacing: 0;
+}
+
+.merchant-branch-name {
+  display: block;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  font-weight: 750;
 }
 
 .merchant-info p {
@@ -903,6 +922,14 @@ img {
   display: block;
   margin-top: 4px;
   font-size: 1rem;
+}
+
+.cart-header small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .icon-button {

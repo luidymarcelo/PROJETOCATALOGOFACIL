@@ -41,7 +41,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -52,6 +52,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/008_add_anderson_platform_admin.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/009_store_locations.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/010_company_branch_parameters.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/011_public_catalog_companies.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -83,6 +84,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /commerce-grid discovery/);
   assert.match(page, /Buscar lojas ou produtos/);
   assert.match(page, /Lojas e catálogos/);
+  assert.match(page, /companyName/);
+  assert.match(page, /rpc\("get_public_catalog_companies"\)/);
+  assert.match(page, /className="discovery-branch-name"/);
+  assert.match(page, /className="merchant-branch-name"/);
+  assert.match(page, /<h1>\{merchant\.companyName\}<\/h1>/);
+  assert.match(page, /Filial: \$\{cleanOrderText\(branchName\)\}/);
   assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
@@ -90,6 +97,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /!directStoreId \? <button className="location-pill"/);
   assert.match(pageStyles, /\.store-discovery/);
   assert.match(pageStyles, /\.discovery-store-grid/);
+  assert.match(pageStyles, /\.discovery-branch-name/);
+  assert.match(pageStyles, /\.merchant-branch-name/);
   assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
@@ -211,6 +220,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(companyParametersSql, /create table if not exists public\.store_parameters/);
   assert.match(companyParametersSql, /calculate_delivery_fee/);
   assert.match(companyParametersSql, /platform admins manage tenant parameters/);
+  assert.match(publicCatalogCompaniesSql, /function public\.get_public_catalog_companies/);
+  assert.match(publicCatalogCompaniesSql, /security definer/);
+  assert.match(publicCatalogCompaniesSql, /grant execute on function public\.get_public_catalog_companies\(\) to anon, authenticated/);
   assert.match(createCompanyFunction, /latitude/);
   assert.match(createCompanyFunction, /longitude/);
   assert.match(createCompanyFunction, /tenant_parameters/);

@@ -157,3 +157,29 @@ create index tenant_parameters_key_idx on public.tenant_parameters (parameter_ke
 create index store_parameters_key_idx on public.store_parameters (parameter_key);
 create index sync_jobs_source_status_idx on public.sync_jobs (integration_source_id, status);
 create index orders_store_created_idx on public.orders (store_id, created_at desc);
+
+create or replace function public.get_public_catalog_companies()
+returns table (
+  tenant_id uuid,
+  company_name text
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select t.id, t.name
+  from public.tenants t
+  where exists (
+    select 1
+    from public.stores s
+    where s.tenant_id = t.id
+      and s.is_active
+  )
+  order by t.name;
+$$;
+
+revoke all on function public.get_public_catalog_companies() from public;
+grant execute on function public.get_public_catalog_companies() to anon, authenticated;
+
+notify pgrst, 'reload schema';

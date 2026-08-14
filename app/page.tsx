@@ -56,6 +56,7 @@ type CatalogLayout = "horizontal" | "showcase";
 
 type Merchant = {
   id: StoreId;
+  companyName: string;
   name: string;
   segment: string;
   tagline: string;
@@ -149,9 +150,18 @@ function normalizeWhatsapp(value: string) {
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
 
+function merchantBranchLabel(merchant: Merchant) {
+  const companyName = merchant.companyName.trim();
+  const branchName = merchant.name.trim();
+  return companyName.localeCompare(branchName, "pt-BR", { sensitivity: "base" }) === 0
+    ? null
+    : branchName;
+}
+
 const fallbackMerchants: Merchant[] = [
   {
     id: "bella-massa",
+    companyName: "Bella Massa Pizzaria",
     name: "Bella Massa Pizzaria",
     segment: "Pizzaria",
     tagline: "Pizzas artesanais, borda recheada e combos da noite.",
@@ -221,6 +231,7 @@ const fallbackMerchants: Merchant[] = [
   },
   {
     id: "farmacia-vida",
+    companyName: "Farmacia Vida",
     name: "Farmacia Vida",
     segment: "Farmacia",
     tagline: "Medicamentos, dermocosmeticos e itens de cuidado diario.",
@@ -290,6 +301,7 @@ const fallbackMerchants: Merchant[] = [
   },
   {
     id: "construmais",
+    companyName: "Construmais Obras",
     name: "Construmais Obras",
     segment: "Material de construcao",
     tagline:
@@ -482,6 +494,7 @@ const segmentLabels: Record<string, string> = {
 function neutralMerchant(store: { id: string; slug: string; name: string; segment?: string | null; latitude?: number | null; longitude?: number | null }): Merchant {
   return {
     id: store.slug,
+    companyName: store.name,
     name: store.name,
     segment: segmentLabels[store.segment ?? ""] ?? "Comércio",
     tagline: `Catálogo de produtos de ${store.name}.`,
@@ -634,6 +647,7 @@ function buildWhatsappMessage({
   createdAt: Date;
 }) {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const branchName = merchantBranchLabel(merchant);
   const items = cart
     .map(
       (item, index) => {
@@ -691,7 +705,8 @@ function buildWhatsappMessage({
 
   return [
     `*COMANDA #${orderCode}*`,
-    `*${cleanOrderText(merchant.name)}*`,
+    `*${cleanOrderText(merchant.companyName)}*`,
+    ...(branchName ? [`Filial: ${cleanOrderText(branchName)}`] : []),
     `Gerada em: ${formatOrderMoment(createdAt)}`,
     "----------------------------",
     "*CLIENTE*",
@@ -769,7 +784,7 @@ export default function Home() {
       const requestedStoreId = new URLSearchParams(window.location.search).get("loja")?.trim() || null;
       setDirectStoreId(requestedStoreId);
 
-      const [storeResult, tenantParameterResult, storeParameterResult] = await Promise.all([
+      const [storeResult, tenantParameterResult, storeParameterResult, companyResult] = await Promise.all([
         supabase
           .from("stores")
           .select("*, categories(*), products(*)")
@@ -783,6 +798,7 @@ export default function Home() {
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
           .in("parameter_key", ["calculate_delivery_fee", "catalog_layout"]),
+        supabase.rpc("get_public_catalog_companies"),
       ]);
       const { data, error } = storeResult;
 
@@ -812,12 +828,16 @@ export default function Home() {
           .filter((row) => row.parameter_key === "catalog_layout")
           .map((row) => [row.store_id, catalogLayoutValue(row.parameter_value)]),
       );
+      const companyNames = new Map(
+        (companyResult.data ?? []).map((row) => [row.tenant_id, row.company_name]),
+      );
 
       const loadedMerchants = data.flatMap((store) => {
         const demoMerchant = fallbackMerchants.find(
           (item) => item.id === store.slug,
         );
         const baseMerchant = demoMerchant ?? neutralMerchant(store);
+        const companyName = companyNames.get(store.tenant_id)?.trim() || store.name;
 
         const categories = [...(store.categories ?? [])].sort(
           (a, b) => a.sort_order - b.sort_order,
@@ -844,7 +864,11 @@ export default function Home() {
           {
             ...baseMerchant,
             id: store.slug,
+            companyName,
             name: store.name,
+            tagline: demoMerchant
+              ? baseMerchant.tagline
+              : `Catálogo de produtos de ${companyName}.`,
             address: store.address ?? baseMerchant.address,
             latitude: store.latitude == null ? null : Number(store.latitude),
             longitude: store.longitude == null ? null : Number(store.longitude),
@@ -984,6 +1008,7 @@ export default function Home() {
     const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
     if (!normalizedSearch) return nearbyMerchants;
     return nearbyMerchants.filter((store) => [
+      store.companyName,
       store.name,
       store.segment,
       store.tagline,
@@ -1194,7 +1219,7 @@ export default function Home() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={directStoreId ? `Buscar em ${merchant.name}` : "Buscar lojas ou produtos"}
+            placeholder={directStoreId ? `Buscar em ${merchant.companyName}` : "Buscar lojas ou produtos"}
           />
         </label>
 
@@ -1503,11 +1528,12 @@ function StoreDiscovery({
           {merchants.map((store) => {
             const Icon = iconByMerchant[store.icon];
             const currentDistance = distances.get(store.id);
+            const branchName = merchantBranchLabel(store);
             return (
               <a className="discovery-store-card" href={storeCatalogUrl(store.id)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
-                <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.name} variant="discovery-store-image" icon="store" /><span>{store.segment}</span></div>
+                <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.companyName} variant="discovery-store-image" icon="store" /><span>{store.segment}</span></div>
                 <div className="discovery-store-content">
-                  <div className="discovery-store-title"><span className="store-avatar"><Icon size={20} /></span><div><h2>{store.name}</h2><small>{store.address}</small></div></div>
+                  <div className="discovery-store-title"><span className="store-avatar"><Icon size={20} /></span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>
                   <p>{store.tagline}</p>
                   <footer><span><Clock size={15} /> {store.deliveryTime}</span>{currentDistance !== undefined ? <span><MapPin size={15} /> {distanceLabel(currentDistance)}</span> : <span><Truck size={15} /> {store.calculatesDeliveryFee ? formatPrice(store.deliveryFee) : "A combinar"}</span>}</footer>
                 </div>
@@ -1546,13 +1572,14 @@ function CatalogImage({
 
 function MerchantHero({ merchant }: { merchant: Merchant }) {
   const Icon = iconByMerchant[merchant.icon];
+  const branchName = merchantBranchLabel(merchant);
 
   return (
     <section
       className="merchant-hero"
       style={{ "--merchant-color": merchant.palette } as CSSProperties}
     >
-      <CatalogImage src={merchant.cover} alt={merchant.name} variant="merchant-cover" icon="store" />
+      <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
       <div className="merchant-overlay" />
       <div className="merchant-info">
         <span className="merchant-logo">
@@ -1560,7 +1587,8 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
         </span>
         <div>
           <span className="merchant-segment">{merchant.segment}</span>
-          <h1>{merchant.name}</h1>
+          <h1>{merchant.companyName}</h1>
+          {branchName ? <span className="merchant-branch-name">{branchName}</span> : null}
           <p>{merchant.tagline}</p>
           <div className="merchant-meta">
             {merchant.rating !== null ? <span><CheckCircle2 size={16} />{merchant.rating.toFixed(1)}</span> : null}
@@ -1613,6 +1641,7 @@ function CartPanel({
   onUseCurrentLocation: () => void;
 }) {
   const disabled = cart.length === 0;
+  const cartBranchName = merchantBranchLabel(cartMerchant);
 
   return (
     <>
@@ -1621,7 +1650,8 @@ function CartPanel({
       <div className="cart-header">
         <div>
           <span>Carrinho</span>
-          <strong>{cartMerchant.name}</strong>
+          <strong>{cartMerchant.companyName}</strong>
+          {cartBranchName ? <small>{cartBranchName}</small> : null}
         </div>
         <button className="icon-button mobile-only" onClick={onClose}>
           <X size={20} />
@@ -1631,7 +1661,7 @@ function CartPanel({
       <div className="cart-scroll-area">
       {!cartIsFromActiveStore ? (
         <div className="cart-warning">
-          Pedido iniciado em {cartMerchant.name}.
+          Pedido iniciado em {cartMerchant.companyName}{cartBranchName ? `, filial ${cartBranchName}` : ""}.
         </div>
       ) : null}
 
