@@ -2715,15 +2715,6 @@ img {
   color: #39715e;
 }
 
-.admin-sidebar-company {
-  display: grid;
-  gap: 3px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-
-.admin-sidebar-company > span,
-.company-settings-nav > span,
 .company-settings-header span,
 .company-overview-banner span,
 .admin-company-toolbar span {
@@ -2731,21 +2722,6 @@ img {
   font-size: 0.74rem;
   font-weight: 850;
   text-transform: uppercase;
-}
-
-.admin-sidebar-company > strong {
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-sidebar-company > small {
-  color: var(--muted);
-}
-
-.admin-sidebar-company-nav {
-  margin-top: 10px;
 }
 
 .admin-console-content {
@@ -2968,29 +2944,6 @@ img {
   border-bottom: 1px solid var(--line);
 }
 
-.company-settings-layout {
-  display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
-  gap: 22px;
-  align-items: start;
-}
-
-.company-settings-nav {
-  position: sticky;
-  top: 20px;
-  display: grid;
-  gap: 5px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.company-settings-nav > span {
-  padding: 4px 8px 9px;
-  border-bottom: 1px solid var(--line);
-}
-
 .company-settings-content,
 .settings-overview {
   display: grid;
@@ -3189,26 +3142,6 @@ img {
     justify-content: flex-start;
   }
 
-  .company-settings-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .company-settings-nav {
-    position: static;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .company-settings-nav > span {
-    grid-column: 1 / -1;
-  }
-
-  .company-settings-nav button {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .company-settings-nav button > svg:last-child {
-    display: none;
-  }
 }
 
 @media (max-width: 860px) {
@@ -3226,10 +3159,6 @@ img {
 
   .admin-sidebar-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .admin-sidebar-company-nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .admin-sidebar-nav button > svg:last-child {
@@ -3251,9 +3180,7 @@ img {
     padding: 12px;
   }
 
-  .admin-sidebar-nav,
-  .admin-sidebar-company-nav,
-  .company-settings-nav {
+  .admin-sidebar-nav {
     grid-template-columns: 1fr;
   }
 
@@ -3336,124 +3263,10 @@ img {
   align-items: start;
 }
 
-.parameter-scope-list {
-  display: grid;
-  gap: 5px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.parameter-scope-list > div:first-child {
-  display: grid;
-  gap: 3px;
-  padding: 5px 7px 13px;
-  border-bottom: 1px solid var(--line);
-}
-
-.parameter-scope-list > div:first-child > span,
-.parameter-scope-divider > span,
-.parameter-context-bar > span {
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.parameter-scope-list > div:first-child > small {
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
-.parameter-scope-list > button {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: center;
-  min-height: 58px;
-  padding: 8px 9px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-}
-
-.parameter-scope-list > button > span {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  text-align: left;
-}
-
-.parameter-scope-list > button strong,
-.parameter-scope-list > button small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.parameter-scope-list > button small {
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 650;
-}
-
-.parameter-scope-list > button:hover {
-  border-color: var(--line);
-  background: var(--surface-strong);
-  color: var(--foreground);
-}
-
-.parameter-scope-list > button.active {
-  border-color: rgba(15, 167, 111, 0.3);
-  background: rgba(15, 167, 111, 0.09);
-  color: var(--primary-dark);
-}
-
-.parameter-scope-divider {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: center;
-  margin-top: 7px;
-  padding: 10px 7px 4px;
-  border-top: 1px solid var(--line);
-}
-
-.parameter-scope-divider > b {
-  display: grid;
-  min-width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 6px;
-  background: var(--surface-strong);
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
 .parameter-editor {
   display: grid;
   gap: 10px;
   min-width: 0;
-}
-
-.parameter-context-bar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-strong);
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.parameter-context-bar svg {
-  flex: 0 0 auto;
-  color: var(--muted);
 }
 
 .parameter-effect-summary,
@@ -3525,27 +3338,6 @@ img {
   color: var(--foreground);
 }
 
-@media (max-width: 1100px) {
-  .parameter-workspace {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 860px) {
-  .parameter-workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .parameter-scope-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .parameter-scope-list > div:first-child,
-  .parameter-scope-divider {
-    grid-column: 1 / -1;
-  }
-}
-
 @media (max-width: 760px) {
   .company-settings-actions {
     display: grid;
@@ -3556,16 +3348,148 @@ img {
     width: 100%;
   }
 
-  .parameter-scope-list {
-    grid-template-columns: 1fr;
-  }
-
   .location-help {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
   .location-help .admin-secondary {
     grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+/* Simplified company administration */
+.company-settings-title {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.company-settings-title > div {
+  min-width: 0;
+}
+
+.company-settings-layout {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.company-settings-nav {
+  position: static;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.company-settings-nav button {
+  display: inline-flex;
+  min-height: 40px;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.company-settings-nav button.active {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--primary-dark);
+  box-shadow: 0 2px 8px rgba(29, 35, 30, 0.08);
+}
+
+.company-settings-nav button span {
+  display: inline;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.parameter-workspace {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.parameter-scope-control {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.parameter-scope-control > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.parameter-scope-control > div > svg {
+  flex: 0 0 auto;
+  color: var(--primary-dark);
+}
+
+.parameter-scope-control > div > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.parameter-scope-control small {
+  color: var(--muted);
+}
+
+.parameter-scope-control label {
+  display: grid;
+  grid-template-columns: auto minmax(210px, 280px);
+  gap: 9px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.parameter-scope-control select {
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.parameter-editor .parameter-settings-panel {
+  max-width: 760px;
+}
+
+@media (max-width: 760px) {
+  .company-settings-title {
+    align-items: flex-start;
+  }
+
+  .company-settings-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .parameter-scope-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .parameter-scope-control label {
+    grid-template-columns: 1fr;
+  }
+
+  .parameter-scope-control select {
     width: 100%;
   }
 }

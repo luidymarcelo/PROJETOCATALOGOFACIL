@@ -108,7 +108,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /navigator\.permissions\.query\(\{ name: "geolocation" \}\)/);
   assert.match(adminPage, /window\.self !== window\.top/);
   assert.match(adminPage, /Buscar por empresa ou filial/);
-  assert.match(adminPage, /Escolha a empresa ou uma filial/);
+  assert.match(adminPage, /Escolha onde a configuração será aplicada/);
+  assert.match(adminPage, /className="parameter-scope-control"/);
+  assert.doesNotMatch(adminPage, />Empresa selecionada</);
+  assert.doesNotMatch(adminPage, /: nextTenants\[0\]\?\.id/);
   assert.match(pageStyles, /\.admin-console-layout/);
   assert.match(pageStyles, /\.company-settings-layout/);
   assert.match(pageStyles, /\.parameter-workspace/);

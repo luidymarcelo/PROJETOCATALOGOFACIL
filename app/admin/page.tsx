@@ -357,7 +357,7 @@ function AdminPage() {
     setAdminBranches(allBranches);
     const tenantId = preferredTenantId && nextTenants.some((item) => item.id === preferredTenantId)
       ? preferredTenantId
-      : nextTenants[0]?.id ?? "";
+      : "";
     const tenantRow = nextTenants.find((item) => item.id === tenantId) ?? null;
     setTenant(tenantRow);
     const nextBranches = allBranches.filter((branch) => branch.tenant_id === tenantId);
@@ -584,9 +584,9 @@ function AdminPage() {
     const tenantRow = data.tenant as Tenant;
     const branchRow = data.branch as Branch;
     setMessage("Empresa, filial e acesso criados. O cliente já pode entrar no Portal da empresa.");
-    setTenant(tenantRow);
-    setBranches([branchRow]);
-    setActiveBranchId(branchRow.id);
+    setTenant(null);
+    setBranches([]);
+    setActiveBranchId("");
     setAdminTenants((current) => [...current, tenantRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setAdminSection("companies");
@@ -618,6 +618,15 @@ function AdminPage() {
     setActiveBranchId(selectedBranches[0]?.id ?? "");
     setShowBranchForm(false);
     setAdminSection("catalog");
+  }
+
+  function showCompanies() {
+    setAdminSection("companies");
+    setTenant(null);
+    setBranches([]);
+    setActiveBranchId("");
+    setShowBranchForm(false);
+    setMessage("");
   }
 
   async function openCompanySettings(tenantId: string, section: CompanySettingsSection = "overview") {
@@ -1510,20 +1519,16 @@ function AdminPage() {
           {!isCompanyPortal ? (
             <PlatformAdminSidebar
               section={adminSection}
-              tenant={tenant}
-              branchCount={branches.length}
               companyCount={adminTenants.length}
-              onCompanies={() => { setAdminSection("companies"); setMessage(""); }}
-              onNew={() => { setAdminSection("new"); setMessage(""); }}
-              onCatalog={() => tenant && openAdminCatalog(tenant.id)}
-              onSettings={(section) => { if (tenant) void openCompanySettings(tenant.id, section); }}
+              onCompanies={showCompanies}
+              onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); setMessage(""); }}
             />
           ) : null}
           <div className={isCompanyPortal ? "company-portal-content" : "admin-console-content"}>
-        <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie os catálogos da sua empresa" : "Administração de empresas"}</h1><p>{isCompanyPortal ? "Escolha uma filial e cadastre as categorias e os produtos que serão exibidos aos clientes." : "Gerencie empresas, filiais, acessos, parâmetros e catálogos em uma estrutura única."}</p></div>
+        {isCompanyPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie os catálogos da sua empresa" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Escolha uma filial e cadastre as categorias e os produtos que serão exibidos aos clientes." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
 
         {!isCompanyPortal && adminSection === "companies" ? (
-          <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => setAdminSection("new")} onOpenCatalog={openAdminCatalog} onOpenSettings={openCompanySettings} />
+          <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); }} onOpenCatalog={openAdminCatalog} onOpenSettings={openCompanySettings} />
         ) : !tenant && isCompanyPortal ? (
           <section className="admin-form-panel access-denied-panel"><h2>Acesso da empresa não vinculado</h2><p>O login foi aceito, mas não foi encontrado o vínculo deste e-mail com uma empresa cadastrada.</p><button className="admin-primary" onClick={() => supabase?.auth.signOut()}>Sair e entrar novamente</button></section>
         ) : adminSection === "new" || !tenant ? (
@@ -1547,7 +1552,7 @@ function AdminPage() {
         ) : !isCompanyPortal && adminSection === "settings" ? (
           <section className="company-settings-view">
             <header className="company-settings-header">
-              <div><span>Empresa selecionada</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"}</p></div>
+              <div className="company-settings-title"><button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button><div><span>Gerenciar empresa</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"}</p></div></div>
               <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div>
             </header>
             <div className="company-settings-layout">
@@ -1700,59 +1705,39 @@ function AdminPage() {
 
 function PlatformAdminSidebar({
   section,
-  tenant,
-  branchCount,
   companyCount,
   onCompanies,
   onNew,
-  onCatalog,
-  onSettings,
 }: {
   section: "companies" | "new" | "catalog" | "settings";
-  tenant: Tenant | null;
-  branchCount: number;
   companyCount: number;
   onCompanies: () => void;
   onNew: () => void;
-  onCatalog: () => void;
-  onSettings: (section: CompanySettingsSection) => void;
 }) {
   return (
     <aside className="admin-console-sidebar">
       <div className="admin-sidebar-brand"><span className="admin-sidebar-mark"><Building2 size={19} /></span><div><strong>Catálogo Fácil</strong><small>Administração</small></div></div>
       <nav className="admin-sidebar-nav" aria-label="Navegação administrativa">
-        <button className={section === "companies" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
+        <button className={section !== "new" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
         <button className={section === "new" ? "active" : ""} type="button" onClick={onNew}><Plus size={18} /><span><strong>Nova empresa</strong><small>Criar acesso e filial</small></span><ChevronRight size={16} /></button>
       </nav>
-      {tenant ? (
-        <div className="admin-sidebar-company">
-          <span>Empresa selecionada</span>
-          <strong>{tenant.name}</strong>
-          <small>{branchCount} {branchCount === 1 ? "filial" : "filiais"}</small>
-          <nav className="admin-sidebar-nav admin-sidebar-company-nav" aria-label={`Administração de ${tenant.name}`}>
-            <button className={section === "catalog" ? "active" : ""} type="button" onClick={onCatalog}><Package size={18} /><span><strong>Catálogo</strong><small>Filiais e produtos</small></span><ChevronRight size={16} /></button>
-            <button className={section === "settings" ? "active" : ""} type="button" onClick={() => onSettings("overview")}><Settings size={18} /><span><strong>Configurações</strong><small>Acesso e parâmetros</small></span><ChevronRight size={16} /></button>
-          </nav>
-        </div>
-      ) : null}
     </aside>
   );
 }
 
 function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSection; onChange: (section: CompanySettingsSection) => void }) {
-  const options: Array<{ id: CompanySettingsSection; label: string; description: string; icon: typeof Settings }> = [
-    { id: "overview", label: "Visão geral", description: "Empresa e filiais", icon: LayoutDashboard },
-    { id: "access", label: "Acesso", description: "E-mail e senha", icon: KeyRound },
-    { id: "parameters", label: "Parâmetros", description: "Regras comerciais", icon: SlidersHorizontal },
-    { id: "danger", label: "Exclusão", description: "Remover empresa", icon: TriangleAlert },
+  const options: Array<{ id: CompanySettingsSection; label: string; icon: typeof Settings }> = [
+    { id: "overview", label: "Resumo", icon: LayoutDashboard },
+    { id: "access", label: "Acesso", icon: KeyRound },
+    { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
+    { id: "danger", label: "Exclusão", icon: TriangleAlert },
   ];
 
   return (
     <nav className="company-settings-nav" aria-label="Configurações da empresa">
-      <span>Configurações</span>
       {options.map((option) => {
         const Icon = option.icon;
-        return <button className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={18} /><span><strong>{option.label}</strong><small>{option.description}</small></span><ChevronRight size={16} /></button>;
+        return <button className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={17} /><span>{option.label}</span></button>;
       })}
     </nav>
   );
@@ -1799,22 +1784,11 @@ function ParameterWorkspace({
 
   return (
     <section className="parameter-workspace">
-      <aside className="parameter-scope-list">
-        <div><span>Escopo dos parâmetros</span><strong>{tenant.name}</strong><small>Escolha a empresa ou uma filial</small></div>
-        <button className={scope === "company" ? "active" : ""} type="button" onClick={() => onScopeChange("company")}><Building2 size={18} /><span><strong>Padrão da empresa</strong><small>Usado por todas as filiais</small></span><ChevronRight size={16} /></button>
-        <div className="parameter-scope-divider"><span>Filiais</span><b>{branches.length}</b></div>
-        {branches.map((branch) => {
-          const mode = branchModes[branch.id] ?? "inherit";
-          const enabled = mode === "inherit" ? companyEnabled : mode === "enabled";
-          return (
-            <button className={scope === "branch" && activeBranch?.id === branch.id ? "active" : ""} type="button" key={branch.id} onClick={() => onBranchChange(branch.id)}>
-              <Store size={18} /><span><strong>{branch.name}</strong><small>{mode === "inherit" ? "Herda da empresa" : enabled ? "Configuração ativa" : "Configuração desativada"}</small></span><ChevronRight size={16} />
-            </button>
-          );
-        })}
-      </aside>
+      <div className="parameter-scope-control">
+        <div><SlidersHorizontal size={20} /><span><strong>Parâmetros</strong><small>Escolha onde a configuração será aplicada.</small></span></div>
+        <label>Configurar<select value={scope === "company" ? "company" : activeBranch?.id ?? "company"} onChange={(event) => event.target.value === "company" ? onScopeChange("company") : onBranchChange(event.target.value)}><option value="company">Padrão da empresa</option><optgroup label="Filiais">{branches.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</optgroup></select></label>
+      </div>
       <div className="parameter-editor">
-        <div className="parameter-context-bar"><span>Empresa</span><strong>{tenant.name}</strong><ChevronRight size={15} />{scope === "company" ? <b>Padrão da empresa</b> : <><span>Filial</span><b>{activeBranch?.name}</b></>}</div>
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : scope === "company" ? (
           <form className="admin-form-panel company-settings-panel parameter-settings-panel" onSubmit={onSaveCompany}>
             <div className="branch-form-heading"><div><span>Parâmetros padrão</span><h2>{tenant.name}</h2><p>As filiais em modo “herdar” usam exatamente estas configurações.</p></div><Building2 size={21} /></div>
