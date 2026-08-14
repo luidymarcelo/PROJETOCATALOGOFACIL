@@ -3484,7 +3484,7 @@ img {
 }
 
 .parameter-list-panel {
-  width: min(860px, 100%);
+  width: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
