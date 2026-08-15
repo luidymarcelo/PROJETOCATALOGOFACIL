@@ -1632,6 +1632,33 @@ img {
   margin-bottom: 14px;
 }
 
+.branch-details-panel {
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.branch-commerce-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.branch-location-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.branch-location-heading > span {
+  display: grid;
+  gap: 2px;
+}
+
+.branch-location-heading small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .branch-location-button {
   justify-self: start;
 }
@@ -3313,6 +3340,10 @@ img {
 
   .admin-form-grid,
   .admin-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .branch-commerce-fields {
     grid-template-columns: 1fr;
   }
 

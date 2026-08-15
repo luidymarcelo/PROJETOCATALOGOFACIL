@@ -41,7 +41,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -54,6 +54,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/010_company_branch_parameters.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/011_public_catalog_companies.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/012_company_branding_and_product_gallery.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/013_company_branch_management.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -171,14 +172,22 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.product-status-toggle\[aria-checked="true"\]/);
   assert.match(pageStyles, /\.admin-form-grid\.single/);
   assert.match(pageStyles, /\.parameter-item-icon\.stock/);
+  assert.match(pageStyles, /\.branch-details-panel/);
+  assert.match(pageStyles, /\.branch-commerce-fields/);
   assert.match(pageStyles, /aspect-ratio: 4 \/ 5/);
   assert.match(headers, /Permissions-Policy: geolocation=\(self\)/);
   assert.match(worker, /headers\.set\("Permissions-Policy", "geolocation=\(self\)"\)/);
   assert.match(adminPage, /Supabase não configurado neste computador/);
   assert.match(adminPage, /captureBranchLocation/);
   assert.match(adminPage, /Usar localização atual da filial/);
-  assert.match(adminPage, /saveExistingBranchLocation/);
-  assert.match(adminPage, /Salvar localização/);
+  assert.match(adminPage, /async function saveBranchDetails/);
+  assert.match(adminPage, /function BranchDetailsEditor/);
+  assert.match(adminPage, /Dados da filial/);
+  assert.match(adminPage, /Filial ativa no catálogo público/);
+  assert.match(adminPage, /minimum_order: minimumOrder/);
+  assert.match(adminPage, /delivery_time_label: branchDetailsForm\.deliveryTime/);
+  assert.match(adminPage, /Salvar dados/);
+  assert.match(adminPage, /BRANCH_DETAIL_SELECT/);
   assert.match(adminPage, /ParameterWorkspace/);
   assert.match(adminPage, />Herdar</);
   assert.match(adminPage, /className="parameter-form-footer"/);
@@ -192,6 +201,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /get-company-workspace/);
   assert.match(createCompanyFunction, /company_tenant_id/);
   assert.match(createCompanyFunction, /store_members/);
+  assert.match(createCompanyFunction, /whatsapp_phone, address, cover_image_url, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active/);
   assert.match(adminPage, /get_company_workspace/);
   assert.match(adminPage, /async function createBranch/);
   assert.match(adminPage, /Nova filial/);
@@ -281,6 +291,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(companyBrandingSql, /function public\.get_admin_company_identities/);
   assert.match(companyBrandingSql, /function public\.is_store_public/);
   assert.match(companyBrandingSql, /platform admins update company identity/);
+  assert.match(branchManagementSql, /company members read own stores/);
+  assert.match(branchManagementSql, /using \(public\.can_manage_store\(id\)\)/);
+  assert.match(branchManagementSql, /company members update own stores/);
+  assert.match(branchManagementSql, /with check \(public\.can_manage_store\(id\)\)/);
+  assert.match(branchManagementSql, /create or replace function public\.get_company_workspace/);
+  assert.match(branchManagementSql, /'minimum_order', s\.minimum_order/);
+  assert.match(branchManagementSql, /'is_active', s\.is_active/);
   assert.match(createCompanyFunction, /latitude/);
   assert.match(createCompanyFunction, /longitude/);
   assert.match(createCompanyFunction, /tenant_parameters/);

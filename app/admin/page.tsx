@@ -35,7 +35,21 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSPropert
 import { supabase } from "../../lib/supabase";
 
 type Tenant = { id: string; name: string; slug: string; is_active?: boolean; theme_color?: string; profile_image_url?: string | null };
-type Branch = { id: string; name: string; slug: string; tenant_id: string; address?: string | null; cover_image_url?: string | null; latitude?: number | null; longitude?: number | null; delivery_fee?: number | null };
+type Branch = {
+  id: string;
+  name: string;
+  slug: string;
+  tenant_id: string;
+  whatsapp_phone?: string | null;
+  address?: string | null;
+  cover_image_url?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  minimum_order?: number | null;
+  delivery_fee?: number | null;
+  delivery_time_label?: string | null;
+  is_active?: boolean;
+};
 type ProductImage = { id: string; image_url: string; sort_order: number };
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
@@ -80,6 +94,14 @@ type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" 
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
+type BranchDetailsForm = {
+  name: string;
+  phone: string;
+  minimumOrder: string;
+  deliveryFee: string;
+  deliveryTime: string;
+  isActive: boolean;
+};
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
@@ -87,6 +109,7 @@ const PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit";
 const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
+const BRANCH_DETAIL_SELECT = "id, name, slug, tenant_id, whatsapp_phone, address, cover_image_url, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active";
 
 const EMPTY_PRODUCT_FORM = {
   name: "",
@@ -243,9 +266,11 @@ function AdminPage() {
   const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
   const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "" });
   const [branchLocationForm, setBranchLocationForm] = useState({ address: "", latitude: "", longitude: "" });
+  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", minimumOrder: "0,00", deliveryFee: "0,00", deliveryTime: "", isActive: true });
   const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
   const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
-  const [savingBranchLocation, setSavingBranchLocation] = useState(false);
+  const [showBranchDetails, setShowBranchDetails] = useState(false);
+  const [savingBranchDetails, setSavingBranchDetails] = useState(false);
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
@@ -339,6 +364,18 @@ function AdminPage() {
     });
   }
 
+  async function hydrateBranchDetails(branchRows: Branch[]) {
+    if (!supabase || !branchRows.length) return branchRows;
+    const { data, error } = await supabase
+      .from("stores")
+      .select(BRANCH_DETAIL_SELECT)
+      .in("id", branchRows.map((branch) => branch.id));
+    if (error || !data?.length) return branchRows;
+
+    const detailsById = new Map(data.map((branch) => [branch.id, branch]));
+    return branchRows.map((branch) => ({ ...branch, ...detailsById.get(branch.id) })) as Branch[];
+  }
+
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
     if (isCompanyPortal) {
@@ -346,7 +383,7 @@ function AdminPage() {
         body: { action: "get-company-workspace" },
       });
       if (workspace?.tenant && workspace?.branches?.length) {
-        const portalBranches = workspace.branches as Branch[];
+        const portalBranches = await hydrateBranchDetails(workspace.branches as Branch[]);
         setTenant(workspace.tenant as Tenant);
         setBranches(portalBranches);
         setActiveBranchId((current) => current && portalBranches.some((branch) => branch.id === current) ? current : portalBranches[0].id);
@@ -357,7 +394,7 @@ function AdminPage() {
 
       const { data: databaseWorkspace } = await supabase.rpc("get_company_workspace");
       if (databaseWorkspace?.tenant && databaseWorkspace?.branches?.length) {
-        const portalBranches = databaseWorkspace.branches as Branch[];
+        const portalBranches = await hydrateBranchDetails(databaseWorkspace.branches as Branch[]);
         setTenant(databaseWorkspace.tenant as Tenant);
         setBranches(portalBranches);
         setActiveBranchId((current) => current && portalBranches.some((branch) => branch.id === current) ? current : portalBranches[0].id);
@@ -376,7 +413,7 @@ function AdminPage() {
       const [{ data: portalTenant, error: tenantError }, { data: portalBranches, error: branchError }] = tenantId
         ? await Promise.all([
             supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-            supabase.from("stores").select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+            supabase.from("stores").select(BRANCH_DETAIL_SELECT).eq("tenant_id", tenantId).order("created_at", { ascending: true }),
           ])
         : [{ data: null, error: null }, { data: null, error: null }];
       if (!portalTenant || !portalBranches?.length) {
@@ -396,7 +433,7 @@ function AdminPage() {
       supabase.from("tenants").select("id, name, slug").order("created_at", { ascending: true }),
       supabase
         .from("stores")
-        .select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee")
+        .select(BRANCH_DETAIL_SELECT)
         .order("created_at", { ascending: true }),
       supabase.rpc("get_admin_company_identities"),
     ]);
@@ -584,6 +621,14 @@ function AdminPage() {
       address: selectedBranch?.address ?? "",
       latitude: selectedBranch?.latitude == null ? "" : String(selectedBranch.latitude).replace(".", ","),
       longitude: selectedBranch?.longitude == null ? "" : String(selectedBranch.longitude).replace(".", ","),
+    });
+    setBranchDetailsForm({
+      name: selectedBranch?.name ?? "",
+      phone: formatWhatsapp(selectedBranch?.whatsapp_phone ?? ""),
+      minimumOrder: Number(selectedBranch?.minimum_order ?? 0).toFixed(2).replace(".", ","),
+      deliveryFee: Number(selectedBranch?.delivery_fee ?? 0).toFixed(2).replace(".", ","),
+      deliveryTime: selectedBranch?.delivery_time_label ?? "",
+      isActive: selectedBranch?.is_active ?? true,
     });
   }, [activeBranchId, branches]);
 
@@ -1170,7 +1215,7 @@ function AdminPage() {
         longitude,
         is_active: true,
       })
-      .select("id, name, slug, tenant_id, address, latitude, longitude, delivery_fee")
+      .select(BRANCH_DETAIL_SELECT)
       .single();
 
     setSavingBranch(false);
@@ -1193,34 +1238,62 @@ function AdminPage() {
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
 
-  async function saveExistingBranchLocation(event: FormEvent<HTMLFormElement>) {
+  async function saveBranchDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!supabase || !activeBranchId || savingBranchLocation) return;
+    if (!supabase || !activeBranchId || savingBranchDetails) return;
+    const name = branchDetailsForm.name.trim();
+    const phone = branchDetailsForm.phone.replace(/\D/g, "");
     const latitude = validCoordinate(branchLocationForm.latitude, -90, 90);
     const longitude = validCoordinate(branchLocationForm.longitude, -180, 180);
+    const minimumOrder = parseBrazilianNumber(branchDetailsForm.minimumOrder || "0");
+    const deliveryFee = parseBrazilianNumber(branchDetailsForm.deliveryFee || "0");
+    if (name.length < 2) {
+      setMessage("Informe o nome da filial.");
+      return;
+    }
+    if (phone.length < 10) {
+      setMessage("Informe um WhatsApp válido para a filial.");
+      return;
+    }
     if (branchLocationForm.address.trim().length < 5 || latitude === null || longitude === null) {
       setMessage("Informe o endereço e uma localização válida para a filial.");
       return;
     }
+    if (!Number.isFinite(minimumOrder) || minimumOrder < 0 || !Number.isFinite(deliveryFee) || deliveryFee < 0) {
+      setMessage("Informe valores válidos para pedido mínimo e taxa de entrega.");
+      return;
+    }
 
-    setSavingBranchLocation(true);
+    const branchUpdate: Partial<Branch> = {
+      name,
+      whatsapp_phone: phone,
+      address: branchLocationForm.address.trim(),
+      latitude,
+      longitude,
+      minimum_order: minimumOrder,
+      delivery_fee: deliveryFee,
+      delivery_time_label: branchDetailsForm.deliveryTime.trim() || null,
+      is_active: branchDetailsForm.isActive,
+    };
+    setSavingBranchDetails(true);
     setMessage("");
     const { error } = await supabase
       .from("stores")
-      .update({ address: branchLocationForm.address.trim(), latitude, longitude })
+      .update(branchUpdate)
       .eq("id", activeBranchId);
-    setSavingBranchLocation(false);
+    setSavingBranchDetails(false);
     if (error) {
       setMessage(error.message);
       return;
     }
 
     const updateBranch = (branch: Branch) => branch.id === activeBranchId
-      ? { ...branch, address: branchLocationForm.address.trim(), latitude, longitude }
+      ? { ...branch, ...branchUpdate }
       : branch;
     setBranches((current) => current.map(updateBranch));
     setAdminBranches((current) => current.map(updateBranch));
-    setMessage("Endereço e localização da filial atualizados.");
+    setBranchDeliveryFees((current) => ({ ...current, [activeBranchId]: deliveryFee.toFixed(2).replace(".", ",") }));
+    setMessage(`Dados da filial ${name} atualizados.`);
   }
 
   function selectCoverImage(event: ChangeEvent<HTMLInputElement>) {
@@ -1974,7 +2047,7 @@ function AdminPage() {
             />
           ) : null}
           <div className={isCompanyPortal ? "company-portal-content" : "admin-console-content"}>
-        {isCompanyPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie os catálogos da sua empresa" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Escolha uma filial e cadastre as categorias e os produtos que serão exibidos aos clientes." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
+        {isCompanyPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie as filiais e os catálogos" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Escolha uma filial para atualizar seus dados, categorias e produtos." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
 
         {!isCompanyPortal && adminSection === "companies" ? (
           <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); }} onOpenCatalog={openAdminCatalog} onOpenSettings={openCompanySettings} />
@@ -2103,10 +2176,10 @@ function AdminPage() {
           </section>
         ) : (
           <>
-            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
+            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
             {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label><label>Latitude<input value={branchForm.latitude} onChange={(event) => setBranchForm({ ...branchForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label><label>Longitude<input value={branchForm.longitude} onChange={(event) => setBranchForm({ ...branchForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("branch")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "branch" ? "Obtendo localização..." : "Usar localização atual da filial"}</button>{locationIssue?.target === "branch" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("branch")} /> : null}<div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {!isCompanyPortal && activeBranch ? <form className="admin-form-panel branch-location-panel" onSubmit={saveExistingBranchLocation}><div className="branch-form-heading"><div><span>Localização da filial</span><h2>Endereço e ponto no mapa</h2></div><MapPin size={21} /></div><label>Endereço<input value={branchLocationForm.address} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><div className="admin-form-grid"><label>Latitude<input value={branchLocationForm.latitude} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, latitude: event.target.value })} inputMode="decimal" required /></label><label>Longitude<input value={branchLocationForm.longitude} onChange={(event) => setBranchLocationForm({ ...branchLocationForm, longitude: event.target.value })} inputMode="decimal" required /></label></div>{locationIssue?.target === "existing" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("existing")} /> : null}<div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => captureBranchLocation("existing")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "existing" ? "Obtendo..." : "Usar localização atual"}</button><button className="admin-primary" type="submit" disabled={savingBranchLocation}><Save size={16} /> {savingBranchLocation ? "Salvando..." : "Salvar localização"}</button></div></form> : null}
+            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} details={branchDetailsForm} location={branchLocationForm} locating={locatingBranchForm === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onLocationChange={setBranchLocationForm} onCaptureLocation={() => captureBranchLocation("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
             <section className="catalog-media-panel">
               <div className="branch-cover-preview">
                 {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
@@ -2255,6 +2328,56 @@ function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSec
         return <button className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={17} /><span>{option.label}</span></button>;
       })}
     </nav>
+  );
+}
+
+function BranchDetailsEditor({
+  branch,
+  details,
+  location,
+  locating,
+  saving,
+  issue,
+  onDetailsChange,
+  onLocationChange,
+  onCaptureLocation,
+  onClose,
+  onSubmit,
+}: {
+  branch: Branch;
+  details: BranchDetailsForm;
+  location: { address: string; latitude: string; longitude: string };
+  locating: boolean;
+  saving: boolean;
+  issue: string;
+  onDetailsChange: (details: BranchDetailsForm) => void;
+  onLocationChange: (location: { address: string; latitude: string; longitude: string }) => void;
+  onCaptureLocation: () => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="admin-form-panel branch-details-panel" onSubmit={onSubmit}>
+      <div className="branch-form-heading"><div><span>Dados da filial</span><h2>{branch.name}</h2><p>Informações exibidas no catálogo e usadas nos pedidos.</p></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar dados da filial" onClick={onClose}><X size={18} /></button></div>
+      <ParameterToggle checked={details.isActive} title="Filial ativa no catálogo público" description={details.isActive ? "A filial está disponível para receber pedidos." : "A filial fica oculta até ser reativada."} onChange={(isActive) => onDetailsChange({ ...details, isActive })} />
+      <div className="admin-form-grid">
+        <label>Nome da filial<input value={details.name} onChange={(event) => onDetailsChange({ ...details, name: event.target.value })} required /></label>
+        <label>WhatsApp<input value={details.phone} onChange={(event) => onDetailsChange({ ...details, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
+      </div>
+      <label>Endereço<input value={location.address} onChange={(event) => onLocationChange({ ...location, address: event.target.value })} placeholder="Rua, número e bairro" required /></label>
+      <div className="admin-form-grid branch-commerce-fields">
+        <label>Pedido mínimo<input value={details.minimumOrder} onChange={(event) => onDetailsChange({ ...details, minimumOrder: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
+        <label>Taxa de entrega<input value={details.deliveryFee} onChange={(event) => onDetailsChange({ ...details, deliveryFee: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
+        <label>Prazo de entrega<input value={details.deliveryTime} onChange={(event) => onDetailsChange({ ...details, deliveryTime: event.target.value })} placeholder="Ex.: 30-45 min" maxLength={50} /></label>
+      </div>
+      <div className="branch-location-heading"><MapPin size={18} /><span><strong>Localização no mapa</strong><small>Usada para retirada e distância da loja.</small></span></div>
+      <div className="admin-form-grid">
+        <label>Latitude<input value={location.latitude} onChange={(event) => onLocationChange({ ...location, latitude: event.target.value })} inputMode="decimal" required /></label>
+        <label>Longitude<input value={location.longitude} onChange={(event) => onLocationChange({ ...location, longitude: event.target.value })} inputMode="decimal" required /></label>
+      </div>
+      {issue ? <LocationHelp issue={issue} onRetry={onCaptureLocation} /> : null}
+      <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={onCaptureLocation} disabled={locating || saving}><LocateFixed size={16} /> {locating ? "Obtendo..." : "Usar localização atual"}</button><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar dados"}</button></div>
+    </form>
   );
 }
 
