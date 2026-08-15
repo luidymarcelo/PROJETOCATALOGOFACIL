@@ -1911,8 +1911,45 @@ img {
 
 .product-admin-info {
   display: grid;
+  flex: 1 1 auto;
   gap: 3px;
   min-width: 0;
+}
+
+.product-admin-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.product-admin-name strong {
+  min-width: 0;
+}
+
+.product-status-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.product-status-badge.active {
+  background: rgba(23, 107, 82, 0.1);
+  color: #176b52;
+}
+
+.product-status-badge.inactive {
+  background: rgba(94, 101, 97, 0.11);
+  color: #5e6561;
+}
+
+.product-admin-row.inactive .product-admin-info > small {
+  color: #777d79;
 }
 
 .product-admin-info strong,
@@ -1942,6 +1979,39 @@ img {
   opacity: 0.5;
 }
 
+.product-admin-actions .product-status-toggle {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(94, 101, 97, 0.28);
+  border-radius: 999px;
+  background: #d9ddda;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.product-status-toggle > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(24, 30, 26, 0.24);
+  transition: transform 160ms ease;
+}
+
+.product-status-toggle[aria-checked="true"] {
+  border-color: #176b52;
+  background: #176b52;
+}
+
+.product-status-toggle[aria-checked="true"] > span {
+  transform: translateX(18px);
+}
+
 .product-photo-button {
   border: 1px solid rgba(23, 107, 82, 0.28);
   background: rgba(23, 107, 82, 0.08);
@@ -1958,6 +2028,18 @@ img {
   border: 1px solid rgba(196, 67, 44, 0.25);
   background: rgba(196, 67, 44, 0.07);
   color: #a33d2a;
+}
+
+@media (max-width: 760px) {
+  .product-admin-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .product-admin-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 .count-badge {

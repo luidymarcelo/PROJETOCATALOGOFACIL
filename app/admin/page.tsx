@@ -268,6 +268,8 @@ function AdminPage() {
   const quickProductImageInputRef = useRef<HTMLInputElement>(null);
   const quickProductImageTargetRef = useRef("");
   const [uploadingProductImageId, setUploadingProductImageId] = useState("");
+  const [updatingProductStatusId, setUpdatingProductStatusId] = useState("");
+  const [deletingProductId, setDeletingProductId] = useState("");
   const [productForm, setProductForm] = useState({ ...EMPTY_PRODUCT_FORM });
   const [accessDenied, setAccessDenied] = useState(false);
 
@@ -477,7 +479,6 @@ function AdminPage() {
         .from("products")
         .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active, product_images(id, image_url, sort_order)")
         .eq("store_id", branchId)
-        .eq("is_active", true)
         .order("name", { ascending: true }),
       supabase
         .from("stores")
@@ -491,7 +492,6 @@ function AdminPage() {
         .from("products")
         .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
         .eq("store_id", branchId)
-        .eq("is_active", true)
         .order("name", { ascending: true });
     }
     const categoryRows = categoryResult.data;
@@ -1314,7 +1314,6 @@ function AdminPage() {
       const exportCategories = (categoryResult.data ?? []) as Category[];
       const exportProducts = (productResult.data ?? []) as Product[];
       setCategories(exportCategories);
-      setProducts(exportProducts);
 
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
@@ -1683,7 +1682,7 @@ function AdminPage() {
         stock_quantity: productForm.stock ? Number(productForm.stock.replace(",", ".")) : null,
         image_url: imageUrl,
         badge: productForm.badge.trim() || null,
-        is_active: true,
+        is_active: editingProduct?.is_active ?? true,
         updated_at: new Date().toISOString(),
       };
       let error;
@@ -1827,15 +1826,65 @@ function AdminPage() {
     setMessage("Foto removida do produto.");
   }
 
-  async function deleteProduct(productId: string) {
-    if (!supabase || !window.confirm("Remover este produto do catálogo?")) return;
-    const { error } = await supabase.from("products").update({ is_active: false }).eq("id", productId);
-    if (!error) setProducts((current) => current.filter((product) => product.id !== productId));
-    setMessage(error?.message ?? "Produto removido.");
+  async function toggleProductStatus(product: Product) {
+    if (!supabase || !activeBranchId || updatingProductStatusId || deletingProductId) return;
+    const nextStatus = !product.is_active;
+    setUpdatingProductStatusId(product.id);
+    setMessage("");
+    const { error } = await supabase
+      .from("products")
+      .update({ is_active: nextStatus, updated_at: new Date().toISOString() })
+      .eq("id", product.id)
+      .eq("store_id", activeBranchId);
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      await refreshBranchCatalog(activeBranchId);
+      setMessage(`${product.name} foi ${nextStatus ? "ativado" : "desativado"}.`);
+    }
+    setUpdatingProductStatusId("");
+  }
+
+  async function deleteProduct(product: Product) {
+    if (!supabase || !activeBranchId || deletingProductId) return;
+    if (!window.confirm(`Excluir definitivamente "${product.name}"? Esta ação não pode ser desfeita.`)) return;
+
+    setDeletingProductId(product.id);
+    setMessage("");
+    const { error } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", product.id)
+      .eq("store_id", activeBranchId);
+
+    if (error) {
+      setMessage(error.message);
+      setDeletingProductId("");
+      return;
+    }
+
+    const imagePaths = [...new Set([product.image_url, ...(product.product_images ?? []).map((image) => image.image_url)])]
+      .map((imageUrl) => storagePathFromPublicUrl(imageUrl))
+      .filter((path): path is string => Boolean(path));
+    const storageResult = imagePaths.length
+      ? await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove(imagePaths)
+      : { error: null };
+
+    setProducts((current) => current.filter((item) => item.id !== product.id));
+    if (editingProductId === product.id) {
+      resetProductEditor();
+      setCatalogEditorMode(null);
+    }
+    setMessage(storageResult.error
+      ? "Produto excluído, mas algumas fotos não puderam ser removidas do armazenamento."
+      : "Produto excluído definitivamente.");
+    setDeletingProductId("");
   }
 
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
   const editingProduct = useMemo(() => products.find((product) => product.id === editingProductId) ?? null, [products, editingProductId]);
+  const activeProductCount = useMemo(() => products.filter((product) => product.is_active).length, [products]);
   const editingProductImages = editingProduct?.product_images ?? [];
   const productEditorImageCount = editingProductImages.length + productImageFiles.length;
 
@@ -2002,7 +2051,7 @@ function AdminPage() {
               </div>
             </section>
             <section className="catalog-import-panel">
-              <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Planilha do catálogo</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong><small>{products.length} produto(s) · {categories.length} categoria(s)</small></div></div>
+              <div className="catalog-import-heading"><FileSpreadsheet size={22} /><div><span>Planilha do catálogo</span><strong>{activeBranch?.name ?? "Selecione uma filial"}</strong><small>{activeProductCount} ativo(s) de {products.length} produto(s) · {categories.length} categoria(s)</small></div></div>
               <div className="catalog-import-actions">
                 <button className="admin-secondary" type="button" onClick={downloadCatalogTemplate} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Download size={16} /> {exportingCatalog ? "Exportando..." : "Exportar catálogo"}</button>
                 <button className="admin-primary" type="button" onClick={() => importInputRef.current?.click()} disabled={!activeBranchId || importingCatalog || exportingCatalog}><Upload size={16} /> {importingCatalog ? "Importando..." : "Importar Excel"}</button>
@@ -2054,7 +2103,38 @@ function AdminPage() {
               </section>
               <section className="admin-form-panel">
                 <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
-                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div className="product-admin-info"><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s)</small></div><div className="product-admin-actions"><button className="product-photo-button" type="button" title="Adicionar fotos" aria-label={`Adicionar fotos de ${product.name}`} disabled={Boolean(uploadingProductImageId) || (product.product_images?.length ?? 0) >= activeProductImageLimit} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button><button className="product-edit-button" type="button" title="Editar produto e fotos" aria-label={`Editar ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => editProduct(product)}><Pencil size={17} /></button><button className="product-delete-button" type="button" title="Remover produto" aria-label={`Remover ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
+                <div className="product-admin-list">
+                  {products.map((product) => {
+                    const isBusy = Boolean(uploadingProductImageId || updatingProductStatusId || deletingProductId);
+                    return (
+                      <div className={product.is_active ? "product-admin-row" : "product-admin-row inactive"} key={product.id}>
+                        <div className="product-admin-info">
+                          <div className="product-admin-name">
+                            <strong>{product.name}</strong>
+                            <span className={product.is_active ? "product-status-badge active" : "product-status-badge inactive"}>{product.is_active ? "Ativo" : "Inativo"}</span>
+                          </div>
+                          <small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s)</small>
+                        </div>
+                        <div className="product-admin-actions">
+                          <button
+                            className="product-status-toggle"
+                            type="button"
+                            role="switch"
+                            aria-checked={product.is_active}
+                            aria-label={`${product.is_active ? "Desativar" : "Ativar"} ${product.name}`}
+                            title={product.is_active ? "Desativar produto" : "Ativar produto"}
+                            disabled={isBusy}
+                            onClick={() => toggleProductStatus(product)}
+                          ><span /></button>
+                          <button className="product-photo-button" type="button" title="Adicionar fotos" aria-label={`Adicionar fotos de ${product.name}`} disabled={isBusy || (product.product_images?.length ?? 0) >= activeProductImageLimit} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button>
+                          <button className="product-edit-button" type="button" title="Editar produto e fotos" aria-label={`Editar ${product.name}`} disabled={isBusy} onClick={() => editProduct(product)}><Pencil size={17} /></button>
+                          <button className="product-delete-button" type="button" title="Excluir definitivamente" aria-label={`Excluir definitivamente ${product.name}`} disabled={isBusy} onClick={() => deleteProduct(product)}><Trash2 size={17} /></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}
+                </div>
                 <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
               </section>
             </div>

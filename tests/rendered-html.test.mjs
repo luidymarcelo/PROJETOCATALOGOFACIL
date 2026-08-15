@@ -163,6 +163,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.parameter-compact-item/);
   assert.match(pageStyles, /\.parameter-list-panel/);
   assert.match(pageStyles, /\.product-grid\.showcase/);
+  assert.match(pageStyles, /\.product-status-badge\.active/);
+  assert.match(pageStyles, /\.product-status-toggle\[aria-checked="true"\]/);
   assert.match(pageStyles, /aspect-ratio: 4 \/ 5/);
   assert.match(headers, /Permissions-Policy: geolocation=\(self\)/);
   assert.match(worker, /headers\.set\("Permissions-Policy", "geolocation=\(self\)"\)/);
@@ -213,6 +215,21 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /async function updateQuickProductImage/);
   assert.match(adminPage, /Adicionar fotos/);
   assert.match(adminPage, /product-photo-button/);
+  assert.match(adminPage, /async function toggleProductStatus/);
+  assert.match(adminPage, /role="switch"/);
+  assert.match(adminPage, /aria-checked=\{product\.is_active\}/);
+  assert.match(adminPage, /product-status-badge active/);
+  assert.match(adminPage, /is_active: editingProduct\?\.is_active \?\? true/);
+  assert.match(adminPage, /\.from\("products"\)\s*\.delete\(\)/);
+  assert.doesNotMatch(adminPage, /setProducts\(exportProducts\)/);
+  const refreshCatalogSource = adminPage.slice(
+    adminPage.indexOf("async function refreshBranchCatalog"),
+    adminPage.indexOf("async function refreshProductImageLimit"),
+  );
+  assert.doesNotMatch(
+    refreshCatalogSource,
+    /\.from\("products"\)[\s\S]*?\.eq\("store_id", branchId\)\s*\.eq\("is_active", true\)/,
+  );
   assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
   assert.match(adminPage, /async function saveCompanyIdentity/);
   assert.match(adminPage, /Empresa ativa no catálogo público/);
