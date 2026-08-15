@@ -7,14 +7,17 @@ import {
   Download,
   FileSpreadsheet,
   ImagePlus,
+  Images,
   KeyRound,
   LayoutDashboard,
   LocateFixed,
   LogOut,
   MapPin,
   Package,
+  Palette,
   Pencil,
   Plus,
+  Power,
   RefreshCw,
   Save,
   Search,
@@ -28,11 +31,12 @@ import {
   X,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
 import { supabase } from "../../lib/supabase";
 
-type Tenant = { id: string; name: string; slug: string };
+type Tenant = { id: string; name: string; slug: string; is_active?: boolean; theme_color?: string; profile_image_url?: string | null };
 type Branch = { id: string; name: string; slug: string; tenant_id: string; address?: string | null; cover_image_url?: string | null; latitude?: number | null; longitude?: number | null; delivery_fee?: number | null };
+type ProductImage = { id: string; image_url: string; sort_order: number };
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
   id: string;
@@ -46,6 +50,7 @@ type Product = {
   badge: string | null;
   category_id: string | null;
   is_active: boolean;
+  product_images?: ProductImage[];
 };
 
 type CatalogImportRow = {
@@ -69,13 +74,17 @@ type CatalogEditorMode = "product" | "category";
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
 type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
-type CompanySettingsSection = "overview" | "access" | "parameters" | "danger";
+type ProductImageLimitMode = "inherit" | number;
+type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "danger";
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
+const PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit";
+const PRODUCT_IMAGE_LIMIT_MIN = 1;
+const PRODUCT_IMAGE_LIMIT_MAX = 10;
 
 const EMPTY_PRODUCT_FORM = {
   name: "",
@@ -175,6 +184,17 @@ function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizonta
   return value === "horizontal" || value === "showcase" ? value : fallback;
 }
 
+function productImageLimitValue(value: unknown, fallback = 1) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed)
+    ? Math.min(PRODUCT_IMAGE_LIMIT_MAX, Math.max(PRODUCT_IMAGE_LIMIT_MIN, parsed))
+    : fallback;
+}
+
+function companyThemeColor(value: unknown) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#176b52";
+}
+
 function requestBrowserLocation(options: PositionOptions) {
   return new Promise<GeolocationPosition>((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, options);
@@ -212,6 +232,11 @@ function AdminPage() {
   const [showBranchForm, setShowBranchForm] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [accessForm, setAccessForm] = useState({ name: "", email: "", password: "" });
+  const [companyIdentity, setCompanyIdentity] = useState({ isActive: true, themeColor: "#176b52", profileImageUrl: "" });
+  const [companyProfileFile, setCompanyProfileFile] = useState<File | null>(null);
+  const [companyProfilePreview, setCompanyProfilePreview] = useState("");
+  const [savingCompanyIdentity, setSavingCompanyIdentity] = useState(false);
+  const companyProfileInputRef = useRef<HTMLInputElement>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
   const [companyCalculatesDeliveryFee, setCompanyCalculatesDeliveryFee] = useState(true);
@@ -219,6 +244,9 @@ function AdminPage() {
   const [branchDeliveryFees, setBranchDeliveryFees] = useState<Record<string, string>>({});
   const [companyCatalogLayout, setCompanyCatalogLayout] = useState<CatalogLayout>("horizontal");
   const [branchCatalogLayouts, setBranchCatalogLayouts] = useState<Record<string, BranchCatalogLayoutMode>>({});
+  const [companyProductImageLimit, setCompanyProductImageLimit] = useState(1);
+  const [branchProductImageLimits, setBranchProductImageLimits] = useState<Record<string, ProductImageLimitMode>>({});
+  const [activeProductImageLimit, setActiveProductImageLimit] = useState(1);
   const [savingParameters, setSavingParameters] = useState(false);
   const [showDeleteCompany, setShowDeleteCompany] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -231,8 +259,8 @@ function AdminPage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const coverImageInputRef = useRef<HTMLInputElement>(null);
   const [categoryName, setCategoryName] = useState("");
-  const [productImageFile, setProductImageFile] = useState<File | null>(null);
-  const [productImagePreview, setProductImagePreview] = useState("");
+  const [productImageFiles, setProductImageFiles] = useState<File[]>([]);
+  const [productImagePreviews, setProductImagePreviews] = useState<string[]>([]);
   const [savingProduct, setSavingProduct] = useState(false);
   const [catalogEditorMode, setCatalogEditorMode] = useState<CatalogEditorMode | null>(null);
   const [editingProductId, setEditingProductId] = useState("");
@@ -246,8 +274,8 @@ function AdminPage() {
   function resetProductEditor() {
     setEditingProductId("");
     setProductForm({ ...EMPTY_PRODUCT_FORM });
-    setProductImageFile(null);
-    setProductImagePreview("");
+    setProductImageFiles([]);
+    setProductImagePreviews([]);
     if (productImageInputRef.current) productImageInputRef.current.value = "";
   }
 
@@ -279,8 +307,8 @@ function AdminPage() {
       badge: product.badge ?? "",
       categoryId: product.category_id ?? "",
     });
-    setProductImageFile(null);
-    setProductImagePreview(product.image_url ?? "");
+    setProductImageFiles([]);
+    setProductImagePreviews([]);
     if (productImageInputRef.current) productImageInputRef.current.value = "";
     setCatalogEditorMode("product");
     setMessage("");
@@ -342,12 +370,13 @@ function AdminPage() {
       setLoading(false);
       return;
     }
-    const [{ data: tenantRows, error: tenantError }, { data: allBranchRows, error: branchError }] = await Promise.all([
+    const [{ data: tenantRows, error: tenantError }, { data: allBranchRows, error: branchError }, identityResult] = await Promise.all([
       supabase.from("tenants").select("id, name, slug").order("created_at", { ascending: true }),
       supabase
         .from("stores")
         .select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee")
         .order("created_at", { ascending: true }),
+      supabase.rpc("get_admin_company_identities"),
     ]);
 
     if (tenantError || branchError) {
@@ -360,7 +389,18 @@ function AdminPage() {
       return;
     }
 
-    const nextTenants = (tenantRows ?? []) as Tenant[];
+    const identityByTenant = new Map(
+      (identityResult.data ?? []).map((row) => [row.tenant_id, row]),
+    );
+    const nextTenants = (tenantRows ?? []).map((row) => {
+      const identity = identityByTenant.get(row.id);
+      return {
+        ...row,
+        is_active: identity?.is_active ?? true,
+        theme_color: companyThemeColor(identity?.theme_color),
+        profile_image_url: identity?.profile_image_url ?? null,
+      };
+    }) as Tenant[];
     const allBranches = (allBranchRows ?? []) as Branch[];
     setAdminTenants(nextTenants);
     setAdminBranches(allBranches);
@@ -426,7 +466,7 @@ function AdminPage() {
       return;
     }
 
-    const [{ data: categoryRows }, { data: productRows }, { data: branchRow }] = await Promise.all([
+    const [categoryResult, initialProductResult, branchResult] = await Promise.all([
       supabase
         .from("categories")
         .select("id, name, sort_order")
@@ -435,7 +475,7 @@ function AdminPage() {
         .order("sort_order", { ascending: true }),
       supabase
         .from("products")
-        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
+        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active, product_images(id, image_url, sort_order)")
         .eq("store_id", branchId)
         .eq("is_active", true)
         .order("name", { ascending: true }),
@@ -445,6 +485,25 @@ function AdminPage() {
         .eq("id", branchId)
         .maybeSingle(),
     ]);
+    let productResult = initialProductResult;
+    if (productResult.error && /product_images|relationship|schema cache/i.test(productResult.error.message)) {
+      productResult = await supabase
+        .from("products")
+        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
+        .eq("store_id", branchId)
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+    }
+    const categoryRows = categoryResult.data;
+    const branchRow = branchResult.data;
+    const productRows = (productResult.data ?? []).map((product) => ({
+      ...product,
+      product_images: product.product_images?.length
+        ? [...product.product_images].sort((left, right) => left.sort_order - right.sort_order)
+        : product.image_url
+          ? [{ id: "legacy", image_url: product.image_url, sort_order: 0 }]
+          : [],
+    }));
 
     setCategories((categoryRows ?? []) as Category[]);
     setProducts((productRows ?? []) as Product[]);
@@ -454,15 +513,33 @@ function AdminPage() {
     }
   }
 
+  async function refreshProductImageLimit(branchId: string) {
+    if (!supabase || !branchId) {
+      setActiveProductImageLimit(1);
+      return;
+    }
+    const { data: branch } = await supabase.from("stores").select("tenant_id").eq("id", branchId).maybeSingle();
+    if (!branch?.tenant_id) return;
+    const [tenantParameter, storeParameter] = await Promise.all([
+      supabase.from("tenant_parameters").select("parameter_value").eq("tenant_id", branch.tenant_id).eq("parameter_key", PRODUCT_IMAGE_LIMIT_PARAMETER_KEY).maybeSingle(),
+      supabase.from("store_parameters").select("parameter_value").eq("store_id", branchId).eq("parameter_key", PRODUCT_IMAGE_LIMIT_PARAMETER_KEY).maybeSingle(),
+    ]);
+    setActiveProductImageLimit(productImageLimitValue(
+      storeParameter.data?.parameter_value ?? tenantParameter.data?.parameter_value,
+      1,
+    ));
+  }
+
   useEffect(() => {
     void refreshBranchCatalog(activeBranchId);
+    void refreshProductImageLimit(activeBranchId);
   }, [activeBranchId]);
 
   useEffect(() => {
     setCoverImageFile(null);
     setCoverImagePreview("");
-    setProductImageFile(null);
-    setProductImagePreview("");
+    setProductImageFiles([]);
+    setProductImagePreviews([]);
     setEditingProductId("");
     setProductForm({ ...EMPTY_PRODUCT_FORM });
     setCatalogEditorMode(null);
@@ -487,8 +564,14 @@ function AdminPage() {
   }, [coverImagePreview]);
 
   useEffect(() => () => {
-    if (productImagePreview.startsWith("blob:")) URL.revokeObjectURL(productImagePreview);
-  }, [productImagePreview]);
+    productImagePreviews.forEach((preview) => {
+      if (preview.startsWith("blob:")) URL.revokeObjectURL(preview);
+    });
+  }, [productImagePreviews]);
+
+  useEffect(() => () => {
+    if (companyProfilePreview.startsWith("blob:")) URL.revokeObjectURL(companyProfilePreview);
+  }, [companyProfilePreview]);
 
   async function captureBranchLocation(target: BranchLocationTarget) {
     if (!navigator.geolocation) {
@@ -646,10 +729,20 @@ function AdminPage() {
     setBranches(selectedBranches);
     setActiveBranchId(selectedBranches[0]?.id ?? "");
     setAccessForm({ name: "", email: "", password: "" });
+    setCompanyIdentity({
+      isActive: selectedTenant?.is_active ?? true,
+      themeColor: companyThemeColor(selectedTenant?.theme_color),
+      profileImageUrl: selectedTenant?.profile_image_url ?? "",
+    });
+    setCompanyProfileFile(null);
+    setCompanyProfilePreview("");
+    if (companyProfileInputRef.current) companyProfileInputRef.current.value = "";
     setCompanyCalculatesDeliveryFee(true);
     setBranchFreightModes({});
     setCompanyCatalogLayout("horizontal");
     setBranchCatalogLayouts({});
+    setCompanyProductImageLimit(1);
+    setBranchProductImageLimits({});
     setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
@@ -666,7 +759,7 @@ function AdminPage() {
       ? supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY])
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
@@ -677,7 +770,7 @@ function AdminPage() {
         .from("tenant_parameters")
         .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
-        .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY]),
+        .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY]),
       branchParameterRequest,
     ]);
     setLoadingSettings(false);
@@ -696,6 +789,7 @@ function AdminPage() {
     );
     setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameters.get(FREIGHT_PARAMETER_KEY), true));
     setCompanyCatalogLayout(catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
+    setCompanyProductImageLimit(productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1));
     const freightParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
@@ -706,6 +800,11 @@ function AdminPage() {
         .filter((row) => row.parameter_key === CATALOG_LAYOUT_PARAMETER_KEY)
         .map((row) => [row.store_id, catalogLayoutValue(row.parameter_value)]),
     );
+    const imageLimitParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === PRODUCT_IMAGE_LIMIT_PARAMETER_KEY)
+        .map((row) => [row.store_id, productImageLimitValue(row.parameter_value)]),
+    );
     setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       freightParameterByStore.has(branch.id)
@@ -715,6 +814,10 @@ function AdminPage() {
     setBranchCatalogLayouts(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       layoutParameterByStore.get(branch.id) ?? "inherit",
+    ])));
+    setBranchProductImageLimits(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      imageLimitParameterByStore.get(branch.id) ?? "inherit",
     ])));
   }
 
@@ -739,6 +842,13 @@ function AdminPage() {
         is_public: true,
         updated_at: updatedAt,
       },
+      {
+        tenant_id: tenant.id,
+        parameter_key: PRODUCT_IMAGE_LIMIT_PARAMETER_KEY,
+        parameter_value: productImageLimitValue(companyProductImageLimit),
+        is_public: true,
+        updated_at: updatedAt,
+      },
     ], { onConflict: "tenant_id,parameter_key" });
 
     if (tenantParameterError) {
@@ -748,6 +858,7 @@ function AdminPage() {
     }
 
     setSavingParameters(false);
+    if (activeBranchId) void refreshProductImageLimit(activeBranchId);
     setMessage(`Parâmetros padrão de ${tenant.name} atualizados.`);
   }
 
@@ -768,6 +879,7 @@ function AdminPage() {
     setMessage("");
     const freightMode = branchFreightModes[branch.id] ?? "inherit";
     const layoutMode = branchCatalogLayouts[branch.id] ?? "inherit";
+    const imageLimitMode = branchProductImageLimits[branch.id] ?? "inherit";
     const freightParameterRequest = freightMode === "inherit"
       ? await supabase
           .from("store_parameters")
@@ -794,8 +906,21 @@ function AdminPage() {
           is_public: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
+    const imageLimitParameterRequest = imageLimitMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", PRODUCT_IMAGE_LIMIT_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: PRODUCT_IMAGE_LIMIT_PARAMETER_KEY,
+          parameter_value: productImageLimitValue(imageLimitMode),
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
 
-    const parameterError = freightParameterRequest.error ?? layoutParameterRequest.error;
+    const parameterError = freightParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error;
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
@@ -816,7 +941,78 @@ function AdminPage() {
     setBranches((current) => current.map(updateFee));
     setAdminBranches((current) => current.map(updateFee));
     setSavingParameters(false);
+    void refreshProductImageLimit(branch.id);
     setMessage(`Parâmetros da filial ${branch.name} atualizados.`);
+  }
+
+  async function saveCompanyIdentity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !tenant || savingCompanyIdentity) return;
+    const uploadBranchId = branches[0]?.id;
+    if (companyProfileFile && !uploadBranchId) {
+      setMessage("Cadastre uma filial antes de enviar a foto da empresa.");
+      return;
+    }
+
+    setSavingCompanyIdentity(true);
+    setMessage("");
+    const uploadedPaths: string[] = [];
+    try {
+      let profileImageUrl = companyIdentity.profileImageUrl || null;
+      if (companyProfileFile && uploadBranchId) {
+        const uploaded = await uploadCatalogImage(companyProfileFile, "company-profile", uploadBranchId);
+        uploadedPath = uploaded.path;
+        profileImageUrl = uploaded.url;
+      }
+
+      const identityData = {
+        is_active: companyIdentity.isActive,
+        theme_color: companyThemeColor(companyIdentity.themeColor),
+        profile_image_url: profileImageUrl,
+      };
+      const { error } = await supabase.from("tenants").update(identityData).eq("id", tenant.id);
+      if (error) throw error;
+
+      const previousImagePath = storagePathFromPublicUrl(companyIdentity.profileImageUrl);
+      if (uploadedPath && previousImagePath && previousImagePath !== uploadedPath) {
+        await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousImagePath]);
+      }
+      const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, ...identityData } : item;
+      setTenant((current) => current ? updateTenant(current) : current);
+      setAdminTenants((current) => current.map(updateTenant));
+      setCompanyIdentity((current) => ({ ...current, themeColor: identityData.theme_color, profileImageUrl: profileImageUrl ?? "" }));
+      setCompanyProfileFile(null);
+      setCompanyProfilePreview("");
+      if (companyProfileInputRef.current) companyProfileInputRef.current.value = "";
+      setMessage(`Identidade de ${tenant.name} atualizada.`);
+    } catch (error) {
+      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      setMessage(error instanceof Error ? error.message : "Não foi possível atualizar a identidade da empresa.");
+    } finally {
+      setSavingCompanyIdentity(false);
+    }
+  }
+
+  async function removeCompanyProfileImage() {
+    if (!supabase || !tenant || savingCompanyIdentity || !companyIdentity.profileImageUrl) return;
+    setSavingCompanyIdentity(true);
+    setMessage("");
+    const previousPath = storagePathFromPublicUrl(companyIdentity.profileImageUrl);
+    const { error } = await supabase.from("tenants").update({ profile_image_url: null }).eq("id", tenant.id);
+    if (error) {
+      setMessage(error.message);
+      setSavingCompanyIdentity(false);
+      return;
+    }
+    if (previousPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+    const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, profile_image_url: null } : item;
+    setTenant((current) => current ? updateTenant(current) : current);
+    setAdminTenants((current) => current.map(updateTenant));
+    setCompanyIdentity((current) => ({ ...current, profileImageUrl: "" }));
+    setCompanyProfileFile(null);
+    setCompanyProfilePreview("");
+    setSavingCompanyIdentity(false);
+    setMessage("Foto da empresa removida.");
   }
 
   async function saveCompanyAccess(event: FormEvent<HTMLFormElement>) {
@@ -926,6 +1122,7 @@ function AdminPage() {
     setActiveBranchId(branchRow.id);
     setBranchFreightModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchCatalogLayouts((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchProductImageLimits((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "" });
     setShowBranchForm(false);
@@ -977,6 +1174,33 @@ function AdminPage() {
   }
 
   function selectProductImage(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (!selectedFiles.length) return;
+    const invalidFile = selectedFiles.find((file) => validateCatalogImage(file));
+    if (invalidFile) {
+      event.target.value = "";
+      setMessage(validateCatalogImage(invalidFile));
+      return;
+    }
+    const editingProduct = editingProductId ? products.find((product) => product.id === editingProductId) : null;
+    const existingCount = editingProduct?.product_images?.length ?? 0;
+    const remaining = Math.max(0, activeProductImageLimit - existingCount);
+    if (!remaining) {
+      event.target.value = "";
+      setMessage(`Este produto já atingiu o limite de ${activeProductImageLimit} foto(s).`);
+      return;
+    }
+    const acceptedFiles = selectedFiles.slice(0, remaining);
+    setProductImageFiles(acceptedFiles);
+    setProductImagePreviews(acceptedFiles.map((file) => URL.createObjectURL(file)));
+    if (selectedFiles.length > remaining) {
+      setMessage(`Foram selecionadas somente ${remaining} foto(s), conforme o limite desta filial.`);
+      return;
+    }
+    setMessage("");
+  }
+
+  function selectCompanyProfileImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     if (!file) return;
     const validationMessage = validateCatalogImage(file);
@@ -985,15 +1209,15 @@ function AdminPage() {
       setMessage(validationMessage);
       return;
     }
-    setProductImageFile(file);
-    setProductImagePreview(URL.createObjectURL(file));
+    setCompanyProfileFile(file);
+    setCompanyProfilePreview(URL.createObjectURL(file));
     setMessage("");
   }
 
-  async function uploadCatalogImage(file: File, folder: "covers" | "products") {
-    if (!supabase || !activeBranchId) throw new Error("Selecione uma filial antes de enviar a imagem.");
+  async function uploadCatalogImage(file: File, folder: "covers" | "products" | "company-profile", storeId = activeBranchId) {
+    if (!supabase || !storeId) throw new Error("Selecione uma filial antes de enviar a imagem.");
     const extension = CATALOG_IMAGE_EXTENSIONS[file.type];
-    const path = `${activeBranchId}/${folder}/${crypto.randomUUID()}.${extension}`;
+    const path = `${storeId}/${folder}/${crypto.randomUUID()}.${extension}`;
     const { error } = await supabase.storage.from(CATALOG_IMAGE_BUCKET).upload(path, file, {
       cacheControl: "3600",
       contentType: file.type,
@@ -1442,12 +1666,14 @@ function AdminPage() {
     try {
       const editingProduct = editingProductId ? products.find((product) => product.id === editingProductId) : null;
       if (editingProductId && !editingProduct) throw new Error("O produto selecionado não está mais disponível.");
-      let imageUrl = editingProduct?.image_url ?? null;
-      if (productImageFile) {
-        const uploaded = await uploadCatalogImage(productImageFile, "products");
-        uploadedPath = uploaded.path;
-        imageUrl = uploaded.url;
+      const uploadedImages: Array<{ path: string; url: string }> = [];
+      for (const file of productImageFiles) {
+        const uploaded = await uploadCatalogImage(file, "products");
+        uploadedPaths.push(uploaded.path);
+        uploadedImages.push(uploaded);
       }
+      const productId = editingProduct?.id ?? crypto.randomUUID();
+      const imageUrl = editingProduct?.image_url ?? uploadedImages[0]?.url ?? null;
       const productData = {
         category_id: productForm.categoryId || null,
         name: productForm.name.trim(),
@@ -1468,7 +1694,6 @@ function AdminPage() {
           .eq("id", editingProduct.id)
           .eq("store_id", activeBranchId));
       } else {
-        const productId = crypto.randomUUID();
         ({ error } = await supabase.from("products").insert({
           id: productId,
           store_id: activeBranchId,
@@ -1478,9 +1703,18 @@ function AdminPage() {
       }
       if (error) throw error;
 
-      const previousImagePath = storagePathFromPublicUrl(editingProduct?.image_url);
-      if (previousImagePath && previousImagePath !== uploadedPath && editingProduct?.image_url !== imageUrl) {
-        await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousImagePath]);
+      const existingImages = editingProduct?.product_images ?? [];
+      const hasLegacyImage = existingImages.some((image) => image.id === "legacy");
+      if (editingProduct?.image_url && hasLegacyImage) {
+        const { error: legacyError } = await supabase.from("product_images").insert({ product_id: productId, store_id: activeBranchId, image_url: editingProduct.image_url, sort_order: 0 });
+        if (legacyError) throw legacyError;
+      }
+      const nextImageSortOrder = hasLegacyImage
+        ? 1
+        : existingImages.reduce((highest, image) => Math.max(highest, image.sort_order), -1) + 1;
+      if (uploadedImages.length) {
+        const { error: galleryError } = await supabase.from("product_images").insert(uploadedImages.map((image, index) => ({ product_id: productId, store_id: activeBranchId, image_url: image.url, sort_order: nextImageSortOrder + index })));
+        if (galleryError) throw galleryError;
       }
 
       const wasEditing = Boolean(editingProduct);
@@ -1489,7 +1723,7 @@ function AdminPage() {
       setCatalogEditorMode(null);
       setMessage(wasEditing ? "Produto atualizado no catálogo e pronto para a próxima exportação." : "Produto adicionado ao catálogo.");
     } catch (error) {
-      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      if (uploadedPaths.length) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove(uploadedPaths);
       setMessage(error instanceof Error ? error.message : `Não foi possível ${editingProductId ? "atualizar" : "adicionar"} o produto.`);
     } finally {
       setSavingProduct(false);
@@ -1506,44 +1740,91 @@ function AdminPage() {
   }
 
   async function updateQuickProductImage(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const selectedFiles = Array.from(event.target.files ?? []);
     event.target.value = "";
     const productId = quickProductImageTargetRef.current;
     const product = products.find((item) => item.id === productId);
-    if (!file || !product || !supabase || !activeBranchId || uploadingProductImageId) return;
+    if (!selectedFiles.length || !product || !supabase || !activeBranchId || uploadingProductImageId) return;
 
-    const validationMessage = validateCatalogImage(file);
-    if (validationMessage) {
-      setMessage(validationMessage);
+    const invalidFile = selectedFiles.find((file) => validateCatalogImage(file));
+    if (invalidFile) {
+      setMessage(validateCatalogImage(invalidFile));
       return;
     }
+    const existingImages = product.product_images ?? [];
+    const remaining = Math.max(0, activeProductImageLimit - existingImages.length);
+    if (!remaining) {
+      setMessage(`${product.name} já possui o limite de ${activeProductImageLimit} foto(s). Edite o produto para remover uma foto.`);
+      return;
+    }
+    const files = selectedFiles.slice(0, remaining);
 
     setUploadingProductImageId(productId);
-    setMessage(`Enviando foto de ${product.name}...`);
-    let uploadedPath = "";
+    setMessage(`Enviando ${files.length} foto(s) de ${product.name}...`);
+    const uploadedPaths: string[] = [];
     try {
-      const uploaded = await uploadCatalogImage(file, "products");
-      uploadedPath = uploaded.path;
-      const { error } = await supabase
-        .from("products")
-        .update({ image_url: uploaded.url, updated_at: new Date().toISOString() })
-        .eq("id", productId)
-        .eq("store_id", activeBranchId);
-      if (error) throw error;
-
-      setProducts((current) => current.map((item) => item.id === productId ? { ...item, image_url: uploaded.url } : item));
-      const previousPath = storagePathFromPublicUrl(product.image_url);
-      if (previousPath && previousPath !== uploaded.path) {
-        await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+      const uploadedImages: Array<{ path: string; url: string }> = [];
+      for (const file of files) {
+        const uploaded = await uploadCatalogImage(file, "products");
+        uploadedPaths.push(uploaded.path);
+        uploadedImages.push(uploaded);
       }
-      setMessage(`Foto de ${product.name} atualizada.`);
+      const hasLegacyImage = existingImages.some((image) => image.id === "legacy");
+      if (product.image_url && hasLegacyImage) {
+        const { error } = await supabase.from("product_images").insert({ product_id: productId, store_id: activeBranchId, image_url: product.image_url, sort_order: 0 });
+        if (error) throw error;
+      }
+      const nextSortOrder = hasLegacyImage ? 1 : existingImages.reduce((highest, image) => Math.max(highest, image.sort_order), -1) + 1;
+      const { error: galleryError } = await supabase.from("product_images").insert(uploadedImages.map((image, index) => ({ product_id: productId, store_id: activeBranchId, image_url: image.url, sort_order: nextSortOrder + index })));
+      if (galleryError) throw galleryError;
+      if (!product.image_url) {
+        const { error } = await supabase.from("products").update({ image_url: uploadedImages[0].url, updated_at: new Date().toISOString() }).eq("id", productId).eq("store_id", activeBranchId);
+        if (error) throw error;
+      }
+      await refreshBranchCatalog(activeBranchId);
+      setMessage(`${uploadedImages.length} foto(s) adicionada(s) a ${product.name}.${selectedFiles.length > remaining ? ` O limite da filial é ${activeProductImageLimit}.` : ""}`);
     } catch (error) {
-      if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
+      if (uploadedPaths.length) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove(uploadedPaths);
       setMessage(error instanceof Error ? `Não foi possível atualizar a foto: ${error.message}` : "Não foi possível atualizar a foto do produto.");
     } finally {
       setUploadingProductImageId("");
       quickProductImageTargetRef.current = "";
     }
+  }
+
+  function removeSelectedProductImage(index: number) {
+    setProductImageFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setProductImagePreviews((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    if (productImageInputRef.current) productImageInputRef.current.value = "";
+  }
+
+  async function removeExistingProductImage(product: Product, image: ProductImage) {
+    if (!supabase || !activeBranchId || !window.confirm("Remover esta foto do produto?")) return;
+    setSavingProduct(true);
+    setMessage("");
+    const remainingImages = (product.product_images ?? []).filter((item) => item.id !== image.id);
+    const nextPrimaryImage = remainingImages[0]?.image_url ?? null;
+    const result = image.id === "legacy"
+      ? await supabase.from("products").update({ image_url: nextPrimaryImage, updated_at: new Date().toISOString() }).eq("id", product.id).eq("store_id", activeBranchId)
+      : await supabase.from("product_images").delete().eq("id", image.id).eq("store_id", activeBranchId);
+    if (result.error) {
+      setMessage(result.error.message);
+      setSavingProduct(false);
+      return;
+    }
+    if (image.id !== "legacy" && product.image_url === image.image_url) {
+      const { error } = await supabase.from("products").update({ image_url: nextPrimaryImage, updated_at: new Date().toISOString() }).eq("id", product.id).eq("store_id", activeBranchId);
+      if (error) {
+        setMessage(error.message);
+        setSavingProduct(false);
+        return;
+      }
+    }
+    const imagePath = storagePathFromPublicUrl(image.image_url);
+    if (imagePath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([imagePath]);
+    await refreshBranchCatalog(activeBranchId);
+    setSavingProduct(false);
+    setMessage("Foto removida do produto.");
   }
 
   async function deleteProduct(productId: string) {
@@ -1554,6 +1835,9 @@ function AdminPage() {
   }
 
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
+  const editingProduct = useMemo(() => products.find((product) => product.id === editingProductId) ?? null, [products, editingProductId]);
+  const editingProductImages = editingProduct?.product_images ?? [];
+  const productEditorImageCount = editingProductImages.length + productImageFiles.length;
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
   if (accessDenied) return <AdminDenied />;
@@ -1603,7 +1887,7 @@ function AdminPage() {
         ) : !isCompanyPortal && adminSection === "settings" ? (
           <section className="company-settings-view">
             <header className="company-settings-header">
-              <div className="company-settings-title"><button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button><div><span>Gerenciar empresa</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"}</p></div></div>
+              <div className="company-settings-title"><button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button><span className="company-settings-logo" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt="" /> : tenant.name.trim().slice(0, 2).toUpperCase()}</span><div><span>Gerenciar empresa</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"} · {companyIdentity.isActive ? "Empresa ativa" : "Empresa inativa"}</p></div></div>
               <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div>
             </header>
             <div className="company-settings-layout">
@@ -1612,13 +1896,14 @@ function AdminPage() {
                 {companySettingsSection === "overview" ? (
                   <div className="settings-overview">
                     <section className="company-overview-banner">
-                      <div className="company-overview-icon"><Building2 size={24} /></div>
+                      <div className="company-overview-icon" style={{ background: companyIdentity.themeColor }}>{companyIdentity.profileImageUrl ? <img src={companyIdentity.profileImageUrl} alt="" /> : <Building2 size={24} />}</div>
                       <div><span>Visão geral</span><h2>{tenant.name}</h2><p>Informações centrais da empresa e das unidades vinculadas.</p></div>
                     </section>
                     <div className="settings-metric-grid">
                       <div className="settings-metric"><Store size={19} /><span>Filiais</span><strong>{branches.length}</strong></div>
                       <div className="settings-metric"><KeyRound size={19} /><span>Acesso principal</span><strong>{loadingSettings ? "Carregando" : accessForm.email || "Não configurado"}</strong></div>
                       <div className="settings-metric"><Truck size={19} /><span>Regra de frete</span><strong>{companyCalculatesDeliveryFee ? "Calculado" : "A combinar"}</strong></div>
+                      <div className="settings-metric"><Power size={19} /><span>Status público</span><strong>{companyIdentity.isActive ? "Ativa" : "Inativa"}</strong></div>
                     </div>
                     <section className="admin-form-panel settings-branch-panel">
                       <div className="branch-form-heading"><div><span>Estrutura</span><h2>Filiais da empresa</h2></div><Store size={21} /></div>
@@ -1634,6 +1919,18 @@ function AdminPage() {
                       </div>
                     </section>
                   </div>
+                ) : null}
+                {companySettingsSection === "identity" ? (
+                  <form className="admin-form-panel company-settings-panel company-identity-panel" onSubmit={saveCompanyIdentity}>
+                    <div className="branch-form-heading"><div><span>Identidade da empresa</span><h2>Marca e disponibilidade</h2><p>Essas informações personalizam todos os catálogos e filiais da empresa.</p></div><Palette size={21} /></div>
+                    <div className="company-profile-field">
+                      <div className="company-profile-preview" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt={`Foto de ${tenant.name}`} /> : <Building2 size={30} />}</div>
+                      <div><strong>Foto de perfil</strong><small>JPG, PNG ou WebP · máximo 5 MB</small><div className="company-profile-actions"><button className="admin-secondary" type="button" onClick={() => companyProfileInputRef.current?.click()} disabled={savingCompanyIdentity}><ImagePlus size={16} /> Escolher foto</button>{!companyProfileFile && companyIdentity.profileImageUrl ? <button className="icon-button" type="button" title="Remover foto" aria-label="Remover foto da empresa" onClick={removeCompanyProfileImage} disabled={savingCompanyIdentity}><Trash2 size={17} /></button> : null}</div><input ref={companyProfileInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCompanyProfileImage} /></div>
+                    </div>
+                    <label className="company-color-field"><span>Cor principal do tema</span><div><input type="color" value={companyIdentity.themeColor} onChange={(event) => setCompanyIdentity({ ...companyIdentity, themeColor: event.target.value })} aria-label="Cor principal do tema" /><strong>{companyIdentity.themeColor.toUpperCase()}</strong><span className="company-color-sample" style={{ background: companyIdentity.themeColor }}>Marca</span></div><small>Aplicada no cabeçalho, botões e destaques do catálogo.</small></label>
+                    <ParameterToggle checked={companyIdentity.isActive} title="Empresa ativa no catálogo público" description={companyIdentity.isActive ? "As filiais estão disponíveis para os clientes." : "A empresa e todas as filiais ficam ocultas do catálogo público."} onChange={(isActive) => setCompanyIdentity({ ...companyIdentity, isActive })} />
+                    <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingCompanyIdentity}><Save size={16} /> {savingCompanyIdentity ? "Salvando..." : "Salvar identidade"}</button></div>
+                  </form>
                 ) : null}
                 {companySettingsSection === "access" ? (
                   <form className="admin-form-panel company-settings-panel" onSubmit={saveCompanyAccess}>
@@ -1657,6 +1954,8 @@ function AdminPage() {
                     branchFees={branchDeliveryFees}
                     companyCatalogLayout={companyCatalogLayout}
                     branchCatalogLayouts={branchCatalogLayouts}
+                    companyProductImageLimit={companyProductImageLimit}
+                    branchProductImageLimits={branchProductImageLimits}
                     loading={loadingSettings}
                     saving={savingParameters}
                     onScopeChange={setParameterScope}
@@ -1666,6 +1965,8 @@ function AdminPage() {
                     onBranchFeeChange={(branchId, fee) => setBranchDeliveryFees((current) => ({ ...current, [branchId]: fee }))}
                     onCompanyCatalogLayoutChange={setCompanyCatalogLayout}
                     onBranchCatalogLayoutChange={(branchId, mode) => setBranchCatalogLayouts((current) => ({ ...current, [branchId]: mode }))}
+                    onCompanyProductImageLimitChange={setCompanyProductImageLimit}
+                    onBranchProductImageLimitChange={(branchId, mode) => setBranchProductImageLimits((current) => ({ ...current, [branchId]: mode }))}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
                   />
@@ -1730,7 +2031,16 @@ function AdminPage() {
                   <label>Descrição<textarea value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} /></label>
                   <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
                   <div className="admin-form-grid"><label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label><label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
-                  <div className="product-image-field"><div className="product-image-preview">{productImagePreview ? <img src={productImagePreview} alt="Prévia do produto" /> : <Package size={25} />}</div><div><strong>Foto do produto</strong><small>{productImageFile?.name ?? "JPG, PNG ou WebP · máximo 5 MB"}</small><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()}><ImagePlus size={16} /> Escolher foto</button><input ref={productImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectProductImage} /></div></div>
+                  <div className="product-gallery-editor">
+                    <div className="product-gallery-editor-heading"><div><strong>Fotos do produto</strong><small>{productEditorImageCount} de {activeProductImageLimit} foto(s) utilizadas</small></div><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()} disabled={savingProduct || productEditorImageCount >= activeProductImageLimit}><ImagePlus size={16} /> Adicionar fotos</button></div>
+                    <div className="product-gallery-editor-grid">
+                      {editingProductImages.map((image, index) => <div className="product-gallery-editor-item" key={image.id}><img src={image.image_url} alt={`Foto ${index + 1} de ${editingProduct?.name ?? "produto"}`} /><button type="button" title="Remover foto" aria-label={`Remover foto ${index + 1}`} onClick={() => editingProduct && removeExistingProductImage(editingProduct, image)} disabled={savingProduct}><Trash2 size={15} /></button>{index === 0 ? <span>Capa</span> : null}</div>)}
+                      {productImagePreviews.map((preview, index) => <div className="product-gallery-editor-item pending" key={preview}><img src={preview} alt={`Nova foto ${index + 1}`} /><button type="button" title="Retirar seleção" aria-label={`Retirar nova foto ${index + 1}`} onClick={() => removeSelectedProductImage(index)} disabled={savingProduct}><X size={15} /></button><span>Nova</span></div>)}
+                      {!productEditorImageCount ? <div className="product-gallery-editor-empty"><Package size={25} /><span>Sem fotos</span></div> : null}
+                    </div>
+                    <small className="product-gallery-editor-help">JPG, PNG ou WebP · máximo 5 MB por arquivo. A primeira foto será a capa.</small>
+                    <input ref={productImageInputRef} className="catalog-import-input" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={selectProductImage} />
+                  </div>
                   <label>Selo opcional<input value={productForm.badge} onChange={(event) => setProductForm({ ...productForm, badge: event.target.value })} placeholder="Mais vendido" /></label>
                   <button className="admin-primary" type="submit" disabled={savingProduct}>{editingProductId ? <Save size={16} /> : <Plus size={16} />} {savingProduct ? "Salvando..." : editingProductId ? "Salvar alterações" : "Adicionar produto"}</button>
                 </form>
@@ -1744,8 +2054,8 @@ function AdminPage() {
               </section>
               <section className="admin-form-panel">
                 <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
-                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div className="product-admin-info"><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")}{product.image_url ? " · Com foto" : " · Sem foto"}</small></div><div className="product-admin-actions"><button className="product-photo-button" type="button" title={product.image_url ? "Trocar foto" : "Adicionar ou tirar foto"} aria-label={`${product.image_url ? "Trocar" : "Adicionar"} foto de ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button><button className="product-edit-button" type="button" title="Editar produto" aria-label={`Editar ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => editProduct(product)}><Pencil size={17} /></button><button className="product-delete-button" type="button" title="Remover produto" aria-label={`Remover ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
-                <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
+                <div className="product-admin-list">{products.map((product) => <div className="product-admin-row" key={product.id}><div className="product-admin-info"><strong>{product.name}</strong><small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s)</small></div><div className="product-admin-actions"><button className="product-photo-button" type="button" title="Adicionar fotos" aria-label={`Adicionar fotos de ${product.name}`} disabled={Boolean(uploadingProductImageId) || (product.product_images?.length ?? 0) >= activeProductImageLimit} onClick={() => openQuickProductImage(product.id)}>{uploadingProductImageId === product.id ? <RefreshCw size={17} /> : <ImagePlus size={17} />}</button><button className="product-edit-button" type="button" title="Editar produto e fotos" aria-label={`Editar ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => editProduct(product)}><Pencil size={17} /></button><button className="product-delete-button" type="button" title="Remover produto" aria-label={`Remover ${product.name}`} disabled={Boolean(uploadingProductImageId)} onClick={() => deleteProduct(product.id)}><Trash2 size={17} /></button></div></div>)}{!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}</div>
+                <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
               </section>
             </div>
           </>
@@ -1783,6 +2093,7 @@ function PlatformAdminSidebar({
 function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSection; onChange: (section: CompanySettingsSection) => void }) {
   const options: Array<{ id: CompanySettingsSection; label: string; icon: typeof Settings }> = [
     { id: "overview", label: "Resumo", icon: LayoutDashboard },
+    { id: "identity", label: "Identidade", icon: Palette },
     { id: "access", label: "Acesso", icon: KeyRound },
     { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
     { id: "danger", label: "Exclusão", icon: TriangleAlert },
@@ -1808,6 +2119,8 @@ function ParameterWorkspace({
   branchFees,
   companyCatalogLayout,
   branchCatalogLayouts,
+  companyProductImageLimit,
+  branchProductImageLimits,
   loading,
   saving,
   onScopeChange,
@@ -1817,6 +2130,8 @@ function ParameterWorkspace({
   onBranchFeeChange,
   onCompanyCatalogLayoutChange,
   onBranchCatalogLayoutChange,
+  onCompanyProductImageLimitChange,
+  onBranchProductImageLimitChange,
   onSaveCompany,
   onSaveBranch,
 }: {
@@ -1829,6 +2144,8 @@ function ParameterWorkspace({
   branchFees: Record<string, string>;
   companyCatalogLayout: CatalogLayout;
   branchCatalogLayouts: Record<string, BranchCatalogLayoutMode>;
+  companyProductImageLimit: number;
+  branchProductImageLimits: Record<string, ProductImageLimitMode>;
   loading: boolean;
   saving: boolean;
   onScopeChange: (scope: ParameterScope) => void;
@@ -1838,6 +2155,8 @@ function ParameterWorkspace({
   onBranchFeeChange: (branchId: string, fee: string) => void;
   onCompanyCatalogLayoutChange: (layout: CatalogLayout) => void;
   onBranchCatalogLayoutChange: (branchId: string, mode: BranchCatalogLayoutMode) => void;
+  onCompanyProductImageLimitChange: (limit: number) => void;
+  onBranchProductImageLimitChange: (branchId: string, mode: ProductImageLimitMode) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -1846,8 +2165,11 @@ function ParameterWorkspace({
   const activeEnabled = activeMode === "inherit" ? companyEnabled : activeMode === "enabled";
   const activeLayoutMode = activeBranch ? branchCatalogLayouts[activeBranch.id] ?? "inherit" : "inherit";
   const activeCatalogLayout = activeLayoutMode === "inherit" ? companyCatalogLayout : activeLayoutMode;
+  const activeImageLimitMode = activeBranch ? branchProductImageLimits[activeBranch.id] ?? "inherit" : "inherit";
+  const activeImageLimit = activeImageLimitMode === "inherit" ? companyProductImageLimit : activeImageLimitMode;
   const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
+  const inheritedImageLimitBranchCount = branches.filter((branch) => (branchProductImageLimits[branch.id] ?? "inherit") === "inherit").length;
   const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
 
   return (
@@ -1862,7 +2184,7 @@ function ParameterWorkspace({
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
           <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>2 parâmetros</span></header>
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>3 parâmetros</span></header>
             {scope === "company" ? (
               <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
@@ -1888,6 +2210,16 @@ function ParameterWorkspace({
                     </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedLayoutBranchCount} {inheritedLayoutBranchCount === 1 ? "filial segue" : "filiais seguem"} este layout</strong><small>{branches.length - inheritedLayoutBranchCount > 0 ? `${branches.length - inheritedLayoutBranchCount} com layout próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
                     <footer className="parameter-form-footer"><span>Define o visual padrão dos catálogos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon photos"><Images size={19} /></span><span className="parameter-item-name"><strong>Fotos por produto</strong><small>Galeria · Padrão da empresa</small></span><strong className="parameter-value-badge">{companyProductImageLimit}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <label className="parameter-number-field"><span>Quantidade máxima</span><div><button type="button" aria-label="Diminuir quantidade" onClick={() => onCompanyProductImageLimitChange(Math.max(PRODUCT_IMAGE_LIMIT_MIN, companyProductImageLimit - 1))}>−</button><input type="number" min={PRODUCT_IMAGE_LIMIT_MIN} max={PRODUCT_IMAGE_LIMIT_MAX} value={companyProductImageLimit} onChange={(event) => onCompanyProductImageLimitChange(productImageLimitValue(event.target.value))} /><button type="button" aria-label="Aumentar quantidade" onClick={() => onCompanyProductImageLimitChange(Math.min(PRODUCT_IMAGE_LIMIT_MAX, companyProductImageLimit + 1))}>+</button></div><small>Entre {PRODUCT_IMAGE_LIMIT_MIN} e {PRODUCT_IMAGE_LIMIT_MAX} fotos por produto.</small></label>
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedImageLimitBranchCount} {inheritedImageLimitBranchCount === 1 ? "filial segue" : "filiais seguem"} este limite</strong><small>{branches.length - inheritedImageLimitBranchCount > 0 ? `${branches.length - inheritedImageLimitBranchCount} com limite próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Controla a galeria de fotos dos produtos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>
@@ -1923,6 +2255,22 @@ function ParameterWorkspace({
                         <label className={activeLayoutMode === "showcase" ? "selected" : ""}><input type="radio" name="branch-catalog-layout" value="showcase" checked={activeLayoutMode === "showcase"} onChange={() => onBranchCatalogLayoutChange(activeBranch.id, "showcase")} /><ImagePlus size={17} /><span><strong>Vitrine</strong><small>Foto acima</small></span></label>
                       </div>
                     </fieldset>
+                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon photos"><Images size={19} /></span><span className="parameter-item-name"><strong>Fotos por produto</strong><small>Galeria · {activeImageLimitMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{activeImageLimit}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Comportamento nesta filial</legend>
+                      <div className="parameter-mode-options parameter-image-limit-options">
+                        <label className={activeImageLimitMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-image-limit-mode" value="inherit" checked={activeImageLimitMode === "inherit"} onChange={() => onBranchProductImageLimitChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Usar {companyProductImageLimit} foto(s)</small></span></label>
+                        <label className={activeImageLimitMode !== "inherit" ? "selected" : ""}><input type="radio" name="branch-image-limit-mode" value="custom" checked={activeImageLimitMode !== "inherit"} onChange={() => onBranchProductImageLimitChange(activeBranch.id, companyProductImageLimit)} /><Images size={17} /><span><strong>Personalizar</strong><small>Limite próprio</small></span></label>
+                      </div>
+                    </fieldset>
+                    <label className="parameter-number-field"><span>Quantidade máxima nesta filial</span><div><button type="button" aria-label="Diminuir quantidade" disabled={activeImageLimitMode === "inherit"} onClick={() => onBranchProductImageLimitChange(activeBranch.id, Math.max(PRODUCT_IMAGE_LIMIT_MIN, activeImageLimit - 1))}>−</button><input type="number" min={PRODUCT_IMAGE_LIMIT_MIN} max={PRODUCT_IMAGE_LIMIT_MAX} value={activeImageLimit} disabled={activeImageLimitMode === "inherit"} onChange={(event) => onBranchProductImageLimitChange(activeBranch.id, productImageLimitValue(event.target.value))} /><button type="button" aria-label="Aumentar quantidade" disabled={activeImageLimitMode === "inherit"} onClick={() => onBranchProductImageLimitChange(activeBranch.id, Math.min(PRODUCT_IMAGE_LIMIT_MAX, activeImageLimit + 1))}>+</button></div><small>{activeImageLimitMode === "inherit" ? `Herdando ${companyProductImageLimit} da empresa.` : `Entre ${PRODUCT_IMAGE_LIMIT_MIN} e ${PRODUCT_IMAGE_LIMIT_MAX} fotos.`}</small></label>
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
@@ -1986,8 +2334,8 @@ function AdminCompanies({
               return (
                 <article className="company-admin-card" key={item.id}>
                   <div className="company-admin-info">
-                    <span className="company-admin-avatar">{item.name.trim().slice(0, 2).toUpperCase()}</span>
-                    <span><strong>{item.name}</strong><small>Identificador: {item.slug}</small></span>
+                    <span className="company-admin-avatar" style={{ "--company-color": companyThemeColor(item.theme_color) } as CSSProperties}>{item.profile_image_url ? <img src={item.profile_image_url} alt="" /> : item.name.trim().slice(0, 2).toUpperCase()}</span>
+                    <span><strong>{item.name}</strong><small>Identificador: {item.slug}</small><b className={item.is_active === false ? "company-status-badge inactive" : "company-status-badge active"}>{item.is_active === false ? "Inativa" : "Ativa"}</b></span>
                   </div>
                   <div className="company-branch-preview">
                     <strong>{companyBranches.length} {companyBranches.length === 1 ? "filial" : "filiais"}</strong>

@@ -36,6 +36,9 @@ create table public.tenants (
   slug text not null unique,
   owner_name text,
   owner_phone text,
+  is_active boolean not null default true,
+  theme_color text not null default '#176b52' check (theme_color ~ '^#[0-9A-Fa-f]{6}$'),
+  profile_image_url text,
   created_at timestamptz not null default now()
 );
 
@@ -102,6 +105,16 @@ create table public.products (
   unique (store_id, external_id)
 );
 
+create table public.product_images (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  image_url text not null,
+  sort_order integer not null default 0 check (sort_order >= 0),
+  created_at timestamptz not null default now(),
+  unique (product_id, sort_order)
+);
+
 create table public.integration_sources (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references public.stores(id) on delete cascade,
@@ -157,20 +170,24 @@ create index tenant_parameters_key_idx on public.tenant_parameters (parameter_ke
 create index store_parameters_key_idx on public.store_parameters (parameter_key);
 create index sync_jobs_source_status_idx on public.sync_jobs (integration_source_id, status);
 create index orders_store_created_idx on public.orders (store_id, created_at desc);
+create index product_images_product_order_idx on public.product_images (product_id, sort_order);
 
 create or replace function public.get_public_catalog_companies()
 returns table (
   tenant_id uuid,
-  company_name text
+  company_name text,
+  theme_color text,
+  profile_image_url text
 )
 language sql
 stable
 security definer
 set search_path = ''
 as $$
-  select t.id, t.name
+  select t.id, t.name, t.theme_color, t.profile_image_url
   from public.tenants t
-  where exists (
+  where t.is_active
+    and exists (
     select 1
     from public.stores s
     where s.tenant_id = t.id

@@ -41,7 +41,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -53,6 +53,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/009_store_locations.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/010_company_branch_parameters.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/011_public_catalog_companies.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/012_company_branding_and_product_gallery.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -90,6 +91,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /className="merchant-branch-name"/);
   assert.match(page, /<h1>\{merchant\.companyName\}<\/h1>/);
   assert.match(page, /Filial: \$\{cleanOrderText\(branchName\)\}/);
+  assert.match(page, /function catalogThemeStyle/);
+  assert.match(page, /merchant\.companyProfileImage/);
+  assert.match(page, /function ProductGallery/);
+  assert.match(page, /product_images\(id, image_url, sort_order\)/);
   assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
@@ -99,6 +104,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.discovery-store-grid/);
   assert.match(pageStyles, /\.discovery-branch-name/);
   assert.match(pageStyles, /\.merchant-branch-name/);
+  assert.match(pageStyles, /\.product-gallery/);
+  assert.match(pageStyles, /\.company-profile-field/);
+  assert.match(pageStyles, /\.parameter-number-field/);
   assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
@@ -193,10 +201,15 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /onConflict: "store_id,external_id"/);
   assert.match(adminPage, /catalog-images/);
   assert.match(adminPage, /async function saveBranchCover/);
-  assert.match(adminPage, /Foto do produto/);
+  assert.match(adminPage, /Fotos do produto/);
   assert.match(adminPage, /async function updateQuickProductImage/);
-  assert.match(adminPage, /Adicionar ou tirar foto/);
+  assert.match(adminPage, /Adicionar fotos/);
   assert.match(adminPage, /product-photo-button/);
+  assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
+  assert.match(adminPage, /async function saveCompanyIdentity/);
+  assert.match(adminPage, /Empresa ativa no catálogo público/);
+  assert.match(adminPage, /Cor principal do tema/);
+  assert.match(adminPage, /get_admin_company_identities/);
   assert.match(adminPage, /function editProduct/);
   assert.match(adminPage, /product-edit-button/);
   assert.match(adminPage, /Salvar alterações/);
@@ -223,6 +236,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(publicCatalogCompaniesSql, /function public\.get_public_catalog_companies/);
   assert.match(publicCatalogCompaniesSql, /security definer/);
   assert.match(publicCatalogCompaniesSql, /grant execute on function public\.get_public_catalog_companies\(\) to anon, authenticated/);
+  assert.match(companyBrandingSql, /add column if not exists is_active/);
+  assert.match(companyBrandingSql, /add column if not exists theme_color/);
+  assert.match(companyBrandingSql, /create table if not exists public\.product_images/);
+  assert.match(companyBrandingSql, /function public\.enforce_product_image_limit/);
+  assert.match(companyBrandingSql, /function public\.get_admin_company_identities/);
+  assert.match(companyBrandingSql, /function public\.is_store_public/);
+  assert.match(companyBrandingSql, /platform admins update company identity/);
   assert.match(createCompanyFunction, /latitude/);
   assert.match(createCompanyFunction, /longitude/);
   assert.match(createCompanyFunction, /tenant_parameters/);

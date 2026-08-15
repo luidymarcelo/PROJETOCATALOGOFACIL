@@ -3,6 +3,7 @@
 import {
   BadgePercent,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   Clock,
@@ -48,6 +49,7 @@ type Product = {
   category: string;
   price: number;
   image: string | null;
+  images?: string[];
   badge?: string;
   unit?: string;
 };
@@ -57,6 +59,8 @@ type CatalogLayout = "horizontal" | "showcase";
 type Merchant = {
   id: StoreId;
   companyName: string;
+  companyProfileImage: string | null;
+  themeColor: string;
   name: string;
   segment: string;
   tagline: string;
@@ -158,10 +162,42 @@ function merchantBranchLabel(merchant: Merchant) {
     : branchName;
 }
 
+function normalizeThemeColor(value: unknown) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#176b52";
+}
+
+function mixHexColor(color: string, target: "#000000" | "#ffffff", amount: number) {
+  const source = normalizeThemeColor(color).slice(1);
+  const targetHex = target.slice(1);
+  const channel = (offset: number) => Math.round(
+    Number.parseInt(source.slice(offset, offset + 2), 16) * (1 - amount)
+      + Number.parseInt(targetHex.slice(offset, offset + 2), 16) * amount,
+  ).toString(16).padStart(2, "0");
+  return `#${channel(0)}${channel(2)}${channel(4)}`;
+}
+
+function themeContrast(color: string) {
+  const hex = normalizeThemeColor(color).slice(1);
+  const [red, green, blue] = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+  return (red * 299 + green * 587 + blue * 114) / 1000 > 160 ? "#17211c" : "#ffffff";
+}
+
+function catalogThemeStyle(color: string): CSSProperties {
+  const primary = normalizeThemeColor(color);
+  return {
+    "--primary": primary,
+    "--primary-dark": mixHexColor(primary, "#000000", 0.24),
+    "--primary-soft": mixHexColor(primary, "#ffffff", 0.88),
+    "--primary-contrast": themeContrast(primary),
+  } as CSSProperties;
+}
+
 const fallbackMerchants: Merchant[] = [
   {
     id: "bella-massa",
     companyName: "Bella Massa Pizzaria",
+    companyProfileImage: null,
+    themeColor: "#fb6f2d",
     name: "Bella Massa Pizzaria",
     segment: "Pizzaria",
     tagline: "Pizzas artesanais, borda recheada e combos da noite.",
@@ -232,6 +268,8 @@ const fallbackMerchants: Merchant[] = [
   {
     id: "farmacia-vida",
     companyName: "Farmacia Vida",
+    companyProfileImage: null,
+    themeColor: "#176b52",
     name: "Farmacia Vida",
     segment: "Farmacia",
     tagline: "Medicamentos, dermocosmeticos e itens de cuidado diario.",
@@ -302,6 +340,8 @@ const fallbackMerchants: Merchant[] = [
   {
     id: "construmais",
     companyName: "Construmais Obras",
+    companyProfileImage: null,
+    themeColor: "#2563eb",
     name: "Construmais Obras",
     segment: "Material de construcao",
     tagline:
@@ -495,6 +535,8 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
   return {
     id: store.slug,
     companyName: store.name,
+    companyProfileImage: null,
+    themeColor: "#176b52",
     name: store.name,
     segment: segmentLabels[store.segment ?? ""] ?? "Comércio",
     tagline: `Catálogo de produtos de ${store.name}.`,
@@ -761,6 +803,7 @@ export default function Home() {
     merchants.find((store) => store.id === activeStoreId) ??
     merchants[0] ??
     fallbackMerchants[0];
+  const merchantBranchName = merchantBranchLabel(merchant);
 
   useEffect(() => {
     if (!supabase) return;
@@ -787,7 +830,7 @@ export default function Home() {
       const [storeResult, tenantParameterResult, storeParameterResult, companyResult] = await Promise.all([
         supabase
           .from("stores")
-          .select("*, categories(*), products(*)")
+          .select("*, categories(*), products(*, product_images(id, image_url, sort_order))")
           .eq("is_active", true)
           .order("created_at", { ascending: true }),
         supabase
@@ -800,7 +843,16 @@ export default function Home() {
           .in("parameter_key", ["calculate_delivery_fee", "catalog_layout"]),
         supabase.rpc("get_public_catalog_companies"),
       ]);
-      const { data, error } = storeResult;
+      let { data, error } = storeResult;
+      if (error && /product_images|relationship|schema cache/i.test(error.message)) {
+        const fallbackStoreResult = await supabase
+          .from("stores")
+          .select("*, categories(*), products(*)")
+          .eq("is_active", true)
+          .order("created_at", { ascending: true });
+        data = fallbackStoreResult.data;
+        error = fallbackStoreResult.error;
+      }
 
       if (error || cancelled) return;
       if (!data?.length) {
@@ -829,22 +881,39 @@ export default function Home() {
           .map((row) => [row.store_id, catalogLayoutValue(row.parameter_value)]),
       );
       const companyNames = new Map(
-        (companyResult.data ?? []).map((row) => [row.tenant_id, row.company_name]),
+        (companyResult.data ?? []).map((row) => [row.tenant_id, {
+          name: row.company_name,
+          themeColor: normalizeThemeColor(row.theme_color),
+          profileImage: row.profile_image_url ?? null,
+        }]),
       );
+      const hasCompanyDirectory = !companyResult.error;
 
       const loadedMerchants = data.flatMap((store) => {
+        if (hasCompanyDirectory && !companyNames.has(store.tenant_id)) return [];
         const demoMerchant = fallbackMerchants.find(
           (item) => item.id === store.slug,
         );
         const baseMerchant = demoMerchant ?? neutralMerchant(store);
-        const companyName = companyNames.get(store.tenant_id)?.trim() || store.name;
+        const companyIdentity = companyNames.get(store.tenant_id);
+        const companyName = companyIdentity?.name?.trim() || store.name;
+        const themeColor = companyIdentity?.themeColor ?? baseMerchant.themeColor;
 
         const categories = [...(store.categories ?? [])].sort(
           (a, b) => a.sort_order - b.sort_order,
         );
         const products = [...(store.products ?? [])]
           .filter((product) => product.is_active)
-          .map((product) => ({
+          .map((product) => {
+            const gallery = [...(product.product_images ?? [])]
+              .sort((left, right) => left.sort_order - right.sort_order)
+              .map((item) => item.image_url)
+              .filter(Boolean);
+            const primaryImage = gallery[0]
+              ?? product.image_url
+              ?? demoMerchant?.products.find((item) => item.name === product.name)?.image
+              ?? null;
+            return {
             id: product.id,
             name: product.name,
             description: product.description ?? "",
@@ -852,19 +921,20 @@ export default function Home() {
               categories.find((category) => category.id === product.category_id)
                 ?.name ?? "Mais pedidos",
             price: Number(product.price),
-            image:
-              product.image_url ??
-              demoMerchant?.products.find((item) => item.name === product.name)
-                ?.image ?? null,
+            image: primaryImage,
+            images: gallery.length ? gallery : primaryImage ? [primaryImage] : [],
             badge: product.badge ?? undefined,
             unit: product.unit ?? undefined,
-          }));
+            };
+          });
 
         return [
           {
             ...baseMerchant,
             id: store.slug,
             companyName,
+            companyProfileImage: companyIdentity?.profileImage ?? null,
+            themeColor,
             name: store.name,
             tagline: demoMerchant
               ? baseMerchant.tagline
@@ -883,6 +953,7 @@ export default function Home() {
               ?? "horizontal",
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
+            palette: themeColor,
             categories: [
               "Mais pedidos",
               ...categories.map((category) => category.name),
@@ -1192,19 +1263,19 @@ export default function Home() {
   }
 
   return (
-    <main className="shell">
+    <main className={directStoreId ? "shell direct-store-theme" : "shell"} style={directStoreId ? catalogThemeStyle(merchant.themeColor) : undefined}>
       <header className={directStoreId ? "topbar direct-store-topbar" : "topbar"}>
         <button
           className="brand-lockup"
           onClick={() => directStoreId ? window.location.assign("/") : setView("catalog")}
           aria-label="Abrir catalogo"
         >
-          <span className="brand-mark">
-            <Store size={20} />
+          <span className={directStoreId && merchant.companyProfileImage ? "brand-mark company-profile" : "brand-mark"}>
+            {directStoreId && merchant.companyProfileImage ? <img src={merchant.companyProfileImage} alt="" /> : <Store size={20} />}
           </span>
           <span>
-            <strong>Catalogo Facil</strong>
-            <small>Pedidos por WhatsApp</small>
+            <strong>{directStoreId ? merchant.companyName : "Catalogo Facil"}</strong>
+            <small>{directStoreId ? merchantBranchName ?? merchant.segment : "Pedidos por WhatsApp"}</small>
           </span>
         </button>
 
@@ -1305,7 +1376,7 @@ export default function Home() {
 
                 return (
                   <article className="product-card" key={product.id}>
-                    <CatalogImage src={product.image} alt={product.name} variant="product-card-image" />
+                    <ProductGallery product={product} />
                     <div className="product-content">
                       <div>
                         {product.badge ? (
@@ -1533,7 +1604,7 @@ function StoreDiscovery({
               <a className="discovery-store-card" href={storeCatalogUrl(store.id)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
                 <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.companyName} variant="discovery-store-image" icon="store" /><span>{store.segment}</span></div>
                 <div className="discovery-store-content">
-                  <div className="discovery-store-title"><span className="store-avatar"><Icon size={20} /></span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>
+                  <div className="discovery-store-title"><span className={store.companyProfileImage ? "store-avatar company-profile" : "store-avatar"}>{store.companyProfileImage ? <img src={store.companyProfileImage} alt="" /> : <Icon size={20} />}</span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>
                   <p>{store.tagline}</p>
                   <footer><span><Clock size={15} /> {store.deliveryTime}</span>{currentDistance !== undefined ? <span><MapPin size={15} /> {distanceLabel(currentDistance)}</span> : <span><Truck size={15} /> {store.calculatesDeliveryFee ? formatPrice(store.deliveryFee) : "A combinar"}</span>}</footer>
                 </div>
@@ -1545,6 +1616,25 @@ function StoreDiscovery({
         <div className="discovery-empty"><Search size={24} /><strong>Nenhuma loja encontrada</strong><span>Não encontramos estabelecimentos com os filtros atuais.</span>{hasLocation && !showingAll ? <button type="button" onClick={onToggleAll}>Mostrar todas as lojas</button> : null}</div>
       )}
     </section>
+  );
+}
+
+function ProductGallery({ product }: { product: Product }) {
+  const images = product.images?.length ? product.images : product.image ? [product.image] : [];
+  const [activeImage, setActiveImage] = useState(0);
+  useEffect(() => setActiveImage(0), [product.id, images.length]);
+
+  if (images.length <= 1) {
+    return <CatalogImage src={images[0] ?? null} alt={product.name} variant="product-card-image" />;
+  }
+
+  return (
+    <div className="product-gallery">
+      <CatalogImage src={images[activeImage]} alt={`${product.name}, foto ${activeImage + 1}`} variant="product-card-image" />
+      <button className="product-gallery-arrow previous" type="button" title="Foto anterior" aria-label={`Foto anterior de ${product.name}`} onClick={() => setActiveImage((current) => (current - 1 + images.length) % images.length)}><ChevronLeft size={17} /></button>
+      <button className="product-gallery-arrow next" type="button" title="Próxima foto" aria-label={`Próxima foto de ${product.name}`} onClick={() => setActiveImage((current) => (current + 1) % images.length)}><ChevronRight size={17} /></button>
+      <span className="product-gallery-count">{activeImage + 1}/{images.length}</span>
+    </div>
   );
 }
 
@@ -1582,8 +1672,8 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
       <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
       <div className="merchant-overlay" />
       <div className="merchant-info">
-        <span className="merchant-logo">
-          <Icon size={28} />
+        <span className={merchant.companyProfileImage ? "merchant-logo company-profile" : "merchant-logo"}>
+          {merchant.companyProfileImage ? <img src={merchant.companyProfileImage} alt="" /> : <Icon size={28} />}
         </span>
         <div>
           <span className="merchant-segment">{merchant.segment}</span>
