@@ -72,6 +72,7 @@ type CatalogImportCategory = {
 
 type CatalogEditorMode = "product" | "category";
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
+type StockControlMode = "inherit" | "enabled" | "disabled";
 type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type ProductImageLimitMode = "inherit" | number;
@@ -83,6 +84,7 @@ type LocationIssue = { target: BranchLocationTarget; message: string };
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
 const PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit";
+const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
 
@@ -104,8 +106,23 @@ const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
 };
 const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "Selo", "Código/SKU"] as const;
+type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
+const IMPORT_COLUMN_WIDTHS: Record<ImportHeader, number> = {
+  Categoria: 24,
+  Produto: 32,
+  Descrição: 48,
+  Preço: 14,
+  Unidade: 16,
+  Estoque: 14,
+  Selo: 20,
+  "Código/SKU": 20,
+};
+
+function catalogImportHeaders(controlsStock: boolean): ImportHeader[] {
+  return controlsStock ? [...IMPORT_HEADERS] : IMPORT_HEADERS.filter((header) => header !== "Estoque");
+}
 
 function normalizeText(value: string) {
   return value
@@ -247,6 +264,9 @@ function AdminPage() {
   const [companyProductImageLimit, setCompanyProductImageLimit] = useState(1);
   const [branchProductImageLimits, setBranchProductImageLimits] = useState<Record<string, ProductImageLimitMode>>({});
   const [activeProductImageLimit, setActiveProductImageLimit] = useState(1);
+  const [companyControlsStock, setCompanyControlsStock] = useState(true);
+  const [branchStockControlModes, setBranchStockControlModes] = useState<Record<string, StockControlMode>>({});
+  const [activeControlsStock, setActiveControlsStock] = useState(true);
   const [savingParameters, setSavingParameters] = useState(false);
   const [showDeleteCompany, setShowDeleteCompany] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -513,26 +533,34 @@ function AdminPage() {
     }
   }
 
-  async function refreshProductImageLimit(branchId: string) {
+  async function refreshActiveBranchParameters(branchId: string) {
     if (!supabase || !branchId) {
       setActiveProductImageLimit(1);
+      setActiveControlsStock(true);
       return;
     }
     const { data: branch } = await supabase.from("stores").select("tenant_id").eq("id", branchId).maybeSingle();
     if (!branch?.tenant_id) return;
-    const [tenantParameter, storeParameter] = await Promise.all([
-      supabase.from("tenant_parameters").select("parameter_value").eq("tenant_id", branch.tenant_id).eq("parameter_key", PRODUCT_IMAGE_LIMIT_PARAMETER_KEY).maybeSingle(),
-      supabase.from("store_parameters").select("parameter_value").eq("store_id", branchId).eq("parameter_key", PRODUCT_IMAGE_LIMIT_PARAMETER_KEY).maybeSingle(),
+    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY];
+    const [tenantParameterResult, storeParameterResult] = await Promise.all([
+      supabase.from("tenant_parameters").select("parameter_key, parameter_value").eq("tenant_id", branch.tenant_id).in("parameter_key", parameterKeys),
+      supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branchId).in("parameter_key", parameterKeys),
     ]);
+    const tenantParameters = new Map((tenantParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]));
+    const storeParameters = new Map((storeParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]));
     setActiveProductImageLimit(productImageLimitValue(
-      storeParameter.data?.parameter_value ?? tenantParameter.data?.parameter_value,
+      storeParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY) ?? tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY),
       1,
+    ));
+    setActiveControlsStock(parameterBoolean(
+      storeParameters.get(STOCK_CONTROL_PARAMETER_KEY) ?? tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY),
+      true,
     ));
   }
 
   useEffect(() => {
     void refreshBranchCatalog(activeBranchId);
-    void refreshProductImageLimit(activeBranchId);
+    void refreshActiveBranchParameters(activeBranchId);
   }, [activeBranchId]);
 
   useEffect(() => {
@@ -743,6 +771,8 @@ function AdminPage() {
     setBranchCatalogLayouts({});
     setCompanyProductImageLimit(1);
     setBranchProductImageLimits({});
+    setCompanyControlsStock(true);
+    setBranchStockControlModes({});
     setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
@@ -759,7 +789,7 @@ function AdminPage() {
       ? supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY])
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
@@ -770,7 +800,7 @@ function AdminPage() {
         .from("tenant_parameters")
         .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
-        .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY]),
+        .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY]),
       branchParameterRequest,
     ]);
     setLoadingSettings(false);
@@ -790,6 +820,7 @@ function AdminPage() {
     setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameters.get(FREIGHT_PARAMETER_KEY), true));
     setCompanyCatalogLayout(catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
     setCompanyProductImageLimit(productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1));
+    setCompanyControlsStock(parameterBoolean(tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY), true));
     const freightParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
@@ -805,6 +836,11 @@ function AdminPage() {
         .filter((row) => row.parameter_key === PRODUCT_IMAGE_LIMIT_PARAMETER_KEY)
         .map((row) => [row.store_id, productImageLimitValue(row.parameter_value)]),
     );
+    const stockControlParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === STOCK_CONTROL_PARAMETER_KEY)
+        .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+    );
     setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       freightParameterByStore.has(branch.id)
@@ -818,6 +854,12 @@ function AdminPage() {
     setBranchProductImageLimits(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       imageLimitParameterByStore.get(branch.id) ?? "inherit",
+    ])));
+    setBranchStockControlModes(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      stockControlParameterByStore.has(branch.id)
+        ? stockControlParameterByStore.get(branch.id) ? "enabled" : "disabled"
+        : "inherit",
     ])));
   }
 
@@ -849,6 +891,13 @@ function AdminPage() {
         is_public: true,
         updated_at: updatedAt,
       },
+      {
+        tenant_id: tenant.id,
+        parameter_key: STOCK_CONTROL_PARAMETER_KEY,
+        parameter_value: companyControlsStock,
+        is_public: true,
+        updated_at: updatedAt,
+      },
     ], { onConflict: "tenant_id,parameter_key" });
 
     if (tenantParameterError) {
@@ -858,7 +907,7 @@ function AdminPage() {
     }
 
     setSavingParameters(false);
-    if (activeBranchId) void refreshProductImageLimit(activeBranchId);
+    if (activeBranchId) void refreshActiveBranchParameters(activeBranchId);
     setMessage(`Parâmetros padrão de ${tenant.name} atualizados.`);
   }
 
@@ -880,6 +929,7 @@ function AdminPage() {
     const freightMode = branchFreightModes[branch.id] ?? "inherit";
     const layoutMode = branchCatalogLayouts[branch.id] ?? "inherit";
     const imageLimitMode = branchProductImageLimits[branch.id] ?? "inherit";
+    const stockControlMode = branchStockControlModes[branch.id] ?? "inherit";
     const freightParameterRequest = freightMode === "inherit"
       ? await supabase
           .from("store_parameters")
@@ -919,8 +969,21 @@ function AdminPage() {
           is_public: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
+    const stockControlParameterRequest = stockControlMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", STOCK_CONTROL_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: STOCK_CONTROL_PARAMETER_KEY,
+          parameter_value: stockControlMode === "enabled",
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
 
-    const parameterError = freightParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error;
+    const parameterError = freightParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error;
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
@@ -941,7 +1004,7 @@ function AdminPage() {
     setBranches((current) => current.map(updateFee));
     setAdminBranches((current) => current.map(updateFee));
     setSavingParameters(false);
-    void refreshProductImageLimit(branch.id);
+    void refreshActiveBranchParameters(branch.id);
     setMessage(`Parâmetros da filial ${branch.name} atualizados.`);
   }
 
@@ -1123,6 +1186,7 @@ function AdminPage() {
     setBranchFreightModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchCatalogLayouts((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchProductImageLimits((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchStockControlModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
     setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "" });
     setShowBranchForm(false);
@@ -1324,38 +1388,35 @@ function AdminPage() {
       const productsSheet = workbook.addWorksheet("Produtos", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
-      productsSheet.addRow([...IMPORT_HEADERS]);
+      const exportHeaders = catalogImportHeaders(activeControlsStock);
+      const spreadsheetEndColumn = String.fromCharCode(64 + exportHeaders.length);
+      productsSheet.addRow(exportHeaders);
       const categoryNameById = new Map(exportCategories.map((category) => [category.id, category.name]));
-      productsSheet.addRows(exportProducts.map((product) => [
-        product.category_id ? categoryNameById.get(product.category_id) ?? "" : "",
-        product.name,
-        product.description ?? "",
-        Number(product.price),
-        product.unit ?? "",
-        product.stock_quantity ?? "",
-        product.badge ?? "",
-        product.external_id ?? `CAT-${product.id}`,
-      ]));
-      productsSheet.columns = [
-        { width: 24 },
-        { width: 32 },
-        { width: 48 },
-        { width: 14 },
-        { width: 16 },
-        { width: 14 },
-        { width: 20 },
-        { width: 20 },
-      ];
-      productsSheet.autoFilter = { from: "A1", to: "H1" };
+      const productSpreadsheetRow = (product: Product) => {
+        const values: Record<ImportHeader, string | number> = {
+          Categoria: product.category_id ? categoryNameById.get(product.category_id) ?? "" : "",
+          Produto: product.name,
+          Descrição: product.description ?? "",
+          Preço: Number(product.price),
+          Unidade: product.unit ?? "",
+          Estoque: product.stock_quantity ?? "",
+          Selo: product.badge ?? "",
+          "Código/SKU": product.external_id ?? `CAT-${product.id}`,
+        };
+        return exportHeaders.map((header) => values[header]);
+      };
+      productsSheet.addRows(exportProducts.map(productSpreadsheetRow));
+      productsSheet.columns = exportHeaders.map((header) => ({ width: IMPORT_COLUMN_WIDTHS[header] }));
+      productsSheet.autoFilter = { from: "A1", to: `${spreadsheetEndColumn}1` };
       productsSheet.getRow(1).height = 25;
       productsSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
         cell.alignment = { vertical: "middle" };
       });
-      productsSheet.getColumn(4).numFmt = 'R$ #,##0.00';
-      productsSheet.getColumn(6).numFmt = "0.000";
-      productsSheet.getColumn(8).numFmt = "@";
+      productsSheet.getColumn(exportHeaders.indexOf("Preço") + 1).numFmt = 'R$ #,##0.00';
+      if (activeControlsStock) productsSheet.getColumn(exportHeaders.indexOf("Estoque") + 1).numFmt = "0.000";
+      productsSheet.getColumn(exportHeaders.indexOf("Código/SKU") + 1).numFmt = "@";
 
       const categoriesSheet = workbook.addWorksheet("Categorias", {
         views: [{ state: "frozen", ySplit: 1 }],
@@ -1373,7 +1434,7 @@ function AdminPage() {
 
       const instructionsSheet = workbook.addWorksheet("Instruções");
       instructionsSheet.columns = [{ width: 24 }, { width: 88 }];
-      instructionsSheet.addRows([
+      const instructionRows = [
         ["Campo", "Preenchimento"],
         ["Produtos", "A aba Produtos já contém o catálogo atual. Você pode editar as linhas ou acrescentar produtos."],
         ["Categorias", "A aba Categorias contém todas as categorias, inclusive as que ainda não possuem produtos."],
@@ -1382,12 +1443,13 @@ function AdminPage() {
         ["Descrição", "Opcional."],
         ["Preço", "Obrigatório. Aceita 12,50 ou 12.50."],
         ["Unidade", "Opcional. Exemplos: unidade, caixa, kg, metro."],
-        ["Estoque", "Opcional. Aceita números inteiros ou decimais."],
         ["Fotos", "Envie as fotos pelo botão de imagem de cada produto no Portal da empresa."],
         ["Selo", "Opcional. Exemplo: Mais vendido."],
         ["Código/SKU", "Não altere os códigos já exportados. Em produtos novos, informe um código próprio para permitir futuras atualizações."],
         ["Importação", "As abas Produtos e Categorias são importadas. Não altere os nomes das abas nem os títulos das colunas."],
-      ]);
+      ];
+      if (activeControlsStock) instructionRows.splice(8, 0, ["Estoque", "Opcional. Aceita números inteiros ou decimais."]);
+      instructionsSheet.addRows(instructionRows);
       instructionsSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
@@ -1399,13 +1461,16 @@ function AdminPage() {
       const exampleSheet = workbook.addWorksheet("Exemplo", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
+      const exampleProducts: Array<Record<ImportHeader, string | number>> = [
+        { Categoria: "Bebidas", Produto: "Refrigerante Cola 2 L", Descrição: "Garrafa gelada", Preço: 12, Unidade: "unidade", Estoque: 35, Selo: "Mais vendido", "Código/SKU": "BEB-001" },
+        { Categoria: "Mercearia", Produto: "Arroz 5 kg", Descrição: "Pacote tipo 1", Preço: 27.9, Unidade: "pacote", Estoque: 20, Selo: "", "Código/SKU": "MER-001" },
+      ];
       exampleSheet.addRows([
-        [...IMPORT_HEADERS],
-        ["Bebidas", "Refrigerante Cola 2 L", "Garrafa gelada", 12, "unidade", 35, "Mais vendido", "BEB-001"],
-        ["Mercearia", "Arroz 5 kg", "Pacote tipo 1", 27.9, "pacote", 20, "", "MER-001"],
+        exportHeaders,
+        ...exampleProducts.map((product) => exportHeaders.map((header) => product[header])),
       ]);
       exampleSheet.columns = productsSheet.columns.map((column) => ({ width: column.width }));
-      exampleSheet.autoFilter = { from: "A1", to: "H1" };
+      exampleSheet.autoFilter = { from: "A1", to: `${spreadsheetEndColumn}1` };
       exampleSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
@@ -1508,7 +1573,7 @@ function AdminPage() {
         const category = excelValueToText(columnValue(rowNumber, "Categoria"));
         const name = excelValueToText(columnValue(rowNumber, "Produto"));
         const price = parseBrazilianNumber(columnValue(rowNumber, "Preço"));
-        const stockText = excelValueToText(columnValue(rowNumber, "Estoque"));
+        const stockText = activeControlsStock ? excelValueToText(columnValue(rowNumber, "Estoque")) : "";
         const stock = stockText ? parseBrazilianNumber(columnValue(rowNumber, "Estoque")) : null;
         const skuText = excelValueToText(columnValue(rowNumber, "Código/SKU"));
         const sku = skuText || null;
@@ -1620,7 +1685,7 @@ function AdminPage() {
           description: row.description,
           price: row.price,
           unit: row.unit,
-          stock_quantity: row.stock,
+          ...(activeControlsStock ? { stock_quantity: row.stock } : {}),
           badge: row.badge,
           is_active: true,
           updated_at: new Date().toISOString(),
@@ -1679,7 +1744,7 @@ function AdminPage() {
         description: productForm.description.trim() || null,
         price: Number(productForm.price.replace(",", ".")),
         unit: productForm.unit.trim() || null,
-        stock_quantity: productForm.stock ? Number(productForm.stock.replace(",", ".")) : null,
+        ...(activeControlsStock ? { stock_quantity: productForm.stock ? Number(productForm.stock.replace(",", ".")) : null } : {}),
         image_url: imageUrl,
         badge: productForm.badge.trim() || null,
         is_active: editingProduct?.is_active ?? true,
@@ -2005,6 +2070,8 @@ function AdminPage() {
                     branchCatalogLayouts={branchCatalogLayouts}
                     companyProductImageLimit={companyProductImageLimit}
                     branchProductImageLimits={branchProductImageLimits}
+                    companyControlsStock={companyControlsStock}
+                    branchStockControlModes={branchStockControlModes}
                     loading={loadingSettings}
                     saving={savingParameters}
                     onScopeChange={setParameterScope}
@@ -2016,6 +2083,8 @@ function AdminPage() {
                     onBranchCatalogLayoutChange={(branchId, mode) => setBranchCatalogLayouts((current) => ({ ...current, [branchId]: mode }))}
                     onCompanyProductImageLimitChange={setCompanyProductImageLimit}
                     onBranchProductImageLimitChange={(branchId, mode) => setBranchProductImageLimits((current) => ({ ...current, [branchId]: mode }))}
+                    onCompanyControlsStockChange={setCompanyControlsStock}
+                    onBranchStockControlModeChange={(branchId, mode) => setBranchStockControlModes((current) => ({ ...current, [branchId]: mode }))}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
                   />
@@ -2079,7 +2148,7 @@ function AdminPage() {
                   <label>Nome<input value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} required /></label>
                   <label>Descrição<textarea value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} /></label>
                   <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
-                  <div className="admin-form-grid"><label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label><label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
+                  <div className={activeControlsStock ? "admin-form-grid" : "admin-form-grid single"}>{activeControlsStock ? <label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label> : null}<label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
                   <div className="product-gallery-editor">
                     <div className="product-gallery-editor-heading"><div><strong>Fotos do produto</strong><small>{productEditorImageCount} de {activeProductImageLimit} foto(s) utilizadas</small></div><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()} disabled={savingProduct || productEditorImageCount >= activeProductImageLimit}><ImagePlus size={16} /> Adicionar fotos</button></div>
                     <div className="product-gallery-editor-grid">
@@ -2201,6 +2270,8 @@ function ParameterWorkspace({
   branchCatalogLayouts,
   companyProductImageLimit,
   branchProductImageLimits,
+  companyControlsStock,
+  branchStockControlModes,
   loading,
   saving,
   onScopeChange,
@@ -2212,6 +2283,8 @@ function ParameterWorkspace({
   onBranchCatalogLayoutChange,
   onCompanyProductImageLimitChange,
   onBranchProductImageLimitChange,
+  onCompanyControlsStockChange,
+  onBranchStockControlModeChange,
   onSaveCompany,
   onSaveBranch,
 }: {
@@ -2226,6 +2299,8 @@ function ParameterWorkspace({
   branchCatalogLayouts: Record<string, BranchCatalogLayoutMode>;
   companyProductImageLimit: number;
   branchProductImageLimits: Record<string, ProductImageLimitMode>;
+  companyControlsStock: boolean;
+  branchStockControlModes: Record<string, StockControlMode>;
   loading: boolean;
   saving: boolean;
   onScopeChange: (scope: ParameterScope) => void;
@@ -2237,6 +2312,8 @@ function ParameterWorkspace({
   onBranchCatalogLayoutChange: (branchId: string, mode: BranchCatalogLayoutMode) => void;
   onCompanyProductImageLimitChange: (limit: number) => void;
   onBranchProductImageLimitChange: (branchId: string, mode: ProductImageLimitMode) => void;
+  onCompanyControlsStockChange: (enabled: boolean) => void;
+  onBranchStockControlModeChange: (branchId: string, mode: StockControlMode) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -2247,9 +2324,12 @@ function ParameterWorkspace({
   const activeCatalogLayout = activeLayoutMode === "inherit" ? companyCatalogLayout : activeLayoutMode;
   const activeImageLimitMode = activeBranch ? branchProductImageLimits[activeBranch.id] ?? "inherit" : "inherit";
   const activeImageLimit = activeImageLimitMode === "inherit" ? companyProductImageLimit : activeImageLimitMode;
+  const activeStockControlMode = activeBranch ? branchStockControlModes[activeBranch.id] ?? "inherit" : "inherit";
+  const activeStockControl = activeStockControlMode === "inherit" ? companyControlsStock : activeStockControlMode === "enabled";
   const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
   const inheritedImageLimitBranchCount = branches.filter((branch) => (branchProductImageLimits[branch.id] ?? "inherit") === "inherit").length;
+  const inheritedStockControlBranchCount = branches.filter((branch) => (branchStockControlModes[branch.id] ?? "inherit") === "inherit").length;
   const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
 
   return (
@@ -2264,7 +2344,7 @@ function ParameterWorkspace({
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
           <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>3 parâmetros</span></header>
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>4 parâmetros</span></header>
             {scope === "company" ? (
               <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
@@ -2274,6 +2354,16 @@ function ParameterWorkspace({
                     <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="As filiais que herdam o padrão seguirão esta escolha." onChange={onCompanyEnabledChange} />
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
                     <footer className="parameter-form-footer"><span>Afeta somente filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon stock"><Package size={19} /></span><span className="parameter-item-name"><strong>Controle de estoque</strong><small>Produtos · Padrão da empresa</small></span><strong className={companyControlsStock ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyControlsStock ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <ParameterToggle checked={companyControlsStock} title="Controlar estoque dos produtos" description="Quando desativado, o estoque não aparece no cadastro nem no Excel." onChange={onCompanyControlsStockChange} />
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedStockControlBranchCount} {inheritedStockControlBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedStockControlBranchCount > 0 ? `${branches.length - inheritedStockControlBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Define campos e colunas de estoque nas filiais.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>
@@ -2320,6 +2410,22 @@ function ParameterWorkspace({
                     </fieldset>
                     <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">Taxa fixa</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? "Incluída no total do pedido." : "Disponível quando o parâmetro estiver ativo."}</small></div>
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon stock"><Package size={19} /></span><span className="parameter-item-name"><strong>Controle de estoque</strong><small>Produtos · {activeStockControlMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeStockControl ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeStockControl ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Comportamento nesta filial</legend>
+                      <div className="parameter-mode-options">
+                        <label className={activeStockControlMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-stock-control-mode" value="inherit" checked={activeStockControlMode === "inherit"} onChange={() => onBranchStockControlModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
+                        <label className={activeStockControlMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-stock-control-mode" value="enabled" checked={activeStockControlMode === "enabled"} onChange={() => onBranchStockControlModeChange(activeBranch.id, "enabled")} /><Package size={17} /><span><strong>Ativar</strong><small>Usar estoque</small></span></label>
+                        <label className={activeStockControlMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-stock-control-mode" value="disabled" checked={activeStockControlMode === "disabled"} onChange={() => onBranchStockControlModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Ocultar estoque</small></span></label>
+                      </div>
+                    </fieldset>
+                    <footer className="parameter-form-footer"><span>Afeta o cadastro e o Excel de {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>

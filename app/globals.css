@@ -1521,6 +1521,10 @@ img {
   gap: 12px;
 }
 
+.admin-form-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .admin-form-panel label,
 .admin-login-card label {
   display: grid;
@@ -4376,6 +4380,11 @@ img {
 .parameter-item-icon.layout {
   background: rgba(243, 111, 69, 0.1);
   color: #b94d2d;
+}
+
+.parameter-item-icon.stock {
+  background: rgba(154, 103, 0, 0.1);
+  color: #8a5d00;
 }
 
 .parameter-item-name {

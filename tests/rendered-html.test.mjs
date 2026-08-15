@@ -151,6 +151,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /className="parameter-compact-item"/);
   assert.match(adminPage, /<details className="parameter-compact-item">/);
   assert.match(adminPage, /CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout"/);
+  assert.match(adminPage, /STOCK_CONTROL_PARAMETER_KEY = "control_stock"/);
+  assert.match(adminPage, /Controle de estoque/);
+  assert.match(adminPage, />4 parâmetros</);
+  assert.match(adminPage, /branch-stock-control-mode/);
   assert.match(adminPage, /Layout do catálogo/);
   assert.match(adminPage, /Foto acima do nome do produto/);
   assert.match(adminPage, /branchCatalogLayouts/);
@@ -165,6 +169,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.product-grid\.showcase/);
   assert.match(pageStyles, /\.product-status-badge\.active/);
   assert.match(pageStyles, /\.product-status-toggle\[aria-checked="true"\]/);
+  assert.match(pageStyles, /\.admin-form-grid\.single/);
+  assert.match(pageStyles, /\.parameter-item-icon\.stock/);
   assert.match(pageStyles, /aspect-ratio: 4 \/ 5/);
   assert.match(headers, /Permissions-Policy: geolocation=\(self\)/);
   assert.match(worker, /headers\.set\("Permissions-Policy", "geolocation=\(self\)"\)/);
@@ -201,6 +207,13 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Adicionar ao catálogo/);
   assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
   assert.match(adminPage, /productsSheet\.addRows\(exportProducts\.map/);
+  assert.match(adminPage, /function catalogImportHeaders/);
+  assert.match(adminPage, /header !== "Estoque"/);
+  assert.match(adminPage, /const exportHeaders = catalogImportHeaders\(activeControlsStock\)/);
+  assert.match(adminPage, /productsSheet\.addRow\(exportHeaders\)/);
+  assert.match(adminPage, /if \(activeControlsStock\) instructionRows\.splice/);
+  assert.match(adminPage, /activeControlsStock \? <label>Estoque/);
+  assert.match(adminPage, /activeControlsStock \? \{ stock_quantity: row\.stock \} : \{\}/);
   assert.match(adminPage, /const \[categoryResult, productResult\] = await Promise\.all/);
   assert.match(adminPage, /external_id: `CAT-\$\{productId\}`/);
   assert.doesNotMatch(adminPage, /skuText\.toUpperCase/);
