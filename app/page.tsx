@@ -803,7 +803,6 @@ export default function Home() {
     merchants.find((store) => store.id === activeStoreId) ??
     merchants[0] ??
     fallbackMerchants[0];
-  const merchantBranchName = merchantBranchLabel(merchant);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1275,7 +1274,7 @@ export default function Home() {
           </span>
           <span>
             <strong>{directStoreId ? merchant.companyName : "Catalogo Facil"}</strong>
-            <small>{directStoreId ? merchantBranchName ?? merchant.segment : "Pedidos por WhatsApp"}</small>
+            <small>{directStoreId ? merchant.address : "Pedidos por WhatsApp"}</small>
           </span>
         </button>
 
@@ -1682,12 +1681,13 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
           <p>{merchant.tagline}</p>
           <div className="merchant-meta">
             {merchant.rating !== null ? <span><CheckCircle2 size={16} />{merchant.rating.toFixed(1)}</span> : null}
-            <span>
+            {merchant.deliveryTime !== "Consulte a filial" ? <span>
               <Clock size={16} />
               {merchant.deliveryTime}
-            </span>
+            </span> : null}
             {merchant.distance ? <span><Truck size={16} />{merchant.distance}</span> : null}
-            <span>Min. {formatPrice(merchant.minimumOrder)}</span>
+            <span><MapPin size={16} />{merchant.address}</span>
+            {merchant.minimumOrder > 0 ? <span>Min. {formatPrice(merchant.minimumOrder)}</span> : null}
           </div>
         </div>
       </div>

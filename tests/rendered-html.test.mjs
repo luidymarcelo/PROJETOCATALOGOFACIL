@@ -98,6 +98,10 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
+  assert.match(page, /directStoreId \? merchant\.address : "Pedidos por WhatsApp"/);
+  assert.match(page, /merchant\.deliveryTime !== "Consulte a filial"/);
+  assert.match(page, /<MapPin size=\{16\} \/>\{merchant\.address\}/);
+  assert.match(page, /merchant\.minimumOrder > 0/);
   assert.match(page, /commerce-grid direct-store/);
   assert.match(page, /!directStoreId \? <button className="location-pill"/);
   assert.match(pageStyles, /\.store-discovery/);
