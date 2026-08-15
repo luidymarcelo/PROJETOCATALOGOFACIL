@@ -95,6 +95,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /merchant\.companyProfileImage/);
   assert.match(page, /function ProductGallery/);
   assert.match(page, /product_images\(id, image_url, sort_order\)/);
+  assert.match(page, /updatedAt: product\.updated_at \?\? null/);
+  assert.match(page, /function formatProductUpdatedAt/);
+  assert.match(page, /className="product-updated-at"/);
   assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
@@ -109,6 +112,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.discovery-branch-name/);
   assert.match(pageStyles, /\.merchant-branch-name/);
   assert.match(pageStyles, /\.product-gallery/);
+  assert.match(pageStyles, /\.product-updated-at/);
   assert.match(pageStyles, /\.company-profile-field/);
   assert.match(pageStyles, /\.parameter-number-field/);
   assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
