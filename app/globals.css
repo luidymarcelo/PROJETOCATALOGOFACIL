@@ -2894,6 +2894,12 @@ img {
     padding: 12px;
   }
 
+  .topbar.direct-store-topbar {
+    position: relative;
+    gap: 10px;
+    padding: 10px 12px 12px;
+  }
+
   .direct-store-topbar .topbar-actions {
     display: none;
   }
@@ -2915,6 +2921,18 @@ img {
   .brand-lockup small,
   .nav-action span {
     display: none;
+  }
+
+  .direct-store-topbar .brand-lockup small {
+    display: block;
+    max-width: calc(100vw - 82px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .direct-store-topbar .search-box {
+    min-height: 42px;
   }
 
   .brand-mark {
@@ -3024,38 +3042,44 @@ img {
     margin: 0 16px max(14px, env(safe-area-inset-bottom));
   }
 
-  .merchant-hero,
-  .merchant-info {
-    min-height: 200px;
+  .merchant-hero {
+    min-height: 150px;
   }
 
   .merchant-info {
-    grid-template-columns: 54px minmax(0, 1fr);
-    gap: 12px;
-    align-items: end;
-    width: calc(100% - 24px);
-    padding: 20px 0;
+    display: none;
   }
 
-  .merchant-logo {
-    width: 54px;
-    height: 54px;
-  }
-
-  .merchant-info h1 {
-    font-size: 2rem;
-  }
-
-  .merchant-summary span {
-    font-size: 0.78rem;
+  .merchant-overlay {
+    display: none;
   }
 
   .category-strip {
-    top: 118px;
+    position: static;
+    gap: 6px;
+    margin: 12px 0 10px;
+    padding: 0 0 6px;
+  }
+
+  .category-strip button {
+    min-height: 36px;
+    padding: 0 11px;
+    font-size: 0.82rem;
+  }
+
+  .category-strip button svg {
+    display: none;
   }
 
   .section-title {
     align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .section-title > div {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
   }
 
   .section-title h1 {
@@ -3073,20 +3097,21 @@ img {
   }
 
   .product-card {
-    grid-template-columns: 112px minmax(0, 1fr);
-    min-height: 164px;
+    grid-template-columns: 104px minmax(0, 1fr);
+    min-height: 148px;
   }
 
   .product-card-image {
-    min-height: 164px;
+    min-height: 148px;
   }
 
   .product-gallery {
-    min-height: 164px;
+    min-height: 148px;
   }
 
   .product-content {
-    padding: 12px;
+    gap: 10px;
+    padding: 10px;
   }
 
   .product-content h2 {
@@ -3094,8 +3119,9 @@ img {
   }
 
   .product-content p {
-    min-height: 38px;
+    min-height: 0;
     font-size: 0.82rem;
+    -webkit-line-clamp: 1;
   }
 
   .product-grid.showcase {

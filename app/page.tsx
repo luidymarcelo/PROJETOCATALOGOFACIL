@@ -1293,7 +1293,9 @@ export default function Home() {
           </span>
           <span>
             <strong>{directStoreId ? merchant.companyName : "Catalogo Facil"}</strong>
-            <small>{directStoreId ? (merchantBranchLabel(merchant) ?? merchant.segment) : "Pedidos por WhatsApp"}</small>
+            {directStoreId
+              ? merchantBranchLabel(merchant) ? <small>{merchantBranchLabel(merchant)}</small> : null
+              : <small>Pedidos por WhatsApp</small>}
           </span>
         </button>
 
@@ -1624,7 +1626,7 @@ function StoreDiscovery({
             const branchName = merchantBranchLabel(store);
             return (
               <a className="discovery-store-card" href={storeCatalogUrl(store.id)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
-                <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.companyName} variant="discovery-store-image" icon="store" /><span>{store.segment}</span></div>
+                <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.companyName} variant="discovery-store-image" icon="store" /></div>
                 <div className="discovery-store-content">
                   <div className="discovery-store-title"><span className={store.companyProfileImage ? "store-avatar company-profile" : "store-avatar"}>{store.companyProfileImage ? <img src={store.companyProfileImage} alt="" /> : <Icon size={20} />}</span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>
                   <p>{store.tagline}</p>

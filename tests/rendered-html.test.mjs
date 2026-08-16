@@ -33,6 +33,7 @@ test("server-renders the store discovery homepage", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Catalogo Facil<\/title>/i);
+  assert.match(html, /<meta name="viewport" content="[^"]*width=device-width[^"]*initial-scale=1/);
   assert.match(html, /Catalogo Facil/);
   assert.match(html, /Lojas e catálogos|Nenhum catalogo configurado/);
   assert.match(html, /Estabelecimentos disponíveis|Nenhum catalogo configurado/);
@@ -104,7 +105,8 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
   assert.match(page, /function compactMerchantLocation/);
-  assert.match(page, /merchantBranchLabel\(merchant\) \?\? merchant\.segment/);
+  assert.doesNotMatch(page, /merchantBranchLabel\(merchant\) \?\? merchant\.segment/);
+  assert.doesNotMatch(page, /<span>\{store\.segment\}<\/span>/);
   assert.match(page, /merchant\.deliveryTime !== "Consulte a filial"/);
   assert.match(page, /className="merchant-location" title=\{merchant\.address\}/);
   assert.doesNotMatch(page, /<MapPin size=\{16\} \/>\{merchant\.address\}/);
@@ -118,6 +120,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.direct-store-page/);
   assert.match(pageStyles, /\.merchant-hero \{[\s\S]*?width: 100%;[\s\S]*?border-radius: 0;/);
   assert.match(pageStyles, /\.merchant-location/);
+  assert.match(pageStyles, /\.topbar\.direct-store-topbar \{\s*position: relative;/);
+  assert.match(pageStyles, /\.merchant-info \{\s*display: none;/);
+  assert.match(pageStyles, /\.category-strip \{\s*position: static;/);
+  assert.match(layout, /export const viewport/);
+  assert.match(layout, /width: "device-width"/);
   assert.match(pageStyles, /\.product-gallery/);
   assert.match(pageStyles, /\.product-updated-at/);
   assert.match(pageStyles, /\.company-profile-field/);
