@@ -1228,6 +1228,7 @@ function AdminPage() {
     if (!supabase || !activeBranchId || savingBranchDetails) return;
     const name = branchDetailsForm.name.trim();
     const phone = branchDetailsForm.phone.replace(/\D/g, "");
+    const address = branchLocationForm.address.trim();
     const latitude = validCoordinate(branchLocationForm.latitude, -90, 90);
     const longitude = validCoordinate(branchLocationForm.longitude, -180, 180);
     const minimumOrder = parseBrazilianNumber(branchDetailsForm.minimumOrder || "0");
@@ -1240,8 +1241,12 @@ function AdminPage() {
       setMessage("Informe um WhatsApp válido para a filial.");
       return;
     }
-    if (branchLocationForm.address.trim().length < 5 || latitude === null || longitude === null) {
-      setMessage("Informe o endereço e uma localização válida para a filial.");
+    if (!address) {
+      setMessage("Informe o endereço da filial.");
+      return;
+    }
+    if (latitude === null || longitude === null) {
+      setMessage("Informe uma latitude e longitude válidas para a filial.");
       return;
     }
     if (!Number.isFinite(minimumOrder) || minimumOrder < 0 || !Number.isFinite(deliveryFee) || deliveryFee < 0) {
@@ -1252,7 +1257,7 @@ function AdminPage() {
     const branchUpdate: Partial<Branch> = {
       name,
       whatsapp_phone: phone,
-      address: branchLocationForm.address.trim(),
+      address,
       latitude,
       longitude,
       minimum_order: minimumOrder,

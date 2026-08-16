@@ -183,6 +183,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /captureBranchLocation/);
   assert.match(adminPage, /Usar localização atual da filial/);
   assert.match(adminPage, /async function saveBranchDetails/);
+  assert.match(adminPage, /if \(!address\)/);
+  assert.match(adminPage, /Informe uma latitude e longitude válidas para a filial/);
+  assert.doesNotMatch(adminPage, /address\.trim\(\)\.length < 5/);
   assert.match(adminPage, /function BranchDetailsEditor/);
   assert.match(adminPage, /Dados da filial/);
   assert.match(adminPage, /Filial ativa no catálogo público/);
