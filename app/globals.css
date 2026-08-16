@@ -708,26 +708,6 @@ img {
   color: #fff;
 }
 
-.section-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: end;
-  margin-bottom: 14px;
-}
-
-.section-title span {
-  color: var(--muted);
-  font-size: 0.83rem;
-  font-weight: 700;
-}
-
-.section-title h1 {
-  margin: 2px 0 0;
-  font-size: 1.7rem;
-  letter-spacing: 0;
-}
-
 .filter-button,
 .primary-outline {
   gap: 8px;
@@ -3068,21 +3048,6 @@ img {
 
   .category-strip button svg {
     display: none;
-  }
-
-  .section-title {
-    align-items: center;
-    margin-bottom: 10px;
-  }
-
-  .section-title > div {
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-  }
-
-  .section-title h1 {
-    font-size: 1.32rem;
   }
 
   .filter-button {

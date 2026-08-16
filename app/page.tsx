@@ -1358,13 +1358,6 @@ export default function Home() {
               })}
             </nav>
 
-            <div className="section-title">
-              <div>
-                <span>{filteredProducts.length} itens</span>
-                <h1>{activeCategory}</h1>
-              </div>
-            </div>
-
             {filteredProducts.length ? (
               <div className={`product-grid ${merchant.catalogLayout}`}>
                 {filteredProducts.map((product) => {

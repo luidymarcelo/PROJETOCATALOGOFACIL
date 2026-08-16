@@ -136,6 +136,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /catalog_layout/);
   assert.match(page, /catalogLayout/);
   assert.match(page, /product-grid \$\{merchant\.catalogLayout\}/);
+  assert.doesNotMatch(page, /<h1>\{activeCategory\}<\/h1>/);
+  assert.doesNotMatch(pageStyles, /\.section-title/);
   assert.match(page, /Total parcial/);
   assert.match(page, /Taxa de entrega:.*A combinar/);
   assert.doesNotMatch(page, /setIsCartOpen\(true\);\s*\n\s*}/);
