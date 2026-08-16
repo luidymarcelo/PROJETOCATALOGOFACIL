@@ -55,6 +55,19 @@ type Product = {
 };
 
 type CatalogLayout = "horizontal" | "showcase";
+type CoverNotePosition = "top-left" | "top-center" | "top-right" | "center-left" | "center" | "center-right" | "bottom-left" | "bottom-center" | "bottom-right";
+
+const COVER_NOTE_POSITIONS = new Set<CoverNotePosition>([
+  "top-left", "top-center", "top-right",
+  "center-left", "center", "center-right",
+  "bottom-left", "bottom-center", "bottom-right",
+]);
+
+function coverNotePositionValue(value: unknown): CoverNotePosition {
+  return typeof value === "string" && COVER_NOTE_POSITIONS.has(value as CoverNotePosition)
+    ? value as CoverNotePosition
+    : "top-right";
+}
 
 type Merchant = {
   id: StoreId;
@@ -76,6 +89,8 @@ type Merchant = {
   latitude: number | null;
   longitude: number | null;
   cover: string | null;
+  coverNote: string;
+  coverNotePosition: CoverNotePosition;
   icon: "pizza" | "pill" | "hammer" | "store";
   palette: string;
   categories: string[];
@@ -162,20 +177,6 @@ function merchantBranchLabel(merchant: Merchant) {
     : branchName;
 }
 
-function compactMerchantLocation(address: string) {
-  const parts = address
-    .replace(/\s+/g, " ")
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part
-      && !/^brasil$/i.test(part)
-      && !/^\d{5}-?\d{3}$/.test(part)
-      && !/^(região|regiao)( geográfica| geografica)?\b/i.test(part));
-
-  if (!parts.length) return "Localização não informada";
-  return parts.length > 2 ? parts.slice(-2).join(" · ") : parts.join(", ");
-}
-
 function normalizeThemeColor(value: unknown) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#176b52";
 }
@@ -228,6 +229,8 @@ const fallbackMerchants: Merchant[] = [
     longitude: -48.2073,
     cover:
       "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1400&q=80",
+    coverNote: "",
+    coverNotePosition: "top-right",
     icon: "pizza",
     palette: "#fb6f2d",
     categories: ["Mais pedidos", "Pizzas", "Combos", "Bebidas"],
@@ -300,6 +303,8 @@ const fallbackMerchants: Merchant[] = [
     longitude: -48.2101,
     cover:
       "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&w=1400&q=80",
+    coverNote: "",
+    coverNotePosition: "top-right",
     icon: "pill",
     palette: "#0fa76f",
     categories: ["Mais pedidos", "Medicamentos", "Higiene", "Dermocosmeticos"],
@@ -373,6 +378,8 @@ const fallbackMerchants: Merchant[] = [
     longitude: -48.2254,
     cover:
       "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1400&q=80",
+    coverNote: "",
+    coverNotePosition: "top-right",
     icon: "hammer",
     palette: "#d97706",
     categories: [
@@ -566,6 +573,8 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     latitude: store.latitude == null ? null : Number(store.latitude),
     longitude: store.longitude == null ? null : Number(store.longitude),
     cover: null,
+    coverNote: "",
+    coverNotePosition: "top-right",
     icon: "store",
     palette: "#176b52",
     categories: ["Mais pedidos"],
@@ -966,6 +975,8 @@ export default function Home() {
               ?? "horizontal",
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
+            coverNote: typeof store.cover_note === "string" ? store.cover_note.trim() : "",
+            coverNotePosition: coverNotePositionValue(store.cover_note_position),
             palette: themeColor,
             categories: [
               "Mais pedidos",
@@ -1653,30 +1664,13 @@ function CatalogImage({
 }
 
 function MerchantHero({ merchant }: { merchant: Merchant }) {
-  const Icon = iconByMerchant[merchant.icon];
-  const branchName = merchantBranchLabel(merchant);
-  const compactLocation = compactMerchantLocation(merchant.address);
-
   return (
     <section
       className="merchant-hero"
       style={{ "--merchant-color": merchant.palette } as CSSProperties}
     >
       <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
-      <div className="merchant-overlay" />
-      <div className="merchant-info">
-        <span className={merchant.companyProfileImage ? "merchant-logo company-profile" : "merchant-logo"}>
-          {merchant.companyProfileImage ? <img src={merchant.companyProfileImage} alt="" /> : <Icon size={28} />}
-        </span>
-        <div className="merchant-copy">
-          <h1>{merchant.companyName}</h1>
-          {branchName ? <span className="merchant-branch-name">{branchName}</span> : null}
-          <div className="merchant-summary">
-            <span className="merchant-location" title={merchant.address}><MapPin size={16} />{compactLocation}</span>
-            {merchant.deliveryTime !== "Consulte a filial" ? <span><Clock size={16} />{merchant.deliveryTime}</span> : null}
-          </div>
-        </div>
-      </div>
+      {merchant.coverNote ? <p className={`merchant-cover-note position-${merchant.coverNotePosition}`}>{merchant.coverNote}</p> : null}
     </section>
   );
 }

@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -56,6 +56,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/011_public_catalog_companies.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/012_company_branding_and_product_gallery.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/013_company_branch_management.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/014_branch_cover_notes.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -91,8 +92,6 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /companyName/);
   assert.match(page, /rpc\("get_public_catalog_companies"\)/);
   assert.match(page, /className="discovery-branch-name"/);
-  assert.match(page, /className="merchant-branch-name"/);
-  assert.match(page, /<h1>\{merchant\.companyName\}<\/h1>/);
   assert.match(page, /Filial: \$\{cleanOrderText\(branchName\)\}/);
   assert.match(page, /function catalogThemeStyle/);
   assert.match(page, /merchant\.companyProfileImage/);
@@ -104,24 +103,22 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
   assert.match(page, /direct-store-topbar/);
-  assert.match(page, /function compactMerchantLocation/);
+  assert.doesNotMatch(page, /function compactMerchantLocation/);
   assert.doesNotMatch(page, /merchantBranchLabel\(merchant\) \?\? merchant\.segment/);
   assert.doesNotMatch(page, /<span>\{store\.segment\}<\/span>/);
-  assert.match(page, /merchant\.deliveryTime !== "Consulte a filial"/);
-  assert.match(page, /className="merchant-location" title=\{merchant\.address\}/);
-  assert.doesNotMatch(page, /<MapPin size=\{16\} \/>\{merchant\.address\}/);
+  assert.match(page, /merchant\.coverNote \? <p className=\{`merchant-cover-note position-\$\{merchant\.coverNotePosition\}`\}/);
+  assert.match(page, /coverNotePositionValue\(store\.cover_note_position\)/);
   assert.match(page, /directStoreId \? "direct-store-page"/);
   assert.match(page, /commerce-grid direct-store/);
   assert.match(page, /!directStoreId \? <button className="location-pill"/);
   assert.match(pageStyles, /\.store-discovery/);
   assert.match(pageStyles, /\.discovery-store-grid/);
   assert.match(pageStyles, /\.discovery-branch-name/);
-  assert.match(pageStyles, /\.merchant-branch-name/);
   assert.match(pageStyles, /\.direct-store-page/);
   assert.match(pageStyles, /\.merchant-hero \{[\s\S]*?width: 100%;[\s\S]*?border-radius: 0;/);
-  assert.match(pageStyles, /\.merchant-location/);
+  assert.match(pageStyles, /\.merchant-cover-note/);
   assert.match(pageStyles, /\.topbar\.direct-store-topbar \{\s*position: relative;/);
-  assert.match(pageStyles, /\.merchant-info \{\s*display: none;/);
+  assert.doesNotMatch(pageStyles, /\.merchant-info/);
   assert.match(pageStyles, /\.category-strip \{\s*position: static;/);
   assert.match(layout, /export const viewport/);
   assert.match(layout, /width: "device-width"/);
@@ -216,6 +213,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Use a localização atual ou valide o endereço antes de salvar/);
   assert.doesNotMatch(adminPage, /address\.trim\(\)\.length < 5/);
   assert.match(adminPage, /function BranchDetailsEditor/);
+  assert.match(adminPage, /function BranchCoverNoteEditor/);
+  assert.match(adminPage, /Observação na capa/);
+  assert.match(adminPage, /COVER_NOTE_POSITIONS/);
+  assert.match(adminPage, /cover_note: branchDetailsForm\.coverNote\.trim\(\) \|\| null/);
+  assert.match(pageStyles, /\.branch-cover-note-preview/);
   assert.match(adminPage, /Dados da filial/);
   assert.match(adminPage, /Filial ativa no catálogo público/);
   assert.match(adminPage, /minimum_order: minimumOrder/);
@@ -235,7 +237,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /get-company-workspace/);
   assert.match(createCompanyFunction, /company_tenant_id/);
   assert.match(createCompanyFunction, /store_members/);
-  assert.match(createCompanyFunction, /whatsapp_phone, address, cover_image_url, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active/);
+  assert.match(createCompanyFunction, /whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active/);
   assert.match(adminPage, /get_company_workspace/);
   assert.match(adminPage, /async function createBranch/);
   assert.match(adminPage, /Nova filial/);
@@ -350,6 +352,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(branchManagementSql, /create or replace function public\.get_company_workspace/);
   assert.match(branchManagementSql, /'minimum_order', s\.minimum_order/);
   assert.match(branchManagementSql, /'is_active', s\.is_active/);
+  assert.match(branchCoverNotesSql, /add column if not exists cover_note/);
+  assert.match(branchCoverNotesSql, /add column if not exists cover_note_position/);
+  assert.match(branchCoverNotesSql, /stores_cover_note_length_check/);
+  assert.match(branchCoverNotesSql, /'cover_note_position', s\.cover_note_position/);
   assert.match(createCompanyFunction, /latitude/);
   assert.match(createCompanyFunction, /longitude/);
   assert.match(createCompanyFunction, /tenant_parameters/);

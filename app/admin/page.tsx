@@ -15,6 +15,7 @@ import {
   LocateFixed,
   LogOut,
   MapPin,
+  MessageSquareText,
   Package,
   Palette,
   Pencil,
@@ -37,6 +38,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSPropert
 import { supabase } from "../../lib/supabase";
 
 type Tenant = { id: string; name: string; slug: string; is_active?: boolean; theme_color?: string; profile_image_url?: string | null };
+type CoverNotePosition = "top-left" | "top-center" | "top-right" | "center-left" | "center" | "center-right" | "bottom-left" | "bottom-center" | "bottom-right";
 type Branch = {
   id: string;
   name: string;
@@ -45,6 +47,8 @@ type Branch = {
   whatsapp_phone?: string | null;
   address?: string | null;
   cover_image_url?: string | null;
+  cover_note?: string | null;
+  cover_note_position?: CoverNotePosition | null;
   latitude?: number | null;
   longitude?: number | null;
   minimum_order?: number | null;
@@ -106,6 +110,8 @@ type BranchDetailsForm = {
   minimumOrder: string;
   deliveryFee: string;
   deliveryTime: string;
+  coverNote: string;
+  coverNotePosition: CoverNotePosition;
   isActive: boolean;
 };
 
@@ -115,9 +121,28 @@ const PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit";
 const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
-const BRANCH_DETAIL_SELECT = "id, name, slug, tenant_id, whatsapp_phone, address, cover_image_url, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active";
+const COVER_NOTE_MAX_LENGTH = 160;
+const DEFAULT_COVER_NOTE_POSITION: CoverNotePosition = "top-right";
+const COVER_NOTE_POSITIONS: Array<{ value: CoverNotePosition; label: string }> = [
+  { value: "top-left", label: "Superior esquerda" },
+  { value: "top-center", label: "Superior centro" },
+  { value: "top-right", label: "Superior direita" },
+  { value: "center-left", label: "Centro esquerda" },
+  { value: "center", label: "Centro" },
+  { value: "center-right", label: "Centro direita" },
+  { value: "bottom-left", label: "Inferior esquerda" },
+  { value: "bottom-center", label: "Inferior centro" },
+  { value: "bottom-right", label: "Inferior direita" },
+];
+const BRANCH_DETAIL_SELECT = "*";
 const addressLocationCache = new Map<string, BranchLocationValue>();
 const coordinateAddressCache = new Map<string, string>();
+
+function coverNotePositionValue(value: unknown): CoverNotePosition {
+  return COVER_NOTE_POSITIONS.some((option) => option.value === value)
+    ? value as CoverNotePosition
+    : DEFAULT_COVER_NOTE_POSITION;
+}
 
 const EMPTY_PRODUCT_FORM = {
   name: "",
@@ -341,10 +366,10 @@ function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [message, setMessage] = useState("");
-  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
-  const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "" });
+  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION, userName: "", userEmail: "", userPassword: "" });
+  const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION });
   const [branchLocationForm, setBranchLocationForm] = useState<BranchLocationValue>({ address: "", latitude: "", longitude: "" });
-  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", minimumOrder: "0,00", deliveryFee: "0,00", deliveryTime: "", isActive: true });
+  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", minimumOrder: "0,00", deliveryFee: "0,00", deliveryTime: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION, isActive: true });
   const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
   const [validatingBranchAddress, setValidatingBranchAddress] = useState<BranchLocationTarget | "">("");
   const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
@@ -709,6 +734,8 @@ function AdminPage() {
       minimumOrder: Number(selectedBranch?.minimum_order ?? 0).toFixed(2).replace(".", ","),
       deliveryFee: Number(selectedBranch?.delivery_fee ?? 0).toFixed(2).replace(".", ","),
       deliveryTime: selectedBranch?.delivery_time_label ?? "",
+      coverNote: selectedBranch?.cover_note ?? "",
+      coverNotePosition: coverNotePositionValue(selectedBranch?.cover_note_position),
       isActive: selectedBranch?.is_active ?? true,
     });
   }, [activeBranchId, branches]);
@@ -862,6 +889,8 @@ function AdminPage() {
           address: companyForm.address.trim(),
           latitude,
           longitude,
+          cover_note: companyForm.coverNote.trim() || null,
+          cover_note_position: companyForm.coverNotePosition,
         },
       },
     });
@@ -870,15 +899,29 @@ function AdminPage() {
       return;
     }
     const tenantRow = data.tenant as Tenant;
-    const branchRow = data.branch as Branch;
-    setMessage("Empresa, filial e acesso criados. O cliente já pode entrar no Portal da empresa.");
+    let branchRow = data.branch as Branch;
+    let coverNoteWarning = "";
+    if (companyForm.coverNote.trim() || companyForm.coverNotePosition !== DEFAULT_COVER_NOTE_POSITION) {
+      const { data: updatedBranch, error: coverNoteError } = await supabase
+        .from("stores")
+        .update({
+          cover_note: companyForm.coverNote.trim() || null,
+          cover_note_position: companyForm.coverNotePosition,
+        })
+        .eq("id", branchRow.id)
+        .select(BRANCH_DETAIL_SELECT)
+        .single();
+      if (updatedBranch) branchRow = updatedBranch as Branch;
+      if (coverNoteError) coverNoteWarning = " A empresa foi criada, mas a observação da capa não foi salva.";
+    }
+    setMessage(`Empresa, filial e acesso criados. O cliente já pode entrar no Portal da empresa.${coverNoteWarning}`);
     setTenant(null);
     setBranches([]);
     setActiveBranchId("");
     setAdminTenants((current) => [...current, tenantRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setAdminSection("companies");
-    setCompanyForm({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
+    setCompanyForm({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION, userName: "", userEmail: "", userPassword: "" });
   }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
@@ -1420,6 +1463,8 @@ function AdminPage() {
         address: branchForm.address.trim(),
         latitude,
         longitude,
+        cover_note: branchForm.coverNote.trim() || null,
+        cover_note_position: branchForm.coverNotePosition,
         is_active: true,
       })
       .select(BRANCH_DETAIL_SELECT)
@@ -1440,7 +1485,7 @@ function AdminPage() {
     setBranchProductImageLimits((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchStockControlModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
-    setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "" });
+    setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION });
     setShowBranchForm(false);
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
@@ -1485,6 +1530,8 @@ function AdminPage() {
       minimum_order: minimumOrder,
       delivery_fee: deliveryFee,
       delivery_time_label: branchDetailsForm.deliveryTime.trim() || null,
+      cover_note: branchDetailsForm.coverNote.trim() || null,
+      cover_note_position: branchDetailsForm.coverNotePosition,
       is_active: branchDetailsForm.isActive,
     };
     setSavingBranchDetails(true);
@@ -2284,6 +2331,12 @@ function AdminPage() {
               <label>E-mail de acesso<input type="email" value={companyForm.userEmail} onChange={(event) => setCompanyForm({ ...companyForm, userEmail: event.target.value })} placeholder="cliente@empresa.com" required /></label>
               <label>Senha de acesso<input type="password" minLength={6} value={companyForm.userPassword} onChange={(event) => setCompanyForm({ ...companyForm, userPassword: event.target.value })} placeholder="Mínimo de 6 caracteres" required /></label>
             </div>
+            <BranchCoverNoteEditor
+              note={companyForm.coverNote}
+              position={companyForm.coverNotePosition}
+              onNoteChange={(coverNote) => setCompanyForm({ ...companyForm, coverNote })}
+              onPositionChange={(coverNotePosition) => setCompanyForm({ ...companyForm, coverNotePosition })}
+            />
             <BranchLocationPicker
               value={companyForm}
               locating={locatingBranchForm === "company"}
@@ -2403,6 +2456,12 @@ function AdminPage() {
                   <label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label>
                   <label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
                 </div>
+                <BranchCoverNoteEditor
+                  note={branchForm.coverNote}
+                  position={branchForm.coverNotePosition}
+                  onNoteChange={(coverNote) => setBranchForm({ ...branchForm, coverNote })}
+                  onPositionChange={(coverNotePosition) => setBranchForm({ ...branchForm, coverNotePosition })}
+                />
                 <BranchLocationPicker
                   value={branchForm}
                   locating={locatingBranchForm === "branch"}
@@ -2416,7 +2475,7 @@ function AdminPage() {
               </form>
             ) : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} details={branchDetailsForm} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
+            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} coverUrl={coverImagePreview || activeBranch.cover_image_url || ""} details={branchDetailsForm} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
             <section className="catalog-media-panel">
               <div className="branch-cover-preview">
                 {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
@@ -2677,8 +2736,71 @@ function BranchLocationPicker({
   );
 }
 
+function BranchCoverNoteEditor({
+  note,
+  position,
+  coverUrl = "",
+  onNoteChange,
+  onPositionChange,
+}: {
+  note: string;
+  position: CoverNotePosition;
+  coverUrl?: string;
+  onNoteChange: (note: string) => void;
+  onPositionChange: (position: CoverNotePosition) => void;
+}) {
+  const previewNote = note.trim() || "Sua observação aparecerá aqui";
+
+  return (
+    <section className="branch-cover-note-editor">
+      <div className="branch-cover-note-heading">
+        <MessageSquareText size={18} />
+        <span><strong>Observação na capa</strong><small>Texto curto exibido sobre a foto da filial.</small></span>
+      </div>
+      <div className="branch-cover-note-layout">
+        <label>
+          Observação (opcional)
+          <textarea
+            value={note}
+            onChange={(event) => onNoteChange(event.target.value.slice(0, COVER_NOTE_MAX_LENGTH))}
+            placeholder="Ex.: Entregamos todos os dias até as 22h"
+            maxLength={COVER_NOTE_MAX_LENGTH}
+          />
+          <small className="cover-note-character-count">{note.length}/{COVER_NOTE_MAX_LENGTH} caracteres</small>
+        </label>
+        <div className="branch-cover-note-controls">
+          <span>Escolha a posição</span>
+          <div className="cover-note-position-grid" role="radiogroup" aria-label="Posição da observação na capa">
+            {COVER_NOTE_POSITIONS.map((option) => (
+              <button
+                key={option.value}
+                className={`cover-note-position-option position-${option.value}${position === option.value ? " active" : ""}`}
+                type="button"
+                role="radio"
+                aria-checked={position === option.value}
+                aria-label={option.label}
+                title={option.label}
+                onClick={() => onPositionChange(option.value)}
+              >
+                <span />
+              </button>
+            ))}
+          </div>
+          <small>{COVER_NOTE_POSITIONS.find((option) => option.value === position)?.label}</small>
+        </div>
+      </div>
+      <div className="branch-cover-note-preview" aria-label="Pré-visualização da observação na capa">
+        {coverUrl ? <img src={coverUrl} alt="" /> : <div className="branch-cover-note-placeholder"><Package size={34} /><span>A capa da filial aparecerá aqui</span></div>}
+        <div className="branch-cover-note-preview-shade" />
+        <p className={`branch-cover-note-preview-text position-${position}${note.trim() ? "" : " empty"}`}>{previewNote}</p>
+      </div>
+    </section>
+  );
+}
+
 function BranchDetailsEditor({
   branch,
+  coverUrl,
   details,
   location,
   locating,
@@ -2693,6 +2815,7 @@ function BranchDetailsEditor({
   onSubmit,
 }: {
   branch: Branch;
+  coverUrl: string;
   details: BranchDetailsForm;
   location: BranchLocationValue;
   locating: boolean;
@@ -2719,6 +2842,13 @@ function BranchDetailsEditor({
         <label>Taxa de entrega<input value={details.deliveryFee} onChange={(event) => onDetailsChange({ ...details, deliveryFee: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
         <label>Prazo de entrega<input value={details.deliveryTime} onChange={(event) => onDetailsChange({ ...details, deliveryTime: event.target.value })} placeholder="Ex.: 30-45 min" maxLength={50} /></label>
       </div>
+      <BranchCoverNoteEditor
+        note={details.coverNote}
+        position={details.coverNotePosition}
+        coverUrl={coverUrl}
+        onNoteChange={(coverNote) => onDetailsChange({ ...details, coverNote })}
+        onPositionChange={(coverNotePosition) => onDetailsChange({ ...details, coverNotePosition })}
+      />
       <BranchLocationPicker value={location} locating={locating} validating={validatingLocation} issue={issue} onAddressChange={onAddressChange} onUseCurrent={onCaptureLocation} onValidate={onValidateLocation} />
       <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving || locating || validatingLocation}><Save size={16} /> {saving ? "Salvando..." : "Salvar dados"}</button></div>
     </form>

@@ -56,6 +56,12 @@ create table public.stores (
   delivery_fee numeric(12, 2) not null default 0,
   delivery_time_label text,
   cover_image_url text,
+  cover_note text check (cover_note is null or char_length(cover_note) <= 160),
+  cover_note_position text not null default 'top-right' check (cover_note_position in (
+    'top-left', 'top-center', 'top-right',
+    'center-left', 'center', 'center-right',
+    'bottom-left', 'bottom-center', 'bottom-right'
+  )),
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   unique (tenant_id, slug)

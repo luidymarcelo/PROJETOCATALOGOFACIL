@@ -59,12 +59,22 @@ Deno.serve(async (request) => {
     const address = String(company.address ?? "").trim();
     const latitude = Number(company.latitude);
     const longitude = Number(company.longitude);
+    const coverNote = String(company.cover_note ?? "").trim();
+    const allowedCoverNotePositions = new Set([
+      "top-left", "top-center", "top-right",
+      "center-left", "center", "center-right",
+      "bottom-left", "bottom-center", "bottom-right",
+    ]);
+    const coverNotePosition = allowedCoverNotePositions.has(String(company.cover_note_position))
+      ? String(company.cover_note_position)
+      : "top-right";
     const validLocation = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
       && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
     if (!companyName || !companySlug || !branchName || !branchSlug || !whatsappPhone || !address || !validLocation) {
       if (managedUser.wasCreated) await adminClient.auth.admin.deleteUser(managedUser.id);
       throw new Error("Preencha todos os dados e uma localização válida para a primeira filial.");
     }
+    if (coverNote.length > 160) throw new Error("A observação da capa deve ter no máximo 160 caracteres.");
 
     const { data: existingMembership } = await adminClient.from("tenant_members").select("tenant_id").eq("user_id", managedUser.id).in("role", ["manager", "staff"]).maybeSingle();
     if (existingMembership) throw new Error("Este e-mail já está vinculado a uma empresa.");
@@ -97,8 +107,10 @@ Deno.serve(async (request) => {
         address,
         latitude,
         longitude,
+        cover_note: coverNote || null,
+        cover_note_position: coverNotePosition,
         is_active: true,
-      }).select("id, name, slug, tenant_id, address, cover_image_url, latitude, longitude, delivery_fee").single();
+      }).select("id, name, slug, tenant_id, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, delivery_fee").single();
       if (branchError || !branch) throw branchError ?? new Error("Não foi possível criar a filial.");
 
       const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
@@ -170,7 +182,7 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
 
   const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
     adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-    adminClient.from("stores").select("id, name, slug, tenant_id, whatsapp_phone, address, cover_image_url, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+    adminClient.from("stores").select("id, name, slug, tenant_id, whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
   ]);
   if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
   if (branchError) throw branchError;
