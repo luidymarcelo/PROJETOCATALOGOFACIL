@@ -73,7 +73,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /whatsapp: normalizeWhatsapp\(store\.whatsapp_phone\)/);
   assert.match(page, /function useCurrentLocation/);
   assert.match(page, /function catalogLocationError/);
-  assert.match(page, /navigator\.permissions\.query\(\{ name: "geolocation" \}\)/);
+  assert.doesNotMatch(page, /navigator\.permissions\.query\(\{ name: "geolocation" \}\)/);
+  assert.match(page, /Ative a localização do aparelho, confirme a permissão deste site no navegador/);
   assert.match(page, /Localização no mapa/);
   assert.match(page, /Mapa da filial/);
   assert.match(page, /Ver carrinho/);
@@ -143,7 +144,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /type ParameterScope = "company" \| "branch"/);
   assert.match(adminPage, /saveBranchParameters/);
   assert.match(adminPage, /Afeta somente/);
-  assert.match(adminPage, /navigator\.permissions\.query\(\{ name: "geolocation" \}\)/);
+  assert.doesNotMatch(adminPage, /navigator\.permissions\.query\(\{ name: "geolocation" \}\)/);
+  assert.match(adminPage, /Ative a localização do aparelho, confirme a permissão deste site no navegador/);
   assert.match(adminPage, /window\.self !== window\.top/);
   assert.match(adminPage, /Buscar por empresa ou filial/);
   assert.match(adminPage, /Aplicar parâmetros em/);

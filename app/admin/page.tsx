@@ -242,7 +242,7 @@ function requestBrowserLocation(options: PositionOptions) {
 }
 
 function locationErrorMessage(error: GeolocationPositionError) {
-  if (error.code === error.PERMISSION_DENIED) return "O Chrome bloqueou a localização. Clique no cadeado ao lado do endereço, permita Localização e recarregue a página.";
+  if (error.code === error.PERMISSION_DENIED) return "Não foi possível acessar a localização. Ative a localização do aparelho, confirme a permissão deste site no navegador e tente novamente.";
   if (error.code === error.POSITION_UNAVAILABLE) return "O dispositivo não informou a posição. Ative a localização do aparelho e tente novamente.";
   if (error.code === error.TIMEOUT) return "A localização demorou para responder. Verifique o GPS ou Wi-Fi e tente novamente.";
   return "Não foi possível obter a localização da filial.";
@@ -676,21 +676,6 @@ function AdminPage() {
     setLocationIssue(null);
 
     try {
-      if (navigator.permissions) {
-        try {
-          const permission = await navigator.permissions.query({ name: "geolocation" });
-          if (permission.state === "denied") {
-            const issue = "A localização está bloqueada no Chrome. Clique no cadeado ao lado do endereço, altere Localização para Permitir e recarregue a página.";
-            setMessage(issue);
-            setLocationIssue({ target, message: issue });
-            setLocatingBranchForm("");
-            return;
-          }
-        } catch {
-          // Some browsers expose geolocation but not the related Permissions API entry.
-        }
-      }
-
       let position: GeolocationPosition;
       try {
         position = await requestBrowserLocation({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });

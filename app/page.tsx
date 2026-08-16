@@ -149,7 +149,7 @@ function requestCurrentPosition(options: PositionOptions) {
 }
 
 function catalogLocationError(error: GeolocationPositionError) {
-  if (error.code === error.PERMISSION_DENIED) return "Localização bloqueada. No Chrome, clique no cadeado ao lado do endereço, permita Localização e recarregue a página.";
+  if (error.code === error.PERMISSION_DENIED) return "Não foi possível acessar sua localização. Ative a localização do aparelho, confirme a permissão deste site no navegador e tente novamente.";
   if (error.code === error.POSITION_UNAVAILABLE) return "Ative a localização do aparelho e tente novamente.";
   if (error.code === error.TIMEOUT) return "A localização demorou para responder. Verifique o GPS ou Wi-Fi e tente novamente.";
   return "Não foi possível obter sua localização.";
@@ -1131,19 +1131,6 @@ export default function Home() {
     setLocatingUser(true);
     setLocationStatus("Obtendo sua localização...");
     try {
-      if (navigator.permissions) {
-        try {
-          const permission = await navigator.permissions.query({ name: "geolocation" });
-          if (permission.state === "denied") {
-            setLocationStatus("Localização bloqueada no Chrome. Clique no cadeado ao lado do endereço, permita Localização e recarregue a página.");
-            setLocatingUser(false);
-            return;
-          }
-        } catch {
-          // Continue with the Geolocation API when permission introspection is unavailable.
-        }
-      }
-
       let position: GeolocationPosition;
       try {
         position = await requestCurrentPosition({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
