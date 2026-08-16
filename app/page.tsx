@@ -172,6 +172,20 @@ function merchantBranchLabel(merchant: Merchant) {
     : branchName;
 }
 
+function compactMerchantLocation(address: string) {
+  const parts = address
+    .replace(/\s+/g, " ")
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part
+      && !/^brasil$/i.test(part)
+      && !/^\d{5}-?\d{3}$/.test(part)
+      && !/^(região|regiao)( geográfica| geografica)?\b/i.test(part));
+
+  if (!parts.length) return "Localização não informada";
+  return parts.length > 2 ? parts.slice(-2).join(" · ") : parts.join(", ");
+}
+
 function normalizeThemeColor(value: unknown) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : "#176b52";
 }
@@ -1279,7 +1293,7 @@ export default function Home() {
           </span>
           <span>
             <strong>{directStoreId ? merchant.companyName : "Catalogo Facil"}</strong>
-            <small>{directStoreId ? merchant.address : "Pedidos por WhatsApp"}</small>
+            <small>{directStoreId ? (merchantBranchLabel(merchant) ?? merchant.segment) : "Pedidos por WhatsApp"}</small>
           </span>
         </button>
 
@@ -1298,7 +1312,7 @@ export default function Home() {
           />
         </label>
 
-          <div className="topbar-actions">
+        {!directStoreId ? <div className="topbar-actions">
           <button
             className={view === "catalog" ? "nav-action active" : "nav-action"}
             onClick={() => setView("catalog")}
@@ -1319,7 +1333,7 @@ export default function Home() {
                 <span>Sair</span>
               </button>
             ) : null}
-          </div>
+          </div> : null}
       </header>
 
       {view === "catalog" ? (
@@ -1328,7 +1342,7 @@ export default function Home() {
         ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
           <StoreNotFound />
         ) : (
-        <section className={directStoreId ? "commerce-grid direct-store" : "commerce-grid discovery"}>
+        <section className={directStoreId ? "direct-store-page" : "commerce-grid discovery"}>
           {!directStoreId ? (
             <StoreDiscovery
               merchants={discoveryMerchants}
@@ -1338,9 +1352,9 @@ export default function Home() {
               onToggleAll={() => setShowAllStores((current) => !current)}
             />
           ) : <>
+          <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
+          <div className="commerce-grid direct-store">
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
-            <MerchantHero merchant={merchantDistances.has(merchant.id) ? { ...merchant, distance: distanceLabel(merchantDistances.get(merchant.id)!) } : merchant} />
-
             <nav className="category-strip" aria-label="Categorias">
               {merchant.categories.map((category) => {
                 const CategoryIcon =
@@ -1365,10 +1379,6 @@ export default function Home() {
                 <span>{filteredProducts.length} itens</span>
                 <h1>{activeCategory}</h1>
               </div>
-              <button className="filter-button">
-                <SlidersHorizontal size={17} />
-                <span>Filtros</span>
-              </button>
             </div>
 
             {filteredProducts.length ? (
@@ -1466,6 +1476,7 @@ export default function Home() {
             locationStatus={locationStatus}
             onUseCurrentLocation={useCurrentLocation}
           />
+          </div>
 
           {cartCount > 0 ? (
             <button
@@ -1674,6 +1685,7 @@ function CatalogImage({
 function MerchantHero({ merchant }: { merchant: Merchant }) {
   const Icon = iconByMerchant[merchant.icon];
   const branchName = merchantBranchLabel(merchant);
+  const compactLocation = compactMerchantLocation(merchant.address);
 
   return (
     <section
@@ -1686,20 +1698,12 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
         <span className={merchant.companyProfileImage ? "merchant-logo company-profile" : "merchant-logo"}>
           {merchant.companyProfileImage ? <img src={merchant.companyProfileImage} alt="" /> : <Icon size={28} />}
         </span>
-        <div>
-          <span className="merchant-segment">{merchant.segment}</span>
+        <div className="merchant-copy">
           <h1>{merchant.companyName}</h1>
           {branchName ? <span className="merchant-branch-name">{branchName}</span> : null}
-          <p>{merchant.tagline}</p>
-          <div className="merchant-meta">
-            {merchant.rating !== null ? <span><CheckCircle2 size={16} />{merchant.rating.toFixed(1)}</span> : null}
-            {merchant.deliveryTime !== "Consulte a filial" ? <span>
-              <Clock size={16} />
-              {merchant.deliveryTime}
-            </span> : null}
-            {merchant.distance ? <span><Truck size={16} />{merchant.distance}</span> : null}
-            <span><MapPin size={16} />{merchant.address}</span>
-            {merchant.minimumOrder > 0 ? <span>Min. {formatPrice(merchant.minimumOrder)}</span> : null}
+          <div className="merchant-summary">
+            <span className="merchant-location" title={merchant.address}><MapPin size={16} />{compactLocation}</span>
+            {merchant.deliveryTime !== "Consulte a filial" ? <span><Clock size={16} />{merchant.deliveryTime}</span> : null}
           </div>
         </div>
       </div>

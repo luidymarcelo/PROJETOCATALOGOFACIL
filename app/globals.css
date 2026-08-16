@@ -72,9 +72,7 @@ img {
 }
 
 .shell.direct-store-theme {
-  background:
-    linear-gradient(180deg, var(--primary-soft), transparent 310px),
-    var(--background);
+  background: var(--background);
 }
 
 .topbar {
@@ -92,7 +90,7 @@ img {
 }
 
 .topbar.direct-store-topbar {
-  grid-template-columns: auto minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(220px, auto) minmax(260px, 1fr);
 }
 
 .brand-lockup,
@@ -232,6 +230,7 @@ img {
 .commerce-grid.direct-store {
   grid-template-columns: minmax(0, 1fr) 380px;
   width: min(1288px, calc(100% - 32px));
+  margin-top: 20px;
 }
 
 .commerce-grid.discovery {
@@ -570,14 +569,18 @@ img {
   min-width: 0;
 }
 
+.direct-store-page {
+  min-width: 0;
+}
+
 .merchant-hero {
   --merchant-color: var(--primary);
   position: relative;
-  min-height: 285px;
+  width: 100%;
+  min-height: 260px;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 0;
   background: #1d241f;
-  box-shadow: var(--shadow);
 }
 
 .merchant-cover {
@@ -604,8 +607,8 @@ img {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(13, 17, 15, 0.84), rgba(13, 17, 15, 0.38)),
-    linear-gradient(0deg, rgba(13, 17, 15, 0.42), transparent 62%);
+    linear-gradient(90deg, rgba(13, 17, 15, 0.78), rgba(13, 17, 15, 0.22) 66%, rgba(13, 17, 15, 0.08)),
+    linear-gradient(0deg, rgba(13, 17, 15, 0.28), transparent 58%);
 }
 
 .merchant-info {
@@ -614,8 +617,10 @@ img {
   grid-template-columns: 70px minmax(0, 680px);
   gap: 18px;
   align-items: end;
-  min-height: 285px;
-  padding: clamp(20px, 4vw, 34px);
+  width: min(1288px, calc(100% - 32px));
+  min-height: 260px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 38px) 0;
   color: #fff;
 }
 
@@ -627,19 +632,10 @@ img {
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
 }
 
-.merchant-segment {
-  display: inline-block;
-  margin-bottom: 8px;
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
 .merchant-info h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 4.2rem);
-  line-height: 0.98;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1;
   letter-spacing: 0;
 }
 
@@ -651,32 +647,27 @@ img {
   font-weight: 750;
 }
 
-.merchant-info p {
-  max-width: 620px;
-  margin: 12px 0 0;
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 1rem;
-}
-
-.merchant-meta {
+.merchant-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 10px 20px;
+  margin-top: 14px;
 }
 
-.merchant-meta span {
+.merchant-summary span {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.92);
   font-size: 0.86rem;
   font-weight: 750;
+}
+
+.merchant-location {
+  max-width: min(520px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .category-strip {
@@ -2797,7 +2788,7 @@ img {
   }
 
   .topbar.direct-store-topbar {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr;
   }
 
   .location-pill {
@@ -3035,14 +3026,15 @@ img {
 
   .merchant-hero,
   .merchant-info {
-    min-height: 250px;
+    min-height: 200px;
   }
 
   .merchant-info {
     grid-template-columns: 54px minmax(0, 1fr);
     gap: 12px;
     align-items: end;
-    padding: 18px;
+    width: calc(100% - 24px);
+    padding: 20px 0;
   }
 
   .merchant-logo {
@@ -3054,12 +3046,7 @@ img {
     font-size: 2rem;
   }
 
-  .merchant-info p {
-    font-size: 0.9rem;
-  }
-
-  .merchant-meta span {
-    min-height: 30px;
+  .merchant-summary span {
     font-size: 0.78rem;
   }
 
