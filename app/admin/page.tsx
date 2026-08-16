@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   Building2,
+  CheckCircle2,
   ChevronRight,
   Download,
   ExternalLink,
@@ -92,6 +93,7 @@ type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type ProductImageLimitMode = "inherit" | number;
 type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "danger";
+type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
@@ -339,6 +341,7 @@ function AdminPage() {
   const [companyProfileFile, setCompanyProfileFile] = useState<File | null>(null);
   const [companyProfilePreview, setCompanyProfilePreview] = useState("");
   const [savingCompanyIdentity, setSavingCompanyIdentity] = useState(false);
+  const [companyIdentityFeedback, setCompanyIdentityFeedback] = useState<IdentityFeedback | null>(null);
   const [savingAvailability, setSavingAvailability] = useState("");
   const companyProfileInputRef = useRef<HTMLInputElement>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
@@ -913,6 +916,7 @@ function AdminPage() {
     });
     setCompanyProfileFile(null);
     setCompanyProfilePreview("");
+    setCompanyIdentityFeedback(null);
     if (companyProfileInputRef.current) companyProfileInputRef.current.value = "";
     setCompanyCalculatesDeliveryFee(true);
     setBranchFreightModes({});
@@ -1159,16 +1163,25 @@ function AdminPage() {
 
   async function saveCompanyIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!supabase || !tenant || savingCompanyIdentity) return;
+    if (savingCompanyIdentity) return;
+    if (!supabase || !tenant) {
+      const errorMessage = "Não foi possível conectar ao Supabase para salvar a identidade.";
+      setCompanyIdentityFeedback({ status: "error", message: errorMessage });
+      setMessage(errorMessage);
+      return;
+    }
     const uploadBranchId = branches[0]?.id;
     if (companyProfileFile && !uploadBranchId) {
-      setMessage("Cadastre uma filial antes de enviar a foto da empresa.");
+      const errorMessage = "Cadastre uma filial antes de enviar a foto da empresa.";
+      setCompanyIdentityFeedback({ status: "error", message: errorMessage });
+      setMessage(errorMessage);
       return;
     }
 
     setSavingCompanyIdentity(true);
     setMessage("");
-    const uploadedPaths: string[] = [];
+    setCompanyIdentityFeedback({ status: "saving", message: "Salvando a identidade da empresa..." });
+    let uploadedPath = "";
     try {
       let profileImageUrl = companyIdentity.profileImageUrl || null;
       if (companyProfileFile && uploadBranchId) {
@@ -1182,24 +1195,42 @@ function AdminPage() {
         theme_color: companyThemeColor(companyIdentity.themeColor),
         profile_image_url: profileImageUrl,
       };
-      const { error } = await supabase.from("tenants").update(identityData).eq("id", tenant.id);
+      const { data: savedIdentity, error } = await supabase
+        .from("tenants")
+        .update(identityData)
+        .eq("id", tenant.id)
+        .select("id, is_active, theme_color, profile_image_url")
+        .single();
       if (error) throw error;
 
       const previousImagePath = storagePathFromPublicUrl(companyIdentity.profileImageUrl);
       if (uploadedPath && previousImagePath && previousImagePath !== uploadedPath) {
         await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousImagePath]);
       }
-      const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, ...identityData } : item;
+      const savedIdentityData = {
+        is_active: savedIdentity.is_active,
+        theme_color: companyThemeColor(savedIdentity.theme_color),
+        profile_image_url: savedIdentity.profile_image_url,
+      };
+      const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, ...savedIdentityData } : item;
       setTenant((current) => current ? updateTenant(current) : current);
       setAdminTenants((current) => current.map(updateTenant));
-      setCompanyIdentity((current) => ({ ...current, themeColor: identityData.theme_color, profileImageUrl: profileImageUrl ?? "" }));
+      setCompanyIdentity({
+        isActive: savedIdentityData.is_active,
+        themeColor: savedIdentityData.theme_color,
+        profileImageUrl: savedIdentityData.profile_image_url ?? "",
+      });
       setCompanyProfileFile(null);
       setCompanyProfilePreview("");
       if (companyProfileInputRef.current) companyProfileInputRef.current.value = "";
-      setMessage(`Identidade de ${tenant.name} atualizada.`);
+      const successMessage = `Identidade de ${tenant.name} salva com sucesso.`;
+      setCompanyIdentityFeedback({ status: "success", message: successMessage });
+      setMessage(successMessage);
     } catch (error) {
       if (uploadedPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([uploadedPath]);
-      setMessage(error instanceof Error ? error.message : "Não foi possível atualizar a identidade da empresa.");
+      const errorMessage = error instanceof Error ? error.message : "Não foi possível atualizar a identidade da empresa.";
+      setCompanyIdentityFeedback({ status: "error", message: errorMessage });
+      setMessage(errorMessage);
     } finally {
       setSavingCompanyIdentity(false);
     }
@@ -1250,22 +1281,33 @@ function AdminPage() {
     if (!supabase || !tenant || savingCompanyIdentity || !companyIdentity.profileImageUrl) return;
     setSavingCompanyIdentity(true);
     setMessage("");
-    const previousPath = storagePathFromPublicUrl(companyIdentity.profileImageUrl);
-    const { error } = await supabase.from("tenants").update({ profile_image_url: null }).eq("id", tenant.id);
-    if (error) {
-      setMessage(error.message);
+    setCompanyIdentityFeedback({ status: "saving", message: "Removendo a foto da empresa..." });
+    try {
+      const previousPath = storagePathFromPublicUrl(companyIdentity.profileImageUrl);
+      const { error } = await supabase
+        .from("tenants")
+        .update({ profile_image_url: null })
+        .eq("id", tenant.id)
+        .select("id")
+        .single();
+      if (error) throw error;
+      if (previousPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
+      const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, profile_image_url: null } : item;
+      setTenant((current) => current ? updateTenant(current) : current);
+      setAdminTenants((current) => current.map(updateTenant));
+      setCompanyIdentity((current) => ({ ...current, profileImageUrl: "" }));
+      setCompanyProfileFile(null);
+      setCompanyProfilePreview("");
+      const successMessage = "Foto da empresa removida com sucesso.";
+      setCompanyIdentityFeedback({ status: "success", message: successMessage });
+      setMessage(successMessage);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Não foi possível remover a foto da empresa.";
+      setCompanyIdentityFeedback({ status: "error", message: errorMessage });
+      setMessage(errorMessage);
+    } finally {
       setSavingCompanyIdentity(false);
-      return;
     }
-    if (previousPath) await supabase.storage.from(CATALOG_IMAGE_BUCKET).remove([previousPath]);
-    const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, profile_image_url: null } : item;
-    setTenant((current) => current ? updateTenant(current) : current);
-    setAdminTenants((current) => current.map(updateTenant));
-    setCompanyIdentity((current) => ({ ...current, profileImageUrl: "" }));
-    setCompanyProfileFile(null);
-    setCompanyProfilePreview("");
-    setSavingCompanyIdentity(false);
-    setMessage("Foto da empresa removida.");
   }
 
   async function saveCompanyAccess(event: FormEvent<HTMLFormElement>) {
@@ -1497,11 +1539,13 @@ function AdminPage() {
     const validationMessage = validateCatalogImage(file);
     if (validationMessage) {
       event.target.value = "";
+      setCompanyIdentityFeedback({ status: "error", message: validationMessage });
       setMessage(validationMessage);
       return;
     }
     setCompanyProfileFile(file);
     setCompanyProfilePreview(URL.createObjectURL(file));
+    setCompanyIdentityFeedback(null);
     setMessage("");
   }
 
@@ -1953,7 +1997,7 @@ function AdminPage() {
     if (!supabase || !activeBranchId || savingProduct) return;
     setSavingProduct(true);
     setMessage("");
-    let uploadedPath = "";
+    const uploadedPaths: string[] = [];
     try {
       const editingProduct = editingProductId ? products.find((product) => product.id === editingProductId) : null;
       if (editingProductId && !editingProduct) throw new Error("O produto selecionado não está mais disponível.");
@@ -2267,7 +2311,8 @@ function AdminPage() {
                       <div className="company-profile-preview" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt={`Foto de ${tenant.name}`} /> : <Building2 size={30} />}</div>
                       <div><strong>Foto de perfil</strong><small>JPG, PNG ou WebP · máximo 5 MB</small><div className="company-profile-actions"><button className="admin-secondary" type="button" onClick={() => companyProfileInputRef.current?.click()} disabled={savingCompanyIdentity}><ImagePlus size={16} /> Escolher foto</button>{!companyProfileFile && companyIdentity.profileImageUrl ? <button className="icon-button" type="button" title="Remover foto" aria-label="Remover foto da empresa" onClick={removeCompanyProfileImage} disabled={savingCompanyIdentity}><Trash2 size={17} /></button> : null}</div><input ref={companyProfileInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCompanyProfileImage} /></div>
                     </div>
-                    <label className="company-color-field"><span>Cor principal do tema</span><div><input type="color" value={companyIdentity.themeColor} onChange={(event) => setCompanyIdentity({ ...companyIdentity, themeColor: event.target.value })} aria-label="Cor principal do tema" /><strong>{companyIdentity.themeColor.toUpperCase()}</strong><span className="company-color-sample" style={{ background: companyIdentity.themeColor }}>Marca</span></div><small>Aplicada no cabeçalho, botões e destaques do catálogo.</small></label>
+                    <label className="company-color-field"><span>Cor principal do tema</span><div><input type="color" value={companyIdentity.themeColor} onChange={(event) => { setCompanyIdentity({ ...companyIdentity, themeColor: event.target.value }); setCompanyIdentityFeedback(null); }} aria-label="Cor principal do tema" /><strong>{companyIdentity.themeColor.toUpperCase()}</strong><span className="company-color-sample" style={{ background: companyIdentity.themeColor }}>Marca</span></div><small>Aplicada no cabeçalho, botões e destaques do catálogo.</small></label>
+                    {companyIdentityFeedback ? <p className={`identity-save-feedback ${companyIdentityFeedback.status}`} role={companyIdentityFeedback.status === "error" ? "alert" : "status"} aria-live="polite">{companyIdentityFeedback.status === "success" ? <CheckCircle2 size={18} /> : companyIdentityFeedback.status === "error" ? <TriangleAlert size={18} /> : <RefreshCw className="spinning" size={18} />}<span>{companyIdentityFeedback.message}</span></p> : null}
                     <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingCompanyIdentity}><Save size={16} /> {savingCompanyIdentity ? "Salvando..." : "Salvar identidade"}</button></div>
                   </form>
                 ) : null}

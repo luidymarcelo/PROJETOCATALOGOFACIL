@@ -275,6 +275,12 @@ test("keeps the growth surfaces present", async () => {
   );
   assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
   assert.match(adminPage, /async function saveCompanyIdentity/);
+  assert.match(adminPage, /let uploadedPath = ""/);
+  assert.doesNotMatch(adminPage, /const uploadedPaths: string\[\] = \[\];\s*try \{\s*let profileImageUrl/);
+  assert.match(adminPage, /select\("id, is_active, theme_color, profile_image_url"\)\s*\.single\(\)/);
+  assert.match(adminPage, /companyIdentityFeedback/);
+  assert.match(adminPage, /identity-save-feedback/);
+  assert.match(adminPage, /salva com sucesso/);
   assert.match(adminPage, /async function updateCompanyAvailability/);
   assert.match(adminPage, /async function updateBranchAvailability/);
   assert.match(adminPage, /function CompanyAvailabilityPanel/);
