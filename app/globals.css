@@ -1555,10 +1555,6 @@ img {
   margin-bottom: 14px;
 }
 
-.branch-commerce-fields {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .branch-cover-note-editor {
   display: grid;
   gap: 14px;
@@ -3571,10 +3567,6 @@ img {
 
   .admin-form-grid,
   .admin-columns {
-    grid-template-columns: 1fr;
-  }
-
-  .branch-commerce-fields {
     grid-template-columns: 1fr;
   }
 

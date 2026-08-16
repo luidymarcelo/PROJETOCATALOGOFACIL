@@ -186,7 +186,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.admin-form-grid\.single/);
   assert.match(pageStyles, /\.parameter-item-icon\.stock/);
   assert.match(pageStyles, /\.branch-details-panel/);
-  assert.match(pageStyles, /\.branch-commerce-fields/);
+  assert.doesNotMatch(pageStyles, /\.branch-commerce-fields/);
   assert.match(pageStyles, /\.branch-location-picker/);
   assert.match(pageStyles, /\.branch-map-preview iframe/);
   assert.match(pageStyles, /\.location-address-row/);
@@ -220,8 +220,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.branch-cover-note-preview/);
   assert.match(adminPage, /Dados da filial/);
   assert.match(adminPage, /Filial ativa no catálogo público/);
-  assert.match(adminPage, /minimum_order: minimumOrder/);
-  assert.match(adminPage, /delivery_time_label: branchDetailsForm\.deliveryTime/);
+  assert.doesNotMatch(adminPage, />Pedido mínimo<input/);
+  assert.doesNotMatch(adminPage, />Taxa de entrega<input/);
+  assert.doesNotMatch(adminPage, />Prazo de entrega<input/);
   assert.match(adminPage, /Salvar dados/);
   assert.match(adminPage, /BRANCH_DETAIL_SELECT/);
   assert.match(adminPage, /ParameterWorkspace/);

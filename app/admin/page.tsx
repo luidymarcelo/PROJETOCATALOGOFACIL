@@ -107,9 +107,6 @@ type OpenStreetMapPlace = { display_name?: string; lat?: string; lon?: string };
 type BranchDetailsForm = {
   name: string;
   phone: string;
-  minimumOrder: string;
-  deliveryFee: string;
-  deliveryTime: string;
   coverNote: string;
   coverNotePosition: CoverNotePosition;
   isActive: boolean;
@@ -369,7 +366,7 @@ function AdminPage() {
   const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION, userName: "", userEmail: "", userPassword: "" });
   const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION });
   const [branchLocationForm, setBranchLocationForm] = useState<BranchLocationValue>({ address: "", latitude: "", longitude: "" });
-  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", minimumOrder: "0,00", deliveryFee: "0,00", deliveryTime: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION, isActive: true });
+  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", coverNote: "", coverNotePosition: DEFAULT_COVER_NOTE_POSITION, isActive: true });
   const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
   const [validatingBranchAddress, setValidatingBranchAddress] = useState<BranchLocationTarget | "">("");
   const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
@@ -731,9 +728,6 @@ function AdminPage() {
     setBranchDetailsForm({
       name: selectedBranch?.name ?? "",
       phone: formatWhatsapp(selectedBranch?.whatsapp_phone ?? ""),
-      minimumOrder: Number(selectedBranch?.minimum_order ?? 0).toFixed(2).replace(".", ","),
-      deliveryFee: Number(selectedBranch?.delivery_fee ?? 0).toFixed(2).replace(".", ","),
-      deliveryTime: selectedBranch?.delivery_time_label ?? "",
       coverNote: selectedBranch?.cover_note ?? "",
       coverNotePosition: coverNotePositionValue(selectedBranch?.cover_note_position),
       isActive: selectedBranch?.is_active ?? true,
@@ -1498,8 +1492,6 @@ function AdminPage() {
     const address = branchLocationForm.address.trim();
     const latitude = validCoordinate(branchLocationForm.latitude, -90, 90);
     const longitude = validCoordinate(branchLocationForm.longitude, -180, 180);
-    const minimumOrder = parseBrazilianNumber(branchDetailsForm.minimumOrder || "0");
-    const deliveryFee = parseBrazilianNumber(branchDetailsForm.deliveryFee || "0");
     if (name.length < 2) {
       setMessage("Informe o nome da filial.");
       return;
@@ -1516,20 +1508,12 @@ function AdminPage() {
       setMessage("Use a localização atual ou valide o endereço antes de salvar.");
       return;
     }
-    if (!Number.isFinite(minimumOrder) || minimumOrder < 0 || !Number.isFinite(deliveryFee) || deliveryFee < 0) {
-      setMessage("Informe valores válidos para pedido mínimo e taxa de entrega.");
-      return;
-    }
-
     const branchUpdate: Partial<Branch> = {
       name,
       whatsapp_phone: phone,
       address,
       latitude,
       longitude,
-      minimum_order: minimumOrder,
-      delivery_fee: deliveryFee,
-      delivery_time_label: branchDetailsForm.deliveryTime.trim() || null,
       cover_note: branchDetailsForm.coverNote.trim() || null,
       cover_note_position: branchDetailsForm.coverNotePosition,
       is_active: branchDetailsForm.isActive,
@@ -1551,7 +1535,6 @@ function AdminPage() {
       : branch;
     setBranches((current) => current.map(updateBranch));
     setAdminBranches((current) => current.map(updateBranch));
-    setBranchDeliveryFees((current) => ({ ...current, [activeBranchId]: deliveryFee.toFixed(2).replace(".", ",") }));
     setMessage(`Dados da filial ${name} atualizados.`);
   }
 
@@ -2836,11 +2819,6 @@ function BranchDetailsEditor({
       <div className="admin-form-grid">
         <label>Nome da filial<input value={details.name} onChange={(event) => onDetailsChange({ ...details, name: event.target.value })} required /></label>
         <label>WhatsApp<input value={details.phone} onChange={(event) => onDetailsChange({ ...details, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
-      </div>
-      <div className="admin-form-grid branch-commerce-fields">
-        <label>Pedido mínimo<input value={details.minimumOrder} onChange={(event) => onDetailsChange({ ...details, minimumOrder: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
-        <label>Taxa de entrega<input value={details.deliveryFee} onChange={(event) => onDetailsChange({ ...details, deliveryFee: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
-        <label>Prazo de entrega<input value={details.deliveryTime} onChange={(event) => onDetailsChange({ ...details, deliveryTime: event.target.value })} placeholder="Ex.: 30-45 min" maxLength={50} /></label>
       </div>
       <BranchCoverNoteEditor
         note={details.coverNote}
