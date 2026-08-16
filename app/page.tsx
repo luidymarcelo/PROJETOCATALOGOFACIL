@@ -52,7 +52,6 @@ type Product = {
   images?: string[];
   badge?: string;
   unit?: string;
-  updatedAt?: string | null;
 };
 
 type CatalogLayout = "horizontal" | "showcase";
@@ -114,15 +113,6 @@ const STORE_RADIUS_KM = 30;
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
-});
-
-const productUpdatedAtFormatter = new Intl.DateTimeFormat("pt-BR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "America/Sao_Paulo",
 });
 
 function formatWhatsapp(value: string) {
@@ -626,13 +616,6 @@ function formatPrice(value: number) {
   return currency.format(value);
 }
 
-function formatProductUpdatedAt(value?: string | null) {
-  if (!value) return null;
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : productUpdatedAtFormatter.format(date);
-}
-
 function cleanOrderText(value: string, fallback = "Não informado") {
   const cleaned = value
     .replace(/[*_~`]/g, "")
@@ -955,7 +938,6 @@ export default function Home() {
             images: gallery.length ? gallery : primaryImage ? [primaryImage] : [],
             badge: product.badge ?? undefined,
             unit: product.unit ?? undefined,
-            updatedAt: product.updated_at ?? null,
             };
           });
 
@@ -1389,7 +1371,6 @@ export default function Home() {
                 const quantity =
                   cart.find((item) => item.product.id === product.id)?.quantity ??
                   0;
-                const updatedAtLabel = formatProductUpdatedAt(product.updatedAt);
 
                 return (
                   <article className="product-card" key={product.id}>
@@ -1401,12 +1382,6 @@ export default function Home() {
                         ) : null}
                         <h2>{product.name}</h2>
                         <p>{product.description}</p>
-                        {updatedAtLabel ? (
-                          <span className="product-updated-at" title="Última atualização do produto">
-                            <RefreshCw size={12} />
-                            Atualizado em {updatedAtLabel}
-                          </span>
-                        ) : null}
                       </div>
                       <footer>
                         <span className="price-stack">

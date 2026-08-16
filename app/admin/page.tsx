@@ -66,6 +66,7 @@ type Product = {
   badge: string | null;
   category_id: string | null;
   is_active: boolean;
+  updated_at: string | null;
   product_images?: ProductImage[];
 };
 
@@ -138,6 +139,21 @@ const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
 const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "Selo", "Código/SKU"] as const;
 type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
+
+const adminProductUpdatedAtFormatter = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "America/Sao_Paulo",
+});
+
+function formatAdminProductUpdatedAt(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : adminProductUpdatedAtFormatter.format(date);
+}
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
 const IMPORT_COLUMN_WIDTHS: Record<ImportHeader, number> = {
   Categoria: 24,
@@ -599,7 +615,7 @@ function AdminPage() {
         .order("sort_order", { ascending: true }),
       supabase
         .from("products")
-        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active, product_images(id, image_url, sort_order)")
+        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active, updated_at, product_images(id, image_url, sort_order)")
         .eq("store_id", branchId)
         .order("name", { ascending: true }),
       supabase
@@ -612,7 +628,7 @@ function AdminPage() {
     if (productResult.error && /product_images|relationship|schema cache/i.test(productResult.error.message)) {
       productResult = await supabase
         .from("products")
-        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
+        .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active, updated_at")
         .eq("store_id", branchId)
         .order("name", { ascending: true });
     }
@@ -2112,10 +2128,12 @@ function AdminPage() {
       const nextSortOrder = hasLegacyImage ? 1 : existingImages.reduce((highest, image) => Math.max(highest, image.sort_order), -1) + 1;
       const { error: galleryError } = await supabase.from("product_images").insert(uploadedImages.map((image, index) => ({ product_id: productId, store_id: activeBranchId, image_url: image.url, sort_order: nextSortOrder + index })));
       if (galleryError) throw galleryError;
-      if (!product.image_url) {
-        const { error } = await supabase.from("products").update({ image_url: uploadedImages[0].url, updated_at: new Date().toISOString() }).eq("id", productId).eq("store_id", activeBranchId);
-        if (error) throw error;
-      }
+      const productUpdate = {
+        updated_at: new Date().toISOString(),
+        ...(!product.image_url ? { image_url: uploadedImages[0].url } : {}),
+      };
+      const { error: productUpdateError } = await supabase.from("products").update(productUpdate).eq("id", productId).eq("store_id", activeBranchId);
+      if (productUpdateError) throw productUpdateError;
       await refreshBranchCatalog(activeBranchId);
       setMessage(`${uploadedImages.length} foto(s) adicionada(s) a ${product.name}.${selectedFiles.length > remaining ? ` O limite da filial é ${activeProductImageLimit}.` : ""}`);
     } catch (error) {
@@ -2147,8 +2165,12 @@ function AdminPage() {
       setSavingProduct(false);
       return;
     }
-    if (image.id !== "legacy" && product.image_url === image.image_url) {
-      const { error } = await supabase.from("products").update({ image_url: nextPrimaryImage, updated_at: new Date().toISOString() }).eq("id", product.id).eq("store_id", activeBranchId);
+    if (image.id !== "legacy") {
+      const productUpdate = {
+        updated_at: new Date().toISOString(),
+        ...(product.image_url === image.image_url ? { image_url: nextPrimaryImage } : {}),
+      };
+      const { error } = await supabase.from("products").update(productUpdate).eq("id", product.id).eq("store_id", activeBranchId);
       if (error) {
         setMessage(error.message);
         setSavingProduct(false);
@@ -2463,6 +2485,7 @@ function AdminPage() {
                 <div className="product-admin-list">
                   {products.map((product) => {
                     const isBusy = Boolean(uploadingProductImageId || updatingProductStatusId || deletingProductId);
+                    const updatedAtLabel = formatAdminProductUpdatedAt(product.updated_at);
                     return (
                       <div className={product.is_active ? "product-admin-row" : "product-admin-row inactive"} key={product.id}>
                         <div className="product-admin-info">
@@ -2471,6 +2494,7 @@ function AdminPage() {
                             <span className={product.is_active ? "product-status-badge active" : "product-status-badge inactive"}>{product.is_active ? "Ativo" : "Inativo"}</span>
                           </div>
                           <small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s)</small>
+                          <span className="product-admin-updated"><RefreshCw size={12} /> Última atualização: {updatedAtLabel ?? "sem registro"}</span>
                         </div>
                         <div className="product-admin-actions">
                           <button
