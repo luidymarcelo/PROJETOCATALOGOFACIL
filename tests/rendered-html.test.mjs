@@ -179,6 +179,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.branch-location-picker/);
   assert.match(pageStyles, /\.branch-map-preview iframe/);
   assert.match(pageStyles, /\.location-address-row/);
+  assert.match(pageStyles, /\.company-availability-panel/);
+  assert.match(pageStyles, /\.availability-branch-row/);
+  assert.match(pageStyles, /\.availability-switch\.active/);
   assert.match(pageStyles, /aspect-ratio: 4 \/ 5/);
   assert.match(headers, /Permissions-Policy: geolocation=\(self\)/);
   assert.match(worker, /headers\.set\("Permissions-Policy", "geolocation=\(self\)"\)/);
@@ -272,7 +275,13 @@ test("keeps the growth surfaces present", async () => {
   );
   assert.match(adminPage, /PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit"/);
   assert.match(adminPage, /async function saveCompanyIdentity/);
-  assert.match(adminPage, /Empresa ativa no catálogo público/);
+  assert.match(adminPage, /async function updateCompanyAvailability/);
+  assert.match(adminPage, /async function updateBranchAvailability/);
+  assert.match(adminPage, /function CompanyAvailabilityPanel/);
+  assert.match(adminPage, /function AvailabilitySwitch/);
+  assert.match(adminPage, /A empresa inteira está oculta, incluindo todas as filiais/);
+  assert.match(adminPage, /As configurações individuais abaixo serão preservadas/);
+  assert.match(adminPage, /Disponibilidade pública/);
   assert.match(adminPage, /Cor principal do tema/);
   assert.match(adminPage, /get_admin_company_identities/);
   assert.match(adminPage, /function editProduct/);
@@ -307,6 +316,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(companyBrandingSql, /function public\.enforce_product_image_limit/);
   assert.match(companyBrandingSql, /function public\.get_admin_company_identities/);
   assert.match(companyBrandingSql, /function public\.is_store_public/);
+  assert.match(companyBrandingSql, /and s\.is_active/);
+  assert.match(companyBrandingSql, /and t\.is_active/);
   assert.match(companyBrandingSql, /platform admins update company identity/);
   assert.match(branchManagementSql, /company members read own stores/);
   assert.match(branchManagementSql, /using \(public\.can_manage_store\(id\)\)/);

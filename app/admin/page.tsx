@@ -339,6 +339,7 @@ function AdminPage() {
   const [companyProfileFile, setCompanyProfileFile] = useState<File | null>(null);
   const [companyProfilePreview, setCompanyProfilePreview] = useState("");
   const [savingCompanyIdentity, setSavingCompanyIdentity] = useState(false);
+  const [savingAvailability, setSavingAvailability] = useState("");
   const companyProfileInputRef = useRef<HTMLInputElement>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
@@ -1202,6 +1203,47 @@ function AdminPage() {
     } finally {
       setSavingCompanyIdentity(false);
     }
+  }
+
+  async function updateCompanyAvailability(isActive: boolean) {
+    if (!supabase || !tenant || savingAvailability) return;
+    setSavingAvailability("company");
+    setMessage("");
+    const { error } = await supabase.from("tenants").update({ is_active: isActive }).eq("id", tenant.id);
+    setSavingAvailability("");
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    const updateTenant = (item: Tenant) => item.id === tenant.id ? { ...item, is_active: isActive } : item;
+    setTenant((current) => current ? updateTenant(current) : current);
+    setAdminTenants((current) => current.map(updateTenant));
+    setCompanyIdentity((current) => ({ ...current, isActive }));
+    setMessage(isActive
+      ? `Empresa ${tenant.name} ativada. As filiais ativas voltaram ao catálogo público.`
+      : `Empresa ${tenant.name} desativada. Todas as filiais foram ocultadas do catálogo público.`);
+  }
+
+  async function updateBranchAvailability(branchId: string, isActive: boolean) {
+    if (!supabase || savingAvailability) return;
+    const branch = branches.find((item) => item.id === branchId);
+    if (!branch) return;
+
+    setSavingAvailability(branchId);
+    setMessage("");
+    const { error } = await supabase.from("stores").update({ is_active: isActive }).eq("id", branchId);
+    setSavingAvailability("");
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    const updateBranch = (item: Branch) => item.id === branchId ? { ...item, is_active: isActive } : item;
+    setBranches((current) => current.map(updateBranch));
+    setAdminBranches((current) => current.map(updateBranch));
+    setBranchDetailsForm((current) => activeBranchId === branchId ? { ...current, isActive } : current);
+    setMessage(`Filial ${branch.name} ${isActive ? "ativada" : "desativada"}.`);
   }
 
   async function removeCompanyProfileImage() {
@@ -2208,30 +2250,24 @@ function AdminPage() {
                       <div className="settings-metric"><Truck size={19} /><span>Regra de frete</span><strong>{companyCalculatesDeliveryFee ? "Calculado" : "A combinar"}</strong></div>
                       <div className="settings-metric"><Power size={19} /><span>Status público</span><strong>{companyIdentity.isActive ? "Ativa" : "Inativa"}</strong></div>
                     </div>
-                    <section className="admin-form-panel settings-branch-panel">
-                      <div className="branch-form-heading"><div><span>Estrutura</span><h2>Filiais da empresa</h2></div><Store size={21} /></div>
-                      <div className="settings-branch-list">
-                        {branches.map((branch) => (
-                          <button className="settings-branch-row" type="button" key={branch.id} onClick={() => { setActiveBranchId(branch.id); setParameterScope("branch"); setCompanySettingsSection("parameters"); }}>
-                            <div className="settings-branch-avatar"><Store size={17} /></div>
-                            <div><strong>{branch.name}</strong><small>{branch.address || "Endereço ainda não informado"}</small></div>
-                            <span>{branch.latitude != null && branch.longitude != null ? "Localização configurada" : "Sem localização"}<ChevronRight size={15} /></span>
-                          </button>
-                        ))}
-                        {!branches.length ? <p className="admin-muted">Nenhuma filial vinculada.</p> : null}
-                      </div>
-                    </section>
+                    <CompanyAvailabilityPanel
+                      companyName={tenant.name}
+                      companyActive={companyIdentity.isActive}
+                      branches={branches}
+                      saving={savingAvailability}
+                      onCompanyChange={updateCompanyAvailability}
+                      onBranchChange={updateBranchAvailability}
+                    />
                   </div>
                 ) : null}
                 {companySettingsSection === "identity" ? (
                   <form className="admin-form-panel company-settings-panel company-identity-panel" onSubmit={saveCompanyIdentity}>
-                    <div className="branch-form-heading"><div><span>Identidade da empresa</span><h2>Marca e disponibilidade</h2><p>Essas informações personalizam todos os catálogos e filiais da empresa.</p></div><Palette size={21} /></div>
+                    <div className="branch-form-heading"><div><span>Identidade da empresa</span><h2>Marca da empresa</h2><p>Essas informações personalizam todos os catálogos e filiais da empresa.</p></div><Palette size={21} /></div>
                     <div className="company-profile-field">
                       <div className="company-profile-preview" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt={`Foto de ${tenant.name}`} /> : <Building2 size={30} />}</div>
                       <div><strong>Foto de perfil</strong><small>JPG, PNG ou WebP · máximo 5 MB</small><div className="company-profile-actions"><button className="admin-secondary" type="button" onClick={() => companyProfileInputRef.current?.click()} disabled={savingCompanyIdentity}><ImagePlus size={16} /> Escolher foto</button>{!companyProfileFile && companyIdentity.profileImageUrl ? <button className="icon-button" type="button" title="Remover foto" aria-label="Remover foto da empresa" onClick={removeCompanyProfileImage} disabled={savingCompanyIdentity}><Trash2 size={17} /></button> : null}</div><input ref={companyProfileInputRef} className="catalog-import-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectCompanyProfileImage} /></div>
                     </div>
                     <label className="company-color-field"><span>Cor principal do tema</span><div><input type="color" value={companyIdentity.themeColor} onChange={(event) => setCompanyIdentity({ ...companyIdentity, themeColor: event.target.value })} aria-label="Cor principal do tema" /><strong>{companyIdentity.themeColor.toUpperCase()}</strong><span className="company-color-sample" style={{ background: companyIdentity.themeColor }}>Marca</span></div><small>Aplicada no cabeçalho, botões e destaques do catálogo.</small></label>
-                    <ParameterToggle checked={companyIdentity.isActive} title="Empresa ativa no catálogo público" description={companyIdentity.isActive ? "As filiais estão disponíveis para os clientes." : "A empresa e todas as filiais ficam ocultas do catálogo público."} onChange={(isActive) => setCompanyIdentity({ ...companyIdentity, isActive })} />
                     <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={savingCompanyIdentity}><Save size={16} /> {savingCompanyIdentity ? "Salvando..." : "Salvar identidade"}</button></div>
                   </form>
                 ) : null}
@@ -2462,6 +2498,59 @@ function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSec
         return <button className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={17} /><span>{option.label}</span></button>;
       })}
     </nav>
+  );
+}
+
+function CompanyAvailabilityPanel({
+  companyName,
+  companyActive,
+  branches,
+  saving,
+  onCompanyChange,
+  onBranchChange,
+}: {
+  companyName: string;
+  companyActive: boolean;
+  branches: Branch[];
+  saving: string;
+  onCompanyChange: (isActive: boolean) => void;
+  onBranchChange: (branchId: string, isActive: boolean) => void;
+}) {
+  return (
+    <section className="admin-form-panel company-availability-panel">
+      <div className="branch-form-heading"><div><span>Disponibilidade pública</span><h2>Empresa e filiais</h2><p>Controle o que aparece no catálogo sem excluir nenhum dado.</p></div><Power size={21} /></div>
+      <div className={companyActive ? "company-availability-master active" : "company-availability-master inactive"}>
+        <span className="availability-master-icon"><Building2 size={20} /></span>
+        <div><strong>{companyName}</strong><small>{companyActive ? "A empresa está disponível e respeita o status de cada filial." : "A empresa inteira está oculta, incluindo todas as filiais."}</small></div>
+        <AvailabilitySwitch checked={companyActive} disabled={Boolean(saving)} loading={saving === "company"} label="empresa" onChange={onCompanyChange} />
+      </div>
+      {!companyActive ? <p className="company-availability-note"><Power size={16} /> As configurações individuais abaixo serão preservadas e voltarão a valer quando a empresa for ativada.</p> : null}
+      <div className="availability-branch-heading"><span>Filiais</span><small>{branches.filter((branch) => branch.is_active !== false).length} de {branches.length} configuradas como ativas</small></div>
+      <div className="availability-branch-list">
+        {branches.map((branch) => {
+          const branchActive = branch.is_active !== false;
+          const branchDescription = branchActive
+            ? companyActive ? "Visível no catálogo público" : "Ativa, mas oculta enquanto a empresa estiver inativa"
+            : "Oculta do catálogo público";
+          return (
+            <div className="availability-branch-row" key={branch.id}>
+              <span className="settings-branch-avatar"><Store size={17} /></span>
+              <div><strong>{branch.name}</strong><small>{branchDescription}</small></div>
+              <AvailabilitySwitch checked={branchActive} disabled={Boolean(saving)} loading={saving === branch.id} label={`filial ${branch.name}`} onChange={(isActive) => onBranchChange(branch.id, isActive)} />
+            </div>
+          );
+        })}
+        {!branches.length ? <p className="admin-muted">Nenhuma filial vinculada.</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function AvailabilitySwitch({ checked, disabled, loading = false, label, onChange }: { checked: boolean; disabled: boolean; loading?: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <button className={checked ? "availability-switch active" : "availability-switch"} type="button" role="switch" aria-checked={checked} aria-label={`${checked ? "Desativar" : "Ativar"} ${label}`} disabled={disabled} onClick={() => onChange(!checked)}>
+      <span aria-hidden="true"><i /></span><strong>{loading ? "Salvando" : checked ? "Ativa" : "Inativa"}</strong>
+    </button>
   );
 }
 
