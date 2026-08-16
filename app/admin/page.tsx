@@ -5,6 +5,7 @@ import {
   Building2,
   ChevronRight,
   Download,
+  ExternalLink,
   FileSpreadsheet,
   ImagePlus,
   Images,
@@ -94,6 +95,8 @@ type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" 
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
+type BranchLocationValue = { address: string; latitude: string; longitude: string };
+type OpenStreetMapPlace = { display_name?: string; lat?: string; lon?: string };
 type BranchDetailsForm = {
   name: string;
   phone: string;
@@ -110,6 +113,8 @@ const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
 const BRANCH_DETAIL_SELECT = "id, name, slug, tenant_id, whatsapp_phone, address, cover_image_url, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active";
+const addressLocationCache = new Map<string, BranchLocationValue>();
+const coordinateAddressCache = new Map<string, string>();
 
 const EMPTY_PRODUCT_FORM = {
   name: "",
@@ -216,6 +221,61 @@ function validCoordinate(value: string, min: number, max: number) {
   return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
 }
 
+async function openStreetMapJson<T>(url: string): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("geocoding_unavailable");
+    return await response.json() as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function findAddressOnOpenStreetMap(address: string): Promise<BranchLocationValue> {
+  const cacheKey = address.trim().toLocaleLowerCase("pt-BR");
+  const cachedLocation = addressLocationCache.get(cacheKey);
+  if (cachedLocation) return cachedLocation;
+  const params = new URLSearchParams({
+    q: address,
+    format: "jsonv2",
+    limit: "1",
+    countrycodes: "br",
+    addressdetails: "1",
+    "accept-language": "pt-BR",
+  });
+  const [place] = await openStreetMapJson<OpenStreetMapPlace[]>(`https://nominatim.openstreetmap.org/search?${params}`);
+  const latitude = place?.lat ? validCoordinate(place.lat, -90, 90) : null;
+  const longitude = place?.lon ? validCoordinate(place.lon, -180, 180) : null;
+  if (!place?.display_name || latitude === null || longitude === null) throw new Error("address_not_found");
+  const location = { address: address.trim(), latitude: latitude.toFixed(6), longitude: longitude.toFixed(6) };
+  addressLocationCache.set(cacheKey, location);
+  return location;
+}
+
+async function findAddressFromCoordinates(latitude: number, longitude: number) {
+  const cacheKey = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+  const cachedAddress = coordinateAddressCache.get(cacheKey);
+  if (cachedAddress) return cachedAddress;
+  const params = new URLSearchParams({
+    lat: String(latitude),
+    lon: String(longitude),
+    format: "jsonv2",
+    zoom: "18",
+    addressdetails: "1",
+    "accept-language": "pt-BR",
+  });
+  const place = await openStreetMapJson<OpenStreetMapPlace>(`https://nominatim.openstreetmap.org/reverse?${params}`);
+  const address = place.display_name?.trim() ?? "";
+  if (address) coordinateAddressCache.set(cacheKey, address);
+  return address;
+}
+
 function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -265,9 +325,10 @@ function AdminPage() {
   const [message, setMessage] = useState("");
   const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", userName: "", userEmail: "", userPassword: "" });
   const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "" });
-  const [branchLocationForm, setBranchLocationForm] = useState({ address: "", latitude: "", longitude: "" });
+  const [branchLocationForm, setBranchLocationForm] = useState<BranchLocationValue>({ address: "", latitude: "", longitude: "" });
   const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", minimumOrder: "0,00", deliveryFee: "0,00", deliveryTime: "", isActive: true });
   const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
+  const [validatingBranchAddress, setValidatingBranchAddress] = useState<BranchLocationTarget | "">("");
   const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
   const [showBranchDetails, setShowBranchDetails] = useState(false);
   const [savingBranchDetails, setSavingBranchDetails] = useState(false);
@@ -646,6 +707,50 @@ function AdminPage() {
     if (companyProfilePreview.startsWith("blob:")) URL.revokeObjectURL(companyProfilePreview);
   }, [companyProfilePreview]);
 
+  function branchLocationForTarget(target: BranchLocationTarget): BranchLocationValue {
+    if (target === "company") return companyForm;
+    if (target === "branch") return branchForm;
+    return branchLocationForm;
+  }
+
+  function updateBranchLocation(target: BranchLocationTarget, location: BranchLocationValue) {
+    if (target === "company") setCompanyForm((current) => ({ ...current, ...location }));
+    else if (target === "branch") setBranchForm((current) => ({ ...current, ...location }));
+    else setBranchLocationForm(location);
+  }
+
+  function updateBranchAddress(target: BranchLocationTarget, address: string) {
+    updateBranchLocation(target, { address, latitude: "", longitude: "" });
+    if (locationIssue?.target === target) setLocationIssue(null);
+  }
+
+  async function validateBranchAddress(target: BranchLocationTarget) {
+    const address = branchLocationForTarget(target).address.trim();
+    if (address.length < 3) {
+      const issue = "Digite um endereço com rua, número, cidade e estado para validar.";
+      setMessage(issue);
+      setLocationIssue({ target, message: issue });
+      return;
+    }
+
+    setValidatingBranchAddress(target);
+    setMessage("Validando o endereço da filial...");
+    setLocationIssue(null);
+    try {
+      const location = await findAddressOnOpenStreetMap(address);
+      updateBranchLocation(target, location);
+      setMessage("Endereço validado. Confira o ponto indicado no mapa.");
+    } catch (error) {
+      const issue = error instanceof Error && error.message === "address_not_found"
+        ? "Não encontramos esse endereço. Informe rua, número, cidade e estado e tente novamente."
+        : "O serviço de mapas não respondeu. Aguarde um momento e tente novamente.";
+      setMessage(issue);
+      setLocationIssue({ target, message: issue });
+    } finally {
+      setValidatingBranchAddress("");
+    }
+  }
+
   async function captureBranchLocation(target: BranchLocationTarget) {
     if (!navigator.geolocation) {
       const issue = "A localização não está disponível neste navegador.";
@@ -685,11 +790,20 @@ function AdminPage() {
         position = await requestBrowserLocation({ enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 });
       }
 
-      const location = { latitude: position.coords.latitude.toFixed(6), longitude: position.coords.longitude.toFixed(6) };
-      if (target === "company") setCompanyForm((current) => ({ ...current, ...location }));
-      else if (target === "branch") setBranchForm((current) => ({ ...current, ...location }));
-      else setBranchLocationForm((current) => ({ ...current, ...location }));
-      setMessage("Localização da filial preenchida.");
+      const latitude = position.coords.latitude;
+      const longitude = position.coords.longitude;
+      let address = "";
+      try {
+        address = await findAddressFromCoordinates(latitude, longitude);
+      } catch {
+        // Coordinates remain usable when reverse geocoding is temporarily unavailable.
+      }
+      updateBranchLocation(target, {
+        address: address || `Localização atual (${latitude.toFixed(6)}, ${longitude.toFixed(6)})`,
+        latitude: latitude.toFixed(6),
+        longitude: longitude.toFixed(6),
+      });
+      setMessage(address ? "Localização identificada. Confira o ponto indicado no mapa." : "Localização encontrada. Confira o ponto indicado no mapa.");
       setLocationIssue(null);
     } catch (error) {
       const issue = locationErrorMessage(error as GeolocationPositionError);
@@ -706,8 +820,12 @@ function AdminPage() {
     setMessage("");
     const latitude = validCoordinate(companyForm.latitude, -90, 90);
     const longitude = validCoordinate(companyForm.longitude, -180, 180);
+    if (!companyForm.address.trim()) {
+      setMessage("Informe o endereço da primeira filial.");
+      return;
+    }
     if (latitude === null || longitude === null) {
-      setMessage("Informe uma localização válida para a primeira filial.");
+      setMessage("Use a localização atual ou valide o endereço da primeira filial.");
       return;
     }
     const { data, error } = await supabase.functions.invoke("create-store-user", {
@@ -1172,8 +1290,12 @@ function AdminPage() {
     }
     const latitude = validCoordinate(branchForm.latitude, -90, 90);
     const longitude = validCoordinate(branchForm.longitude, -180, 180);
+    if (!branchForm.address.trim()) {
+      setMessage("Informe o endereço da filial.");
+      return;
+    }
     if (latitude === null || longitude === null) {
-      setMessage("Informe uma localização válida para a filial.");
+      setMessage("Use a localização atual ou valide o endereço da filial.");
       return;
     }
 
@@ -1246,7 +1368,7 @@ function AdminPage() {
       return;
     }
     if (latitude === null || longitude === null) {
-      setMessage("Informe uma latitude e longitude válidas para a filial.");
+      setMessage("Use a localização atual ou valide o endereço antes de salvar.");
       return;
     }
     if (!Number.isFinite(minimumOrder) || minimumOrder < 0 || !Number.isFinite(deliveryFee) || deliveryFee < 0) {
@@ -2053,12 +2175,16 @@ function AdminPage() {
               <label>Nome do responsável<input value={companyForm.userName} onChange={(event) => setCompanyForm({ ...companyForm, userName: event.target.value })} placeholder="Nome do cliente" required /></label>
               <label>E-mail de acesso<input type="email" value={companyForm.userEmail} onChange={(event) => setCompanyForm({ ...companyForm, userEmail: event.target.value })} placeholder="cliente@empresa.com" required /></label>
               <label>Senha de acesso<input type="password" minLength={6} value={companyForm.userPassword} onChange={(event) => setCompanyForm({ ...companyForm, userPassword: event.target.value })} placeholder="Mínimo de 6 caracteres" required /></label>
-              <label>Endereço<input value={companyForm.address} onChange={(event) => setCompanyForm({ ...companyForm, address: event.target.value })} placeholder="Rua e número" required /></label>
-              <label>Latitude<input value={companyForm.latitude} onChange={(event) => setCompanyForm({ ...companyForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label>
-              <label>Longitude<input value={companyForm.longitude} onChange={(event) => setCompanyForm({ ...companyForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label>
             </div>
-            <button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("company")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "company" ? "Obtendo localização..." : "Usar localização atual da filial"}</button>
-            {locationIssue?.target === "company" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("company")} /> : null}
+            <BranchLocationPicker
+              value={companyForm}
+              locating={locatingBranchForm === "company"}
+              validating={validatingBranchAddress === "company"}
+              issue={locationIssue?.target === "company" ? locationIssue.message : ""}
+              onAddressChange={(address) => updateBranchAddress("company", address)}
+              onUseCurrent={() => captureBranchLocation("company")}
+              onValidate={() => validateBranchAddress("company")}
+            />
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
         ) : !isCompanyPortal && adminSection === "settings" ? (
@@ -2167,9 +2293,27 @@ function AdminPage() {
         ) : (
           <>
             <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
-            {!isCompanyPortal && showBranchForm ? <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}><div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div><div className="admin-form-grid"><label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label><label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label><label>Latitude<input value={branchForm.latitude} onChange={(event) => setBranchForm({ ...branchForm, latitude: event.target.value })} placeholder="-7,190800" inputMode="decimal" required /></label><label>Longitude<input value={branchForm.longitude} onChange={(event) => setBranchForm({ ...branchForm, longitude: event.target.value })} placeholder="-48,207300" inputMode="decimal" required /></label></div><label>Endereço<input value={branchForm.address} onChange={(event) => setBranchForm({ ...branchForm, address: event.target.value })} placeholder="Rua, número e bairro" required /></label><button className="admin-secondary branch-location-button" type="button" onClick={() => captureBranchLocation("branch")} disabled={Boolean(locatingBranchForm)}><LocateFixed size={16} /> {locatingBranchForm === "branch" ? "Obtendo localização..." : "Usar localização atual da filial"}</button>{locationIssue?.target === "branch" ? <LocationHelp issue={locationIssue.message} onRetry={() => captureBranchLocation("branch")} /> : null}<div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div></form> : null}
+            {!isCompanyPortal && showBranchForm ? (
+              <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}>
+                <div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div>
+                <div className="admin-form-grid">
+                  <label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label>
+                  <label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
+                </div>
+                <BranchLocationPicker
+                  value={branchForm}
+                  locating={locatingBranchForm === "branch"}
+                  validating={validatingBranchAddress === "branch"}
+                  issue={locationIssue?.target === "branch" ? locationIssue.message : ""}
+                  onAddressChange={(address) => updateBranchAddress("branch", address)}
+                  onUseCurrent={() => captureBranchLocation("branch")}
+                  onValidate={() => validateBranchAddress("branch")}
+                />
+                <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowBranchForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingBranch}><Plus size={16} /> {savingBranch ? "Criando..." : "Criar filial"}</button></div>
+              </form>
+            ) : null}
             {activeBranch ? <p className="branch-note"><Store size={16} /> Editando: <strong>{activeBranch.name}</strong></p> : null}
-            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} details={branchDetailsForm} location={branchLocationForm} locating={locatingBranchForm === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onLocationChange={setBranchLocationForm} onCaptureLocation={() => captureBranchLocation("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
+            {showBranchDetails && activeBranch ? <BranchDetailsEditor branch={activeBranch} details={branchDetailsForm} location={branchLocationForm} locating={locatingBranchForm === "existing"} validatingLocation={validatingBranchAddress === "existing"} saving={savingBranchDetails} issue={locationIssue?.target === "existing" ? locationIssue.message : ""} onDetailsChange={setBranchDetailsForm} onAddressChange={(address) => updateBranchAddress("existing", address)} onCaptureLocation={() => captureBranchLocation("existing")} onValidateLocation={() => validateBranchAddress("existing")} onClose={() => setShowBranchDetails(false)} onSubmit={saveBranchDetails} /> : null}
             <section className="catalog-media-panel">
               <div className="branch-cover-preview">
                 {coverImagePreview || activeBranch?.cover_image_url ? <img src={coverImagePreview || activeBranch?.cover_image_url || ""} alt={`Capa de ${activeBranch?.name ?? "filial"}`} /> : <Package size={30} />}
@@ -2321,28 +2465,86 @@ function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSec
   );
 }
 
+function BranchLocationPicker({
+  value,
+  locating,
+  validating,
+  issue,
+  onAddressChange,
+  onUseCurrent,
+  onValidate,
+}: {
+  value: BranchLocationValue;
+  locating: boolean;
+  validating: boolean;
+  issue: string;
+  onAddressChange: (address: string) => void;
+  onUseCurrent: () => void;
+  onValidate: () => void;
+}) {
+  const latitude = validCoordinate(value.latitude, -90, 90);
+  const longitude = validCoordinate(value.longitude, -180, 180);
+  const hasValidatedPoint = latitude !== null && longitude !== null;
+  const busy = locating || validating;
+  const mapDelta = 0.004;
+  const embedUrl = hasValidatedPoint
+    ? `https://www.openstreetmap.org/export/embed.html?${new URLSearchParams({
+        bbox: `${longitude - mapDelta},${latitude - mapDelta},${longitude + mapDelta},${latitude + mapDelta}`,
+        layer: "mapnik",
+        marker: `${latitude},${longitude}`,
+      })}`
+    : "";
+  const mapUrl = hasValidatedPoint
+    ? `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=18/${latitude}/${longitude}`
+    : "";
+
+  return (
+    <section className="branch-location-picker">
+      <div className="branch-location-heading"><MapPin size={18} /><span><strong>Localização da filial</strong><small>Escolha uma das opções e confira o ponto antes de salvar.</small></span></div>
+      <div className="location-address-row">
+        <label>Digite o endereço<input value={value.address} onChange={(event) => onAddressChange(event.target.value)} placeholder="Rua, número, cidade e estado" required /></label>
+        <button className="admin-secondary" type="button" onClick={onValidate} disabled={busy}><Search size={16} /> {validating ? "Validando..." : "Validar endereço"}</button>
+      </div>
+      <div className="location-choice"><span>ou</span></div>
+      <button className="admin-secondary location-current-button" type="button" onClick={onUseCurrent} disabled={busy}><LocateFixed size={16} /> {locating ? "Obtendo localização..." : "Usar localização atual"}</button>
+      {issue ? <LocationHelp issue={issue} /> : null}
+      {hasValidatedPoint ? (
+        <div className="branch-map-preview" aria-live="polite">
+          <iframe src={embedUrl} title={`Mapa da filial em ${value.address}`} loading="lazy" />
+          <footer><span><MapPin size={16} /><strong>Ponto identificado no mapa</strong></span><a href={mapUrl} target="_blank" rel="noreferrer">Abrir no OpenStreetMap <ExternalLink size={14} /></a></footer>
+        </div>
+      ) : <p className="location-pending"><MapPin size={16} /> Valide o endereço ou use a localização atual para visualizar o mapa.</p>}
+      <small className="openstreetmap-credit">Busca e mapa por OpenStreetMap.</small>
+    </section>
+  );
+}
+
 function BranchDetailsEditor({
   branch,
   details,
   location,
   locating,
+  validatingLocation,
   saving,
   issue,
   onDetailsChange,
-  onLocationChange,
+  onAddressChange,
   onCaptureLocation,
+  onValidateLocation,
   onClose,
   onSubmit,
 }: {
   branch: Branch;
   details: BranchDetailsForm;
-  location: { address: string; latitude: string; longitude: string };
+  location: BranchLocationValue;
   locating: boolean;
+  validatingLocation: boolean;
   saving: boolean;
   issue: string;
   onDetailsChange: (details: BranchDetailsForm) => void;
-  onLocationChange: (location: { address: string; latitude: string; longitude: string }) => void;
+  onAddressChange: (address: string) => void;
   onCaptureLocation: () => void;
+  onValidateLocation: () => void;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -2354,19 +2556,13 @@ function BranchDetailsEditor({
         <label>Nome da filial<input value={details.name} onChange={(event) => onDetailsChange({ ...details, name: event.target.value })} required /></label>
         <label>WhatsApp<input value={details.phone} onChange={(event) => onDetailsChange({ ...details, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
       </div>
-      <label>Endereço<input value={location.address} onChange={(event) => onLocationChange({ ...location, address: event.target.value })} placeholder="Rua, número e bairro" required /></label>
       <div className="admin-form-grid branch-commerce-fields">
         <label>Pedido mínimo<input value={details.minimumOrder} onChange={(event) => onDetailsChange({ ...details, minimumOrder: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
         <label>Taxa de entrega<input value={details.deliveryFee} onChange={(event) => onDetailsChange({ ...details, deliveryFee: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label>
         <label>Prazo de entrega<input value={details.deliveryTime} onChange={(event) => onDetailsChange({ ...details, deliveryTime: event.target.value })} placeholder="Ex.: 30-45 min" maxLength={50} /></label>
       </div>
-      <div className="branch-location-heading"><MapPin size={18} /><span><strong>Localização no mapa</strong><small>Usada para retirada e distância da loja.</small></span></div>
-      <div className="admin-form-grid">
-        <label>Latitude<input value={location.latitude} onChange={(event) => onLocationChange({ ...location, latitude: event.target.value })} inputMode="decimal" required /></label>
-        <label>Longitude<input value={location.longitude} onChange={(event) => onLocationChange({ ...location, longitude: event.target.value })} inputMode="decimal" required /></label>
-      </div>
-      {issue ? <LocationHelp issue={issue} onRetry={onCaptureLocation} /> : null}
-      <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={onCaptureLocation} disabled={locating || saving}><LocateFixed size={16} /> {locating ? "Obtendo..." : "Usar localização atual"}</button><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar dados"}</button></div>
+      <BranchLocationPicker value={location} locating={locating} validating={validatingLocation} issue={issue} onAddressChange={onAddressChange} onUseCurrent={onCaptureLocation} onValidate={onValidateLocation} />
+      <div className="admin-form-actions"><button className="admin-primary" type="submit" disabled={saving || locating || validatingLocation}><Save size={16} /> {saving ? "Salvando..." : "Salvar dados"}</button></div>
     </form>
   );
 }
@@ -2587,8 +2783,8 @@ function ParameterToggle({ checked, title, description, onChange }: { checked: b
   return <label className="parameter-toggle-row"><span><strong>{title}</strong><small>{description}</small></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><i aria-hidden="true"><b /></i></label>;
 }
 
-function LocationHelp({ issue, onRetry }: { issue: string; onRetry: () => void }) {
-  return <div className="location-help" role="alert"><MapPin size={18} /><span><strong>Localização não liberada</strong><small>{issue}</small></span><button className="admin-secondary" type="button" onClick={onRetry}>Tentar novamente</button></div>;
+function LocationHelp({ issue }: { issue: string }) {
+  return <div className="location-help" role="alert"><MapPin size={18} /><span><strong>Verifique a localização</strong><small>{issue}</small></span></div>;
 }
 
 function AdminCompanies({
