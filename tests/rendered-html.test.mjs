@@ -289,7 +289,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Execute a migration 015_product_option_groups\.sql/);
   assert.match(adminPage, /workbook\.getWorksheet\("Opcionais"\)/);
   assert.match(adminPage, /INDIRECT\("'Produtos'!\$B\$2:\$B\$5000"\)/);
-  assert.match(adminPage, /Novo grupo de opcionais/);
+  assert.match(adminPage, /Novo grupo de adicionais/);
+  assert.match(adminPage, /Grupos de adicionais/);
+  assert.match(adminPage, /ADDITION_GROUP_HEADERS/);
+  assert.match(adminPage, /workbook\.getWorksheet\("Adicionais"\)/);
+  assert.match(adminPage, /companySettingsSection === "additions"/);
   assert.match(adminPage, /createOptionGroup/);
   assert.match(adminPage, /async function resolveBranchControlsStock/);
   assert.match(adminPage, /storeParameterResult\.data\?\.parameter_value \?\? tenantParameterResult\.data\?\.parameter_value/);

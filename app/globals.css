@@ -3941,6 +3941,29 @@ img {
   text-transform: uppercase;
 }
 
+.additions-group-form {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  margin-top: 18px;
+}
+
+.checkbox-field {
+  display: flex;
+  min-height: 42px;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.checkbox-field input {
+  min-height: auto;
+  accent-color: var(--primary);
+}
+
+.additions-group-list {
+  margin-top: 20px;
+}
+
 .admin-console-content {
   min-width: 0;
 }

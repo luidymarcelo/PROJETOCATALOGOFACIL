@@ -115,6 +115,13 @@ type CatalogImportOptionRow = {
   sortOrder: number;
 };
 
+type CatalogImportAdditionGroup = {
+  name: string;
+  required: boolean;
+  isActive: boolean;
+  sortOrder: number;
+};
+
 type CatalogEditorMode = "product" | "category";
 type OptionDraft = { name: string; priceDelta: string };
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
@@ -124,7 +131,7 @@ type StockControlMode = "inherit" | "enabled" | "disabled";
 type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type ProductImageLimitMode = "inherit" | number;
-type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "danger";
+type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "additions" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
@@ -198,7 +205,9 @@ function formatAdminProductUpdatedAt(value: string | null) {
   return Number.isNaN(date.getTime()) ? null : adminProductUpdatedAtFormatter.format(date);
 }
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
-const OPTION_IMPORT_HEADERS = ["Grupo", "Produto", "Obrigatório", "Máximo", "Opcional", "Acréscimo", "Status", "Ordem"] as const;
+const ADDITION_GROUP_HEADERS = ["Grupo", "Obrigat\u00f3rio", "Status", "Ordem"] as const;
+const ADDITION_IMPORT_HEADERS = ["Grupo", "Produto", "Obrigat\u00f3rio", "M\u00e1ximo", "Adicional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
+const OPTION_IMPORT_HEADERS = ADDITION_IMPORT_HEADERS;
 const OPTION_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const IMPORT_COLUMN_WIDTHS: Record<ImportHeader, number> = {
   Categoria: 24,
@@ -274,7 +283,7 @@ function readableCatalogError(error: unknown) {
     ? error.message
     : String(record?.message ?? record?.details ?? record?.hint ?? "");
   if (/option_groups|option_group_items|product_option_groups|relation .* does not exist|schema cache/i.test(message)) {
-    return `${message || "As tabelas de opcionais ainda não estão disponíveis."} Execute a migration 015_product_option_groups.sql no SQL Editor do Supabase e tente novamente.`;
+    return `${message || "As tabelas de adicionais ainda não estão disponíveis."} Execute a migration 015_product_option_groups.sql no SQL Editor do Supabase e tente novamente.`;
   }
   return message || "Não foi possível importar a planilha. Verifique os dados e tente novamente.";
 }
@@ -415,6 +424,9 @@ function AdminPage() {
   const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
   const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
   const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
+  const [additionGroupName, setAdditionGroupName] = useState("");
+  const [additionGroupRequired, setAdditionGroupRequired] = useState(false);
+  const [savingAdditionGroup, setSavingAdditionGroup] = useState(false);
   const [parameterScope, setParameterScope] = useState<ParameterScope>("company");
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1143,6 +1155,37 @@ function AdminPage() {
       setMessage(error instanceof Error ? error.message : "Não foi possível criar o grupo de opcionais.");
     } finally {
       setSavingOptionGroup(false);
+    }
+  }
+
+  async function createAdditionGroup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !activeBranchId || savingAdditionGroup) return;
+    const name = additionGroupName.trim();
+    if (!name) {
+      setMessage("Informe o nome do grupo de adicionais.");
+      return;
+    }
+    setSavingAdditionGroup(true);
+    setMessage("");
+    try {
+      const { error } = await supabase.from("option_groups").insert({
+        store_id: activeBranchId,
+        name,
+        min_selections: additionGroupRequired ? 1 : 0,
+        max_selections: 1,
+        sort_order: optionGroups.length,
+        is_active: true,
+      });
+      if (error) throw error;
+      setAdditionGroupName("");
+      setAdditionGroupRequired(false);
+      await refreshBranchCatalog(activeBranchId);
+      setMessage(`Grupo de adicionais ${name} criado.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível criar o grupo de adicionais.");
+    } finally {
+      setSavingAdditionGroup(false);
     }
   }
 
@@ -2056,8 +2099,17 @@ function AdminPage() {
         error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
       });
 
-      const optionsSheet = workbook.addWorksheet("Opcionais", { views: [{ state: "frozen", ySplit: 1 }] });
-      optionsSheet.addRow(OPTION_IMPORT_HEADERS);
+      const additionGroupsSheet = workbook.addWorksheet("Grupos de adicionais", { views: [{ state: "frozen", ySplit: 1 }] });
+      additionGroupsSheet.addRow(ADDITION_GROUP_HEADERS);
+      additionGroupsSheet.addRows(optionGroups.map((group) => [group.name, group.min_selections > 0 ? "Sim" : "Não", group.is_active ? "Ativo" : "Desativado", group.sort_order]));
+      additionGroupsSheet.columns = [{ width: 34 }, { width: 16 }, { width: 16 }, { width: 12 }];
+      additionGroupsSheet.getRow(1).height = 25;
+      additionGroupsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
+      addExcelRangeValidation(additionGroupsSheet, `B2:B${Math.max(1001, additionGroupsSheet.rowCount + 200)}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$B$1:$B$2"] });
+      addExcelRangeValidation(additionGroupsSheet, `C2:C${Math.max(1001, additionGroupsSheet.rowCount + 200)}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"] });
+
+      const optionsSheet = workbook.addWorksheet("Adicionais", { views: [{ state: "frozen", ySplit: 1 }] });
+      optionsSheet.addRow(ADDITION_IMPORT_HEADERS);
       const optionRows = optionGroups.flatMap((group) => (group.product_option_groups ?? []).flatMap((link) => (group.option_group_items ?? []).map((item) => [
         group.name,
         exportProducts.find((product) => product.id === link.product_id)?.name ?? "",
@@ -2086,6 +2138,8 @@ function AdminPage() {
         ["Campo", "Preenchimento"],
         ["Produtos", "A aba Produtos já contém o catálogo atual. Você pode editar as linhas ou acrescentar produtos."],
         ["Categorias", "Cadastre e organize as categorias nesta aba antes de vinculá-las aos produtos."],
+        ["Grupos de adicionais", "Crie os grupos nesta aba e marque se o cliente deve ser obrigado a escolher um adicional."],
+        ["Adicionais", "Vincule um produto a um grupo e informe cada adicional, seu acréscimo e status."],
         ["Categoria", "Na aba Produtos, escolha uma opção do combo alimentado pela aba Categorias."],
         ["Produto", "Obrigatório. Nome exibido no catálogo."],
         ["Descrição", "Opcional."],
@@ -2176,6 +2230,7 @@ function AdminPage() {
       if (!categoriesSheet) throw new Error('A planilha precisa ter uma aba chamada "Categorias".');
       const importedCategories: CatalogImportCategory[] = [];
       const importedCategoryKeys = new Set<string>();
+      const importedAdditionGroups: CatalogImportAdditionGroup[] = [];
       const importedOptionRows: CatalogImportOptionRow[] = [];
       const validationErrors: string[] = [];
 
@@ -2205,7 +2260,30 @@ function AdminPage() {
         }
       }
 
-      const optionsSheet = workbook.getWorksheet("Opcionais");
+      const additionGroupsSheet = workbook.getWorksheet("Grupos de adicionais");
+      if (additionGroupsSheet) {
+        const groupColumns = new Map<string, number>();
+        additionGroupsSheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+          const header = normalizeText(excelValueToText(cell.value));
+          if (header) groupColumns.set(header, columnNumber);
+        });
+        const groupColumn = (rowNumber: number, header: string) => {
+          const columnNumber = groupColumns.get(normalizeText(header));
+          return columnNumber ? additionGroupsSheet.getRow(rowNumber).getCell(columnNumber).value : null;
+        };
+        for (let rowNumber = 2; rowNumber <= additionGroupsSheet.rowCount; rowNumber += 1) {
+          const name = excelValueToText(groupColumn(rowNumber, "Grupo"));
+          if (!name) continue;
+          const required = normalizeText(excelValueToText(groupColumn(rowNumber, "Obrigatório")));
+          const status = productStatusValue(groupColumn(rowNumber, "Status"));
+          const sortOrder = parseBrazilianNumber(groupColumn(rowNumber, "Ordem"));
+          if (required !== "sim" && required !== "nao") validationErrors.push(`aba Grupos de adicionais linha ${rowNumber}: Obrigatório deve ser Sim ou Não`);
+          if (status === null) validationErrors.push(`aba Grupos de adicionais linha ${rowNumber}: status inválido`);
+          importedAdditionGroups.push({ name, required: required === "sim", isActive: status ?? true, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 });
+        }
+      }
+
+      const optionsSheet = workbook.getWorksheet("Adicionais") ?? workbook.getWorksheet("Opcionais");
       if (optionsSheet) {
         const optionHeaderColumns = new Map<string, number>();
         optionsSheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
@@ -2216,17 +2294,17 @@ function AdminPage() {
           const columnNumber = optionHeaderColumns.get(normalizeText(header));
           return columnNumber ? optionsSheet.getRow(rowNumber).getCell(columnNumber).value : null;
         };
-        const requiredOptionHeaders = [...OPTION_IMPORT_HEADERS.slice(0, 7)];
+        const requiredOptionHeaders = [...ADDITION_IMPORT_HEADERS.slice(0, 7)];
         const missingOptionHeaders = requiredOptionHeaders.filter((header) => !optionHeaderColumns.has(normalizeText(header)));
-        if (missingOptionHeaders.length) throw new Error(`A aba "Opcionais" precisa das colunas: ${missingOptionHeaders.join(", ")}.`);
+        if (missingOptionHeaders.length && optionsSheet.name === "Adicionais") throw new Error(`A aba "Adicionais" precisa das colunas: ${missingOptionHeaders.join(", ")}.`);
         for (let rowNumber = 2; rowNumber <= optionsSheet.rowCount; rowNumber += 1) {
           const group = excelValueToText(optionColumn(rowNumber, "Grupo"));
           const product = excelValueToText(optionColumn(rowNumber, "Produto"));
-          const option = excelValueToText(optionColumn(rowNumber, "Opcional"));
+          const option = excelValueToText(optionColumn(rowNumber, "Adicional")) || excelValueToText(optionColumn(rowNumber, "Opcional"));
           if (!group && !product && !option) continue;
-          const required = normalizeText(excelValueToText(optionColumn(rowNumber, OPTION_IMPORT_HEADERS[2])));
-          const max = parseBrazilianNumber(optionColumn(rowNumber, OPTION_IMPORT_HEADERS[3]));
-          const priceDelta = parseBrazilianNumber(optionColumn(rowNumber, OPTION_IMPORT_HEADERS[5]));
+          const required = normalizeText(excelValueToText(optionColumn(rowNumber, "Obrigatório")));
+          const max = parseBrazilianNumber(optionColumn(rowNumber, "Máximo"));
+          const priceDelta = parseBrazilianNumber(optionColumn(rowNumber, "Acréscimo"));
           const status = productStatusValue(optionColumn(rowNumber, "Status"));
           const sortOrder = parseBrazilianNumber(optionColumn(rowNumber, "Ordem"));
           if (!group || !product || !option) validationErrors.push(`aba Opcionais linha ${rowNumber}: Grupo, Produto e Opcional são obrigatórios`);
@@ -2295,7 +2373,7 @@ function AdminPage() {
         });
       }
 
-      if (!importedRows.length && !importedCategories.length && !importedOptionRows.length) {
+      if (!importedRows.length && !importedCategories.length && !importedAdditionGroups.length && !importedOptionRows.length) {
         throw new Error("A planilha não possui produtos nem categorias preenchidos.");
       }
       if (validationErrors.length) {
@@ -2400,6 +2478,18 @@ function AdminPage() {
         if (error) throw error;
       }
 
+      for (const group of importedAdditionGroups) {
+        const { error } = await supabase.from("option_groups").upsert({
+          store_id: branchId,
+          name: group.name,
+          min_selections: group.required ? 1 : 0,
+          max_selections: 1,
+          sort_order: group.sortOrder,
+          is_active: group.isActive,
+        }, { onConflict: "store_id,name" });
+        if (error) throw error;
+      }
+
       if (importedOptionRows.length) {
         const { data: currentProducts, error: currentProductsError } = await supabase.from("products").select("id, name, external_id").eq("store_id", branchId);
         if (currentProductsError) throw currentProductsError;
@@ -2423,7 +2513,7 @@ function AdminPage() {
       }
 
       await refreshBranchCatalog(branchId);
-      setMessage(`${importedRows.length} produto(s), ${requestedCategories.size} categoria(s) e ${new Set(importedOptionRows.map((row) => row.group)).size} grupo(s) de opcionais sincronizados em ${activeBranch?.name ?? "a filial"}.`);
+      setMessage(`${importedRows.length} produto(s), ${requestedCategories.size} categoria(s) e ${new Set([...importedAdditionGroups.map((group) => group.name), ...importedOptionRows.map((row) => row.group)]).size} grupo(s) de adicionais sincronizados em ${activeBranch?.name ?? "a filial"}.`);
     } catch (error) {
       setMessage(readableCatalogError(error));
     } finally {
@@ -2760,6 +2850,20 @@ function AdminPage() {
                     />
                   </div>
                 ) : null}
+                {companySettingsSection === "additions" ? (
+                  <section className="admin-form-panel company-settings-panel additions-settings-panel">
+                    <div className="branch-form-heading"><div><span>Estrutura do catálogo</span><h2>Grupos de adicionais</h2><p>Crie os grupos que organizam os adicionais. Depois, vincule os itens aos produtos pela aba Adicionais da planilha.</p></div><Plus size={21} /></div>
+                    <form className="inline-form additions-group-form" onSubmit={createAdditionGroup}>
+                      <label>Nome do grupo<input value={additionGroupName} onChange={(event) => setAdditionGroupName(event.target.value)} placeholder="Ex.: Tamanho, acompanhamentos ou complementos" required /></label>
+                      <label className="checkbox-field"><input type="checkbox" checked={additionGroupRequired} onChange={(event) => setAdditionGroupRequired(event.target.checked)} /><span>Obrigatório para o cliente</span></label>
+                      <button className="admin-primary" type="submit" disabled={savingAdditionGroup}><Plus size={16} /> {savingAdditionGroup ? "Salvando..." : "Adicionar grupo"}</button>
+                    </form>
+                    <div className="admin-list additions-group-list">
+                      {optionGroups.map((group) => <div className="admin-list-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is) cadastrado(s)</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>)}
+                      {!optionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais cadastrado para esta filial.</p> : null}
+                    </div>
+                  </section>
+                ) : null}
                 {companySettingsSection === "identity" ? (
                   <form className="admin-form-panel company-settings-panel company-identity-panel" onSubmit={saveCompanyIdentity}>
                     <div className="branch-form-heading"><div><span>Identidade da empresa</span><h2>Marca da empresa</h2><p>Essas informações personalizam todos os catálogos e filiais da empresa.</p></div><Palette size={21} /></div>
@@ -2884,7 +2988,7 @@ function AdminPage() {
               <div className="catalog-management-actions"><button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
                 {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
                 {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
-              </button><button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar opcionais" : "Novo grupo de opcionais"}</button></div>
+              </button><button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button></div>
             </section>
             {showOptionGroupForm ? (
               <section className="admin-form-panel option-group-editor-panel">
@@ -3016,6 +3120,7 @@ function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSec
     { id: "overview", label: "Resumo", icon: LayoutDashboard },
     { id: "identity", label: "Identidade", icon: Palette },
     { id: "access", label: "Acesso", icon: KeyRound },
+    { id: "additions", label: "Adicionais", icon: Plus },
     { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
     { id: "danger", label: "Exclusão", icon: TriangleAlert },
   ];

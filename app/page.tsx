@@ -726,7 +726,7 @@ function buildWhatsappMessage({
           : "";
 
         const options = item.selectedOptions.length
-          ? `\n   Opcionais: ${item.selectedOptions.map((option) => `${cleanOrderText(option.itemName)}${option.priceDelta ? ` (+${formatPrice(option.priceDelta)})` : ""}`).join(", ")}`
+          ? `\n   Adicionais: ${item.selectedOptions.map((option) => `${cleanOrderText(option.itemName)}${option.priceDelta ? ` (+${formatPrice(option.priceDelta)})` : ""}`).join(", ")}`
           : "";
         const unitPrice = item.product.price + item.selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
         return `${String(index + 1).padStart(2, "0")}. *${cleanOrderText(
