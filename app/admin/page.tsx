@@ -414,7 +414,6 @@ function AdminPage() {
   const [adminTenants, setAdminTenants] = useState<Tenant[]>([]);
   const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
   const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
-  const [companyPortalArea, setCompanyPortalArea] = useState<"overview" | "branch" | "catalog" | "products" | "options">("overview");
   const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
   const [parameterScope, setParameterScope] = useState<ParameterScope>("company");
   const [activeBranchId, setActiveBranchId] = useState("");
@@ -1177,16 +1176,6 @@ function AdminPage() {
     setActiveBranchId("");
     setShowBranchForm(false);
     setMessage("");
-  }
-
-  function navigateCompanyPortal(area: "overview" | "branch" | "catalog" | "products" | "options") {
-    setCompanyPortalArea(area);
-    if (area === "branch") setShowBranchDetails(true);
-    if (area === "options") setShowOptionGroupForm(true);
-    const selectors = { overview: ".workspace-bar", branch: ".branch-note", catalog: ".catalog-import-panel", products: ".catalog-overview", options: ".option-group-editor-panel, .option-groups-panel" };
-    window.requestAnimationFrame(() => {
-      document.querySelector(selectors[area])?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
   }
 
   async function openCompanySettings(tenantId: string, section: CompanySettingsSection = "overview") {
@@ -2698,24 +2687,13 @@ function AdminPage() {
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
       <section className={isCompanyPortal ? "admin-page-inner" : "admin-page-inner admin-page-inner-platform"}>
-        <div className={isCompanyPortal ? "company-portal-workspace company-portal-layout" : "admin-console-layout"}>
+        <div className={isCompanyPortal ? "company-portal-workspace" : "admin-console-layout"}>
           {!isCompanyPortal ? (
             <PlatformAdminSidebar
               section={adminSection}
               companyCount={adminTenants.length}
               onCompanies={showCompanies}
               onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); setMessage(""); }}
-            />
-          ) : null}
-          {isCompanyPortal ? (
-            <CompanyPortalSidebar
-              companyName={tenant?.name ?? "Portal da empresa"}
-              branchName={activeBranch?.name ?? "Nenhuma filial selecionada"}
-              activeArea={companyPortalArea}
-              productCount={products.length}
-              categoryCount={categories.length}
-              optionGroupCount={optionGroups.length}
-              onNavigate={navigateCompanyPortal}
             />
           ) : null}
           <div className={isCompanyPortal ? "company-portal-content" : "admin-console-content"}>
@@ -3008,42 +2986,6 @@ function AdminPage() {
         </div>
       </section>
     </main>
-  );
-}
-
-function CompanyPortalSidebar({
-  companyName,
-  branchName,
-  activeArea,
-  productCount,
-  categoryCount,
-  optionGroupCount,
-  onNavigate,
-}: {
-  companyName: string;
-  branchName: string;
-  activeArea: "overview" | "branch" | "catalog" | "products" | "options";
-  productCount: number;
-  categoryCount: number;
-  optionGroupCount: number;
-  onNavigate: (area: "overview" | "branch" | "catalog" | "products" | "options") => void;
-}) {
-  const options: Array<{ id: "overview" | "branch" | "catalog" | "products" | "options"; label: string; description: string; icon: typeof Settings; count?: number }> = [
-    { id: "overview", label: "Visão geral", description: "Filial selecionada", icon: LayoutDashboard },
-    { id: "branch", label: "Dados da filial", description: "Contato e localização", icon: MapPin },
-    { id: "catalog", label: "Planilha do catálogo", description: "Importar ou exportar", icon: FileSpreadsheet },
-    { id: "products", label: "Produtos e categorias", description: `${productCount} produto(s) · ${categoryCount} categoria(s)`, icon: Package },
-    { id: "options", label: "Opcionais", description: `${optionGroupCount} grupo(s) cadastrado(s)`, icon: SlidersHorizontal },
-  ];
-
-  return (
-    <aside className="company-portal-sidebar">
-      <div className="company-portal-brand"><span className="admin-sidebar-mark"><Store size={19} /></span><div><strong>{companyName}</strong><small>Portal da empresa</small></div></div>
-      <div className="company-portal-branch"><span>Filial em edição</span><strong><MapPin size={15} /> {branchName}</strong></div>
-      <nav className="company-portal-nav" aria-label="Áreas do portal da empresa">
-        {options.map((option) => { const Icon = option.icon; return <button className={activeArea === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onNavigate(option.id)}><Icon size={17} /><span><strong>{option.label}</strong><small>{option.description}</small></span><ChevronRight size={15} /></button>; })}
-      </nav>
-    </aside>
   );
 }
 
