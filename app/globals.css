@@ -2136,7 +2136,7 @@ img {
 }
 
 .catalog-management-bar {
-  display: flex;
+  display: none;
   justify-content: space-between;
   gap: 18px;
   align-items: center;
@@ -2186,6 +2186,42 @@ img {
   background: var(--surface);
   color: var(--primary-dark);
   box-shadow: 0 2px 8px rgba(29, 35, 30, 0.08);
+}
+
+.catalog-modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
+  background: rgba(20, 27, 23, 0.48);
+}
+
+.catalog-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  margin: auto;
+  overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(20, 27, 23, 0.22);
+}
+
+.catalog-modal .branch-form-heading {
+  position: sticky;
+  z-index: 1;
+  top: -1px;
+  margin: -20px -20px 18px;
+  padding: 20px 20px 14px;
+  background: var(--surface);
+}
+
+.catalog-modal .admin-form-actions {
+  position: sticky;
+  bottom: -1px;
+  margin: 4px -20px -20px;
+  padding: 14px 20px 20px;
+  background: var(--surface);
 }
 
 .admin-product-form {

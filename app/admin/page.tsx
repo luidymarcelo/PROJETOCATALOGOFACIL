@@ -546,9 +546,6 @@ function AdminPage() {
     if (productImageInputRef.current) productImageInputRef.current.value = "";
     setCatalogEditorMode("product");
     setMessage("");
-    requestAnimationFrame(() => {
-      document.querySelector(".catalog-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
   }
 
   async function hydrateBranchDetails(branchRows: Branch[]) {
@@ -3024,8 +3021,9 @@ function AdminPage() {
               </button><button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button></div>
             </section>
             {showOptionGroupForm ? (
-              <section className="admin-form-panel option-group-editor-panel">
-                <div className="branch-form-heading"><div><span>Cadastro estruturado</span><h2>Grupo de opcionais</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar opcionais" onClick={() => setShowOptionGroupForm(false)}><X size={18} /></button></div>
+              <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowOptionGroupForm(false); }}>
+              <section className="admin-form-panel option-group-editor-panel catalog-modal" role="dialog" aria-modal="true" aria-labelledby="option-group-editor-title">
+                <div className="branch-form-heading"><div><span>Cadastro estruturado</span><h2 id="option-group-editor-title">Grupo de adicionais</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar grupo de adicionais" onClick={() => setShowOptionGroupForm(false)}><X size={18} /></button></div>
                 <p className="admin-muted">Exemplo: monte um grupo “Acompanhamento” e vincule-o a vários produtos. O cliente escolherá os itens no momento do pedido.</p>
                 <form className="admin-product-form" onSubmit={createOptionGroup}>
                   <div className="admin-form-grid"><label>Nome do grupo<input value={optionGroupForm.name} onChange={(event) => setOptionGroupForm({ ...optionGroupForm, name: event.target.value })} placeholder="Ex.: Acompanhamento" required /></label><div className="admin-form-grid"><label>Mínimo<input type="number" min="0" value={optionGroupForm.min} onChange={(event) => setOptionGroupForm({ ...optionGroupForm, min: event.target.value })} /></label><label>Máximo<input type="number" min="1" value={optionGroupForm.max} onChange={(event) => setOptionGroupForm({ ...optionGroupForm, max: event.target.value })} /></label></div></div>
@@ -3035,15 +3033,13 @@ function AdminPage() {
                   <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowOptionGroupForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingOptionGroup}><Save size={16} /> {savingOptionGroup ? "Salvando..." : "Salvar grupo"}</button></div>
                 </form>
               </section>
+              </div>
             ) : null}
             {optionGroups.length ? <section className="admin-form-panel option-groups-panel"><h2>Grupos de opcionais <span className="count-badge">{optionGroups.length}</span></h2><div className="admin-list">{optionGroups.map((group) => { const linkedProducts = (group.product_option_groups ?? []).map((link) => products.find((product) => product.id === link.product_id)?.name).filter(Boolean); return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections === 0 ? "Opcional" : `Escolha no mínimo ${group.min_selections}`} · até {group.max_selections} · {group.option_group_items?.length ?? 0} item(ns)</small><small>Produtos: {linkedProducts.join(", ") || "nenhum"}</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}</div></section> : null}
             {catalogEditorMode ? (
-              <section className="admin-form-panel catalog-editor-panel">
-                <div className="branch-form-heading"><div><span>Cadastro manual</span><h2>{catalogEditorMode === "product" ? (editingProductId ? "Editar produto" : "Novo produto") : "Nova categoria"}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar cadastro" onClick={closeCatalogEditor}><X size={18} /></button></div>
-                <div className="catalog-editor-tabs" role="tablist" aria-label="Tipo de cadastro">
-                  <button className={catalogEditorMode === "product" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "product"} onClick={() => { if (catalogEditorMode !== "product") openNewProductEditor(); }}>Produto</button>
-                  <button className={catalogEditorMode === "category" ? "active" : ""} type="button" role="tab" aria-selected={catalogEditorMode === "category"} onClick={openCategoryEditor}>Categoria</button>
-                </div>
+              <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCatalogEditor(); }}>
+              <section className="admin-form-panel catalog-editor-panel catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-editor-title">
+                <div className="branch-form-heading"><div><span>{editingProductId ? "Edição do catálogo" : "Novo cadastro"}</span><h2 id="catalog-editor-title">{catalogEditorMode === "product" ? (editingProductId ? "Editar produto" : "Novo produto") : "Nova categoria"}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar cadastro" onClick={closeCatalogEditor}><X size={18} /></button></div>
                 {catalogEditorMode === "category" ? (
                   <form className="inline-form" onSubmit={createCategory}><input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} placeholder="Ex.: Material de construção" required /><button className="admin-primary" type="submit"><Plus size={16} /> Adicionar categoria</button></form>
                 ) : (
@@ -3067,6 +3063,7 @@ function AdminPage() {
                 </form>
                 )}
               </section>
+              </div>
             ) : null}
             <div className="admin-columns catalog-overview">
               <section className="admin-form-panel">
