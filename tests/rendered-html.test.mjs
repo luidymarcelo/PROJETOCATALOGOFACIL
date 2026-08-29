@@ -286,6 +286,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /formatMoneyInput/);
   assert.match(adminPage, /OPTION_IMPORT_HEADERS/);
   assert.match(adminPage, /workbook\.getWorksheet\("Opcionais"\)/);
+  assert.match(adminPage, /INDIRECT\("'Produtos'!\$B\$2:\$B\$5000"\)/);
   assert.match(adminPage, /Novo grupo de opcionais/);
   assert.match(adminPage, /createOptionGroup/);
   assert.match(adminPage, /async function resolveBranchControlsStock/);

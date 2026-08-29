@@ -172,7 +172,6 @@ type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
-const EXCEL_PRODUCT_TABLE_NAME = "CatalogProducts";
 
 type WorksheetWithRangeValidation = Worksheet & {
   dataValidations: {
@@ -2046,15 +2045,6 @@ function AdminPage() {
         error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
       });
 
-      listsSheet.addTable({
-        name: EXCEL_PRODUCT_TABLE_NAME,
-        ref: "C1",
-        headerRow: true,
-        totalsRow: false,
-        style: { theme: "TableStyleMedium4", showRowStripes: true },
-        columns: [{ name: "Produto", filterButton: false }],
-        rows: exportProducts.length ? exportProducts.map((product) => [product.name]) : [[""]],
-      });
       const optionsSheet = workbook.addWorksheet("Opcionais", { views: [{ state: "frozen", ySplit: 1 }] });
       optionsSheet.addRow(OPTION_IMPORT_HEADERS);
       const optionRows = optionGroups.flatMap((group) => (group.product_option_groups ?? []).flatMap((link) => (group.option_group_items ?? []).map((item) => [
@@ -2073,7 +2063,7 @@ function AdminPage() {
       optionsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
       optionsSheet.getColumn(6).numFmt = 'R$ #,##0.00';
       const optionValidationLastRow = Math.max(1001, optionsSheet.rowCount + 200);
-      addExcelRangeValidation(optionsSheet, `B2:B${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("${EXCEL_PRODUCT_TABLE_NAME}[Produto]")`], showInputMessage: true, promptTitle: "Produto do grupo", prompt: "Escolha um produto da lista.", showErrorMessage: true, errorTitle: "Produto inválido", error: "Escolha um produto existente na lista." });
+      addExcelRangeValidation(optionsSheet, `B2:B${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("'Produtos'!$B$2:$B$5000")`], showInputMessage: true, promptTitle: "Produto do grupo", prompt: "Escolha um produto da aba Produtos.", showErrorMessage: true, errorTitle: "Produto inválido", error: "Escolha um produto existente na aba Produtos." });
       addExcelRangeValidation(optionsSheet, `C2:C${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$B$1:$B$2"], showErrorMessage: true, errorTitle: "Obrigatório inválido", error: "Escolha Sim ou Não." });
       addExcelRangeValidation(optionsSheet, `G2:G${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
       listsSheet.getCell(1, 2).value = "Sim";
