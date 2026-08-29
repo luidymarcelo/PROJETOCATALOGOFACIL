@@ -3845,6 +3845,143 @@ img {
   align-items: start;
 }
 
+.company-portal-layout {
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.company-portal-content {
+  min-width: 0;
+}
+
+.company-portal-sidebar {
+  position: sticky;
+  top: 20px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(29, 38, 31, 0.07);
+}
+
+.company-portal-brand {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  padding: 2px 2px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.company-portal-brand > div,
+.company-portal-nav button > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  text-align: left;
+}
+
+.company-portal-brand strong,
+.company-portal-nav strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-portal-brand small,
+.company-portal-nav small,
+.company-portal-branch span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.company-portal-branch {
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+}
+
+.company-portal-branch strong {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-portal-nav {
+  display: grid;
+  gap: 5px;
+}
+
+.company-portal-nav button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  min-height: 53px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.company-portal-nav button:hover {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+.company-portal-nav button.active {
+  border-color: rgba(15, 167, 111, 0.28);
+  background: rgba(15, 167, 111, 0.09);
+  color: var(--primary-dark);
+}
+
+.company-portal-nav button.active strong {
+  color: var(--primary-dark);
+}
+
+.company-portal-section {
+  scroll-margin-top: 20px;
+}
+
+.portal-section-heading {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 13px;
+}
+
+.portal-section-heading span {
+  color: var(--primary-dark);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.portal-section-heading strong {
+  color: var(--foreground);
+  font-size: 1.02rem;
+}
+
+.portal-section-heading small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .admin-console-sidebar {
   position: sticky;
   top: 20px;
@@ -4545,12 +4682,38 @@ img {
     width: calc(100% - 20px);
   }
 
-  .admin-console-layout {
+  .admin-console-layout,
+  .company-portal-layout {
     grid-template-columns: 1fr;
   }
 
-  .admin-console-sidebar {
+  .admin-console-sidebar,
+  .company-portal-sidebar {
     position: static;
+  }
+
+  .company-portal-sidebar {
+    gap: 12px;
+  }
+
+  .company-portal-nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .company-portal-nav button {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    min-height: 72px;
+    text-align: center;
+  }
+
+  .company-portal-nav button > span {
+    justify-items: center;
+    text-align: center;
+  }
+
+  .company-portal-nav button > svg:last-child {
+    display: none;
   }
 
   .admin-sidebar-nav {
@@ -4572,8 +4735,26 @@ img {
 }
 
 @media (max-width: 760px) {
-  .admin-console-sidebar {
+  .admin-console-sidebar,
+  .company-portal-sidebar {
     padding: 12px;
+  }
+
+  .company-portal-nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .company-portal-nav button {
+    flex: 0 0 128px;
+    min-height: 66px;
+    padding: 8px 6px;
+  }
+
+  .company-portal-nav small {
+    display: none;
   }
 
   .admin-sidebar-nav {
