@@ -5707,13 +5707,14 @@ img {
 }
 
 @media (max-width: 760px) {
-  .category-strip {
+  .category-strip,
+  .catalog-surface > .category-strip {
     position: sticky;
     top: 0;
     z-index: 42;
     gap: 7px;
-    margin: 10px -10px 12px;
-    padding: 9px 10px 10px;
+    margin: 0 -10px 12px;
+    padding: 6px 10px 8px;
     border-bottom: 1px solid rgba(34, 39, 34, 0.06);
     background:
       linear-gradient(180deg, rgba(247, 248, 245, 0.99), rgba(247, 248, 245, 0.94));
