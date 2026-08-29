@@ -255,6 +255,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Exportar catálogo/);
   assert.match(adminPage, /Adicionar ao catálogo/);
   assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
+  assert.match(adminPage, /name: EXCEL_CATEGORY_TABLE_NAME/);
+  assert.match(adminPage, /INDIRECT\("\$\{EXCEL_CATEGORY_TABLE_NAME\}\[Categoria\]\"\)/);
+  assert.match(adminPage, /Categoria inválida/);
+  assert.match(adminPage, /categoria \"\$\{category\}\" não cadastrada na aba Categorias/);
   assert.match(adminPage, /productsSheet\.addRows\(exportProducts\.map/);
   assert.match(adminPage, /function catalogImportHeaders/);
   assert.match(adminPage, /header !== "Estoque"/);
@@ -390,4 +394,34 @@ test("keeps the growth surfaces present", async () => {
   assert.match(headers, /Cache-Control: no-cache, must-revalidate/);
   assert.ok(legacyCatalogBundle.length > 30000);
   assert.ok(legacyStyles.length > 30000);
+});
+
+test("preserves the category dropdown when writing the Excel catalog", async () => {
+  const { default: ExcelJS } = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  const categoriesSheet = workbook.addWorksheet("Categorias");
+  categoriesSheet.addTable({
+    name: "CatalogCategories",
+    ref: "A1",
+    headerRow: true,
+    totalsRow: false,
+    columns: [{ name: "Categoria" }, { name: "Ordem" }],
+    rows: [["Bebidas", 0]],
+  });
+  const productsSheet = workbook.addWorksheet("Produtos");
+  productsSheet.getCell("A2").dataValidation = {
+    type: "list",
+    allowBlank: true,
+    formulae: ['INDIRECT("CatalogCategories[Categoria]")'],
+  };
+
+  const savedWorkbook = new ExcelJS.Workbook();
+  await savedWorkbook.xlsx.load(await workbook.xlsx.writeBuffer());
+
+  assert.deepEqual(
+    savedWorkbook.getWorksheet("Produtos").getCell("A2").dataValidation.formulae,
+    ['INDIRECT("CatalogCategories[Categoria]")'],
+  );
+  assert.ok(savedWorkbook.getWorksheet("Categorias").getTable("CatalogCategories"));
+  assert.equal(savedWorkbook.getWorksheet("Categorias").getCell("A2").value, "Bebidas");
 });

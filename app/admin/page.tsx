@@ -142,6 +142,7 @@ const IMPORT_HEADERS = ["Categoria", "Produto", "Status", "Descrição", "Preço
 type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
+const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
 
 const adminProductUpdatedAtFormatter = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
@@ -1781,24 +1782,51 @@ function AdminPage() {
       const categoriesSheet = workbook.addWorksheet("Categorias", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
-      categoriesSheet.addRow([...CATEGORY_IMPORT_HEADERS]);
-      categoriesSheet.addRows(exportCategories.map((category) => [category.name, category.sort_order]));
+      categoriesSheet.addTable({
+        name: EXCEL_CATEGORY_TABLE_NAME,
+        ref: "A1",
+        headerRow: true,
+        totalsRow: false,
+        style: {
+          theme: "TableStyleMedium4",
+          showRowStripes: true,
+        },
+        columns: CATEGORY_IMPORT_HEADERS.map((name) => ({ name, filterButton: true })),
+        rows: exportCategories.length
+          ? exportCategories.map((category) => [category.name, category.sort_order])
+          : [["", ""]],
+      });
       categoriesSheet.columns = [{ width: 36 }, { width: 12 }];
-      categoriesSheet.autoFilter = { from: "A1", to: "B1" };
       categoriesSheet.getRow(1).height = 25;
       categoriesSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
         cell.alignment = { vertical: "middle" };
       });
+      const categoryColumnNumber = exportHeaders.indexOf("Categoria") + 1;
+      productsSheet.getColumn(categoryColumnNumber).alignment = { vertical: "middle" };
+      for (let rowNumber = 2; rowNumber <= Math.max(1001, productsSheet.rowCount + 200); rowNumber += 1) {
+        productsSheet.getCell(rowNumber, categoryColumnNumber).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`INDIRECT("${EXCEL_CATEGORY_TABLE_NAME}[Categoria]")`],
+          showInputMessage: true,
+          promptTitle: "Categoria do produto",
+          prompt: 'Cadastre as categorias na aba "Categorias" e selecione uma opção.',
+          showErrorMessage: true,
+          errorStyle: "error",
+          errorTitle: "Categoria inválida",
+          error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
+        };
+      }
 
       const instructionsSheet = workbook.addWorksheet("Instruções");
       instructionsSheet.columns = [{ width: 24 }, { width: 88 }];
       const instructionRows = [
         ["Campo", "Preenchimento"],
         ["Produtos", "A aba Produtos já contém o catálogo atual. Você pode editar as linhas ou acrescentar produtos."],
-        ["Categorias", "A aba Categorias contém todas as categorias, inclusive as que ainda não possuem produtos."],
-        ["Categoria", "Opcional no produto. Se preenchida e ainda não existir, será criada automaticamente."],
+        ["Categorias", "Cadastre e organize as categorias nesta aba antes de vinculá-las aos produtos."],
+        ["Categoria", "Na aba Produtos, escolha uma opção do combo alimentado pela aba Categorias."],
         ["Produto", "Obrigatório. Nome exibido no catálogo."],
         ["Descrição", "Opcional."],
         ["Preço", "Obrigatório. Aceita 12,50 ou 12.50."],
@@ -1885,7 +1913,9 @@ function AdminPage() {
       const sheet = workbook.getWorksheet("Produtos");
       if (!sheet) throw new Error('A planilha precisa ter uma aba chamada "Produtos".');
       const categoriesSheet = workbook.getWorksheet("Categorias");
+      if (!categoriesSheet) throw new Error('A planilha precisa ter uma aba chamada "Categorias".');
       const importedCategories: CatalogImportCategory[] = [];
+      const importedCategoryKeys = new Set<string>();
 
       if (categoriesSheet) {
         const categoryHeaderColumns = new Map<string, number>();
@@ -1897,7 +1927,6 @@ function AdminPage() {
         const categoryOrderColumn = categoryHeaderColumns.get(normalizeText("Ordem"));
         if (!categoryNameColumn) throw new Error('A aba "Categorias" precisa ter a coluna "Categoria".');
 
-        const importedCategoryKeys = new Set<string>();
         for (let rowNumber = 2; rowNumber <= categoriesSheet.rowCount; rowNumber += 1) {
           const name = excelValueToText(categoriesSheet.getRow(rowNumber).getCell(categoryNameColumn).value);
           const orderValue = categoryOrderColumn
@@ -1943,11 +1972,13 @@ function AdminPage() {
         const skuText = excelValueToText(columnValue(rowNumber, "Código/SKU"));
         const sku = skuText || null;
         const isActive = productStatusValue(columnValue(rowNumber, "Status"));
+        const categoryExists = !category || importedCategoryKeys.has(normalizeText(category));
 
         if (!name) validationErrors.push(`linha ${rowNumber}: produto vazio`);
         if (!Number.isFinite(price) || price < 0) validationErrors.push(`linha ${rowNumber}: preço inválido`);
         if (stock !== null && (!Number.isFinite(stock) || stock < 0)) validationErrors.push(`linha ${rowNumber}: estoque inválido`);
         if (isActive === null) validationErrors.push(`linha ${rowNumber}: status inválido; use Ativo ou Desativado`);
+        if (!categoryExists) validationErrors.push(`linha ${rowNumber}: categoria "${category}" não cadastrada na aba Categorias`);
         if (sku && usedSkus.has(normalizeText(sku))) validationErrors.push(`linha ${rowNumber}: Código/SKU repetido (${sku})`);
         if (sku) usedSkus.add(normalizeText(sku));
         if (!sku && name) {
@@ -1996,11 +2027,6 @@ function AdminPage() {
       const requestedCategories = new Map<string, CatalogImportCategory>();
       for (const category of importedCategories) {
         requestedCategories.set(normalizeText(category.name), category);
-      }
-      for (const row of importedRows) {
-        if (!row.category) continue;
-        const key = normalizeText(row.category);
-        if (!requestedCategories.has(key)) requestedCategories.set(key, { name: row.category, sortOrder: null });
       }
       const missingCategories = [...requestedCategories.entries()]
         .filter(([key]) => !categoryByName.has(key))
