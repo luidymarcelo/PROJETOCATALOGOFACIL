@@ -3966,6 +3966,65 @@ img {
   grid-column: 1 / -1;
 }
 
+.catalog-overview > section {
+  min-height: 360px;
+}
+
+.catalog-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.catalog-panel-heading h2 {
+  min-width: 0;
+  margin: 0;
+}
+
+.catalog-panel-heading .icon-button {
+  flex: 0 0 36px;
+}
+
+.catalog-panel-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  margin: 14px 0 10px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--muted);
+}
+
+.catalog-panel-search:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(15, 167, 111, 0.1);
+}
+
+.catalog-panel-search input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.catalog-scroll-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 5px;
+  scrollbar-gutter: stable;
+}
+
+.products-overview-panel .catalog-scroll-list {
+  max-height: 340px;
+}
+
 .additions-group-form {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;

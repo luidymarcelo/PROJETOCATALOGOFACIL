@@ -481,6 +481,9 @@ function AdminPage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const coverImageInputRef = useRef<HTMLInputElement>(null);
   const [categoryName, setCategoryName] = useState("");
+  const [categoryQuery, setCategoryQuery] = useState("");
+  const [additionGroupQuery, setAdditionGroupQuery] = useState("");
+  const [productQuery, setProductQuery] = useState("");
   const [showOptionGroupForm, setShowOptionGroupForm] = useState(false);
   const [savingOptionGroup, setSavingOptionGroup] = useState(false);
   const [deletingOptionGroupId, setDeletingOptionGroupId] = useState("");
@@ -2790,6 +2793,9 @@ function AdminPage() {
     });
     return counts;
   }, [products]);
+  const visibleCategories = useMemo(() => categories.filter((category) => normalizeText(category.name).includes(normalizeText(categoryQuery))), [categories, categoryQuery]);
+  const visibleAdditionGroups = useMemo(() => optionGroups.filter((group) => normalizeText(group.name).includes(normalizeText(additionGroupQuery))), [optionGroups, additionGroupQuery]);
+  const visibleProducts = useMemo(() => products.filter((product) => normalizeText(product.name).includes(normalizeText(productQuery))), [products, productQuery]);
   const editingProductImages = editingProduct?.product_images ?? [];
   const productEditorImageCount = editingProductImages.length + productImageFiles.length;
 
@@ -3064,21 +3070,24 @@ function AdminPage() {
             ) : null}
             <div className="admin-columns catalog-overview">
               <section className="admin-form-panel">
-                <h2>Categorias <span className="count-badge">{categories.length}</span></h2>
-                <div className="admin-list">{categories.map((category) => {
+                 <div className="catalog-panel-heading"><h2>Categorias <span className="count-badge">{categories.length}</span></h2><button className="icon-button" type="button" title="Adicionar categoria" aria-label="Adicionar categoria" onClick={openCategoryEditor}><Plus size={18} /></button></div>
+                 <label className="catalog-panel-search"><Search size={16} /><input value={categoryQuery} onChange={(event) => setCategoryQuery(event.target.value)} placeholder="Pesquisar categoria" /></label>
+                 <div className="admin-list catalog-scroll-list">{visibleCategories.map((category) => {
                   const linkedProductCount = productCountByCategoryId.get(category.id) ?? 0;
                   const canDelete = linkedProductCount === 0;
                   return <div className="admin-list-row category-admin-row" key={category.id}><div className="category-admin-info"><span>{category.name}</span><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
-               })}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
+                 })}{!visibleCategories.length ? <p className="admin-muted">Nenhuma categoria encontrada.</p> : null}</div>
                </section>
                <section className="admin-form-panel addition-groups-overview-panel">
-                 <h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2>
-                 <div className="admin-list">{optionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!optionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais cadastrado.</p> : null}</div>
+                  <div className="catalog-panel-heading"><h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2><button className="icon-button" type="button" title="Adicionar grupo de adicionais" aria-label="Adicionar grupo de adicionais" onClick={() => { setShowOptionGroupForm(true); resetOptionGroupEditor(); }}><Plus size={18} /></button></div>
+                  <label className="catalog-panel-search"><Search size={16} /><input value={additionGroupQuery} onChange={(event) => setAdditionGroupQuery(event.target.value)} placeholder="Pesquisar grupo" /></label>
+                 <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
                </section>
                <section className="admin-form-panel products-overview-panel">
-                <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
-                <div className="product-admin-list">
-                  {products.map((product) => {
+                 <div className="catalog-panel-heading"><h2>Produtos da filial <span className="count-badge">{products.length}</span></h2><button className="icon-button" type="button" title="Adicionar produto" aria-label="Adicionar produto" onClick={openNewProductEditor}><Plus size={18} /></button></div>
+                 <label className="catalog-panel-search"><Search size={16} /><input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="Pesquisar produto" /></label>
+                 <div className="product-admin-list catalog-scroll-list">
+                   {visibleProducts.map((product) => {
                     const isBusy = Boolean(uploadingProductImageId || updatingProductStatusId || deletingProductId);
                     const updatedAtLabel = formatAdminProductUpdatedAt(product.updated_at);
                     return (
@@ -3109,7 +3118,7 @@ function AdminPage() {
                       </div>
                     );
                   })}
-                  {!products.length ? <p className="admin-muted">Nenhum produto cadastrado.</p> : null}
+                   {!visibleProducts.length ? <p className="admin-muted">Nenhum produto encontrado.</p> : null}
                 </div>
                 <input ref={quickProductImageInputRef} className="catalog-import-input" type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={updateQuickProductImage} />
               </section>
