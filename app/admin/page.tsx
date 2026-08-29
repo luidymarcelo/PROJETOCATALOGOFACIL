@@ -1193,6 +1193,11 @@ function AdminPage() {
 
   async function deleteOptionGroup(group: ProductOptionGroup) {
     if (!supabase || !activeBranchId || deletingOptionGroupId) return;
+    const linkedProductCount = (group.product_option_groups ?? []).length;
+    if (linkedProductCount > 0) {
+      setMessage(`Não é possível excluir o grupo ${group.name}: existem ${linkedProductCount} produto(s) vinculado(s).`);
+      return;
+    }
     if (!window.confirm(`Excluir o grupo de opcionais "${group.name}"?`)) return;
     setDeletingOptionGroupId(group.id);
     const { error } = await supabase.from("option_groups").delete().eq("id", group.id).eq("store_id", activeBranchId);
@@ -3064,9 +3069,13 @@ function AdminPage() {
                   const linkedProductCount = productCountByCategoryId.get(category.id) ?? 0;
                   const canDelete = linkedProductCount === 0;
                   return <div className="admin-list-row category-admin-row" key={category.id}><div className="category-admin-info"><span>{category.name}</span><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
-                })}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
-              </section>
-              <section className="admin-form-panel">
+               })}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
+               </section>
+               <section className="admin-form-panel addition-groups-overview-panel">
+                 <h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2>
+                 <div className="admin-list">{optionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!optionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais cadastrado.</p> : null}</div>
+               </section>
+               <section className="admin-form-panel products-overview-panel">
                 <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>
                 <div className="product-admin-list">
                   {products.map((product) => {
