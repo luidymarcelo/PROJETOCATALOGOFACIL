@@ -106,8 +106,8 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /function compactMerchantLocation/);
   assert.doesNotMatch(page, /merchantBranchLabel\(merchant\) \?\? merchant\.segment/);
   assert.doesNotMatch(page, /<span>\{store\.segment\}<\/span>/);
-  assert.match(page, /merchant\.coverNote \? <p className=\{`merchant-cover-note position-\$\{merchant\.coverNotePosition\}`\}/);
-  assert.match(page, /coverNotePositionValue\(store\.cover_note_position\)/);
+  assert.match(page, /merchant\.coverNote \? <div className="merchant-cover-description"><p>\{merchant\.coverNote\}<\/p><\/div>/);
+  assert.doesNotMatch(page, /coverNotePositionValue/);
   assert.match(page, /directStoreId \? "direct-store-page"/);
   assert.match(page, /commerce-grid direct-store/);
   assert.match(page, /!directStoreId \? <button className="location-pill"/);
@@ -116,7 +116,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.discovery-branch-name/);
   assert.match(pageStyles, /\.direct-store-page/);
   assert.match(pageStyles, /\.merchant-hero \{[\s\S]*?width: 100%;[\s\S]*?border-radius: 0;/);
-  assert.match(pageStyles, /\.merchant-cover-note/);
+  assert.match(pageStyles, /\.merchant-cover-description/);
+  assert.doesNotMatch(pageStyles, /\.merchant-cover-note/);
   assert.match(pageStyles, /\.topbar\.direct-store-topbar \{\s*position: relative;/);
   assert.doesNotMatch(pageStyles, /\.merchant-info/);
   assert.match(pageStyles, /\.category-strip \{\s*position: static;/);
@@ -214,8 +215,9 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(adminPage, /address\.trim\(\)\.length < 5/);
   assert.match(adminPage, /function BranchDetailsEditor/);
   assert.match(adminPage, /function BranchCoverNoteEditor/);
-  assert.match(adminPage, /Observação na capa/);
-  assert.match(adminPage, /COVER_NOTE_POSITIONS/);
+  assert.match(adminPage, /Descrição abaixo da capa/);
+  assert.doesNotMatch(adminPage, /COVER_NOTE_POSITIONS/);
+  assert.doesNotMatch(adminPage, /Escolha a posição/);
   assert.match(adminPage, /cover_note: branchDetailsForm\.coverNote\.trim\(\) \|\| null/);
   assert.match(pageStyles, /\.branch-cover-note-preview/);
   assert.match(adminPage, /Dados da filial/);

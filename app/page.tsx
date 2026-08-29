@@ -55,19 +55,6 @@ type Product = {
 };
 
 type CatalogLayout = "horizontal" | "showcase";
-type CoverNotePosition = "top-left" | "top-center" | "top-right" | "center-left" | "center" | "center-right" | "bottom-left" | "bottom-center" | "bottom-right";
-
-const COVER_NOTE_POSITIONS = new Set<CoverNotePosition>([
-  "top-left", "top-center", "top-right",
-  "center-left", "center", "center-right",
-  "bottom-left", "bottom-center", "bottom-right",
-]);
-
-function coverNotePositionValue(value: unknown): CoverNotePosition {
-  return typeof value === "string" && COVER_NOTE_POSITIONS.has(value as CoverNotePosition)
-    ? value as CoverNotePosition
-    : "top-right";
-}
 
 type Merchant = {
   id: StoreId;
@@ -90,7 +77,6 @@ type Merchant = {
   longitude: number | null;
   cover: string | null;
   coverNote: string;
-  coverNotePosition: CoverNotePosition;
   icon: "pizza" | "pill" | "hammer" | "store";
   palette: string;
   categories: string[];
@@ -230,7 +216,6 @@ const fallbackMerchants: Merchant[] = [
     cover:
       "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1400&q=80",
     coverNote: "",
-    coverNotePosition: "top-right",
     icon: "pizza",
     palette: "#fb6f2d",
     categories: ["Mais pedidos", "Pizzas", "Combos", "Bebidas"],
@@ -304,7 +289,6 @@ const fallbackMerchants: Merchant[] = [
     cover:
       "https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&w=1400&q=80",
     coverNote: "",
-    coverNotePosition: "top-right",
     icon: "pill",
     palette: "#0fa76f",
     categories: ["Mais pedidos", "Medicamentos", "Higiene", "Dermocosmeticos"],
@@ -379,7 +363,6 @@ const fallbackMerchants: Merchant[] = [
     cover:
       "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1400&q=80",
     coverNote: "",
-    coverNotePosition: "top-right",
     icon: "hammer",
     palette: "#d97706",
     categories: [
@@ -574,7 +557,6 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     longitude: store.longitude == null ? null : Number(store.longitude),
     cover: null,
     coverNote: "",
-    coverNotePosition: "top-right",
     icon: "store",
     palette: "#176b52",
     categories: ["Mais pedidos"],
@@ -976,7 +958,6 @@ export default function Home() {
             deliveryTime: store.delivery_time_label ?? baseMerchant.deliveryTime,
             cover: store.cover_image_url ?? baseMerchant.cover,
             coverNote: typeof store.cover_note === "string" ? store.cover_note.trim() : "",
-            coverNotePosition: coverNotePositionValue(store.cover_note_position),
             palette: themeColor,
             categories: [
               "Mais pedidos",
@@ -1665,12 +1646,11 @@ function CatalogImage({
 
 function MerchantHero({ merchant }: { merchant: Merchant }) {
   return (
-    <section
-      className="merchant-hero"
-      style={{ "--merchant-color": merchant.palette } as CSSProperties}
-    >
-      <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
-      {merchant.coverNote ? <p className={`merchant-cover-note position-${merchant.coverNotePosition}`}>{merchant.coverNote}</p> : null}
+    <section className="merchant-presentation" style={{ "--merchant-color": merchant.palette } as CSSProperties}>
+      <div className="merchant-hero">
+        <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
+      </div>
+      {merchant.coverNote ? <div className="merchant-cover-description"><p>{merchant.coverNote}</p></div> : null}
     </section>
   );
 }
