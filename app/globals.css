@@ -2024,6 +2024,39 @@ img {
   color: var(--muted);
 }
 
+.category-admin-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.category-admin-info span {
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-delete-button {
+  display: grid;
+  flex: 0 0 36px;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(196, 67, 44, 0.25);
+  border-radius: 8px;
+  background: rgba(196, 67, 44, 0.07);
+  color: #a33d2a;
+}
+
+.category-delete-button:disabled {
+  cursor: not-allowed;
+  border-color: rgba(106, 114, 109, 0.14);
+  background: rgba(106, 114, 109, 0.06);
+  color: #9da49f;
+  opacity: 0.48;
+}
+
 .product-admin-info {
   display: grid;
   flex: 1 1 auto;

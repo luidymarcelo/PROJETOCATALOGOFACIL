@@ -419,6 +419,7 @@ function AdminPage() {
   const [uploadingProductImageId, setUploadingProductImageId] = useState("");
   const [updatingProductStatusId, setUpdatingProductStatusId] = useState("");
   const [deletingProductId, setDeletingProductId] = useState("");
+  const [deletingCategoryId, setDeletingCategoryId] = useState("");
   const [productForm, setProductForm] = useState({ ...EMPTY_PRODUCT_FORM });
   const [accessDenied, setAccessDenied] = useState(false);
 
@@ -964,6 +965,46 @@ function AdminPage() {
       setCategoryName("");
       await refreshBranchCatalog(activeBranchId);
       closeCatalogEditor();
+    }
+  }
+
+  async function deleteCategory(category: Category) {
+    if (!supabase || !activeBranchId || deletingCategoryId) return;
+    const localProductCount = products.filter((product) => product.category_id === category.id).length;
+    if (localProductCount > 0) {
+      setMessage(`A categoria ${category.name} possui ${localProductCount} produto(s). Desvincule-os antes de excluir.`);
+      return;
+    }
+    if (!window.confirm(`Excluir definitivamente a categoria "${category.name}"?`)) return;
+
+    setDeletingCategoryId(category.id);
+    setMessage("");
+    try {
+      const { count, error: productCountError } = await supabase
+        .from("products")
+        .select("id", { count: "exact", head: true })
+        .eq("store_id", activeBranchId)
+        .eq("category_id", category.id);
+      if (productCountError) throw productCountError;
+      if ((count ?? 0) > 0) {
+        await refreshBranchCatalog(activeBranchId);
+        setMessage(`A categoria ${category.name} recebeu produtos e não pode mais ser excluída.`);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("categories")
+        .delete()
+        .eq("id", category.id)
+        .eq("store_id", activeBranchId);
+      if (error) throw error;
+
+      setCategories((current) => current.filter((item) => item.id !== category.id));
+      setMessage(`Categoria ${category.name} excluída.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível excluir a categoria.");
+    } finally {
+      setDeletingCategoryId("");
     }
   }
 
@@ -2360,6 +2401,13 @@ function AdminPage() {
   const activeBranch = useMemo(() => branches.find((branch) => branch.id === activeBranchId), [branches, activeBranchId]);
   const editingProduct = useMemo(() => products.find((product) => product.id === editingProductId) ?? null, [products, editingProductId]);
   const activeProductCount = useMemo(() => products.filter((product) => product.is_active).length, [products]);
+  const productCountByCategoryId = useMemo(() => {
+    const counts = new Map<string, number>();
+    products.forEach((product) => {
+      if (product.category_id) counts.set(product.category_id, (counts.get(product.category_id) ?? 0) + 1);
+    });
+    return counts;
+  }, [products]);
   const editingProductImages = editingProduct?.product_images ?? [];
   const productEditorImageCount = editingProductImages.length + productImageFiles.length;
 
@@ -2603,7 +2651,11 @@ function AdminPage() {
             <div className="admin-columns catalog-overview">
               <section className="admin-form-panel">
                 <h2>Categorias <span className="count-badge">{categories.length}</span></h2>
-                <div className="admin-list">{categories.map((category) => <div className="admin-list-row" key={category.id}><span>{category.name}</span><small>{products.filter((product) => product.category_id === category.id).length} produtos</small></div>)}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
+                <div className="admin-list">{categories.map((category) => {
+                  const linkedProductCount = productCountByCategoryId.get(category.id) ?? 0;
+                  const canDelete = linkedProductCount === 0;
+                  return <div className="admin-list-row category-admin-row" key={category.id}><div className="category-admin-info"><span>{category.name}</span><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
+                })}{!categories.length ? <p className="admin-muted">Nenhuma categoria cadastrada.</p> : null}</div>
               </section>
               <section className="admin-form-panel">
                 <h2>Produtos da filial <span className="count-badge">{products.length}</span></h2>

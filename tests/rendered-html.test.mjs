@@ -254,6 +254,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /async function importCatalog/);
   assert.match(adminPage, /Exportar catálogo/);
   assert.match(adminPage, /Adicionar ao catálogo/);
+  assert.match(adminPage, /async function deleteCategory/);
+  assert.match(adminPage, /A categoria \$\{category\.name\} possui \$\{localProductCount\} produto/);
+  assert.match(adminPage, /select\("id", \{ count: "exact", head: true \}\)/);
+  assert.match(adminPage, /disabled=\{!canDelete \|\| Boolean\(deletingCategoryId\)\}/);
+  assert.match(adminPage, /category-delete-button/);
   assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
   assert.match(adminPage, /name: EXCEL_CATEGORY_TABLE_NAME/);
   assert.match(adminPage, /function addExcelRangeValidation/);
