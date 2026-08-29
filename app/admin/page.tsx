@@ -687,6 +687,40 @@ function AdminPage() {
     ));
   }
 
+  async function resolveBranchControlsStock(branchId: string) {
+    if (!supabase || !branchId) throw new Error("Não foi possível identificar a filial para consultar o controle de estoque.");
+
+    const { data: branch, error: branchError } = await supabase
+      .from("stores")
+      .select("tenant_id")
+      .eq("id", branchId)
+      .maybeSingle();
+    if (branchError) throw branchError;
+    if (!branch?.tenant_id) throw new Error("Não foi possível identificar a empresa desta filial.");
+
+    const [tenantParameterResult, storeParameterResult] = await Promise.all([
+      supabase
+        .from("tenant_parameters")
+        .select("parameter_value")
+        .eq("tenant_id", branch.tenant_id)
+        .eq("parameter_key", STOCK_CONTROL_PARAMETER_KEY)
+        .maybeSingle(),
+      supabase
+        .from("store_parameters")
+        .select("parameter_value")
+        .eq("store_id", branchId)
+        .eq("parameter_key", STOCK_CONTROL_PARAMETER_KEY)
+        .maybeSingle(),
+    ]);
+    if (tenantParameterResult.error) throw tenantParameterResult.error;
+    if (storeParameterResult.error) throw storeParameterResult.error;
+
+    return parameterBoolean(
+      storeParameterResult.data?.parameter_value ?? tenantParameterResult.data?.parameter_value,
+      true,
+    );
+  }
+
   useEffect(() => {
     void refreshBranchCatalog(activeBranchId);
     void refreshActiveBranchParameters(activeBranchId);
@@ -1660,6 +1694,8 @@ function AdminPage() {
     setExportingCatalog(true);
     setMessage("");
     try {
+      const controlsStock = await resolveBranchControlsStock(activeBranchId);
+      setActiveControlsStock(controlsStock);
       const [categoryResult, productResult] = await Promise.all([
         supabase
           .from("categories")
@@ -1693,7 +1729,7 @@ function AdminPage() {
         listsSheet.getCell(index + 1, 1).value = status;
       });
       listsSheet.state = "veryHidden";
-      const exportHeaders = catalogImportHeaders(activeControlsStock);
+      const exportHeaders = catalogImportHeaders(controlsStock);
       const spreadsheetEndColumn = String.fromCharCode(64 + exportHeaders.length);
       productsSheet.addRow(exportHeaders);
       const categoryNameById = new Map(exportCategories.map((category) => [category.id, category.name]));
@@ -1721,7 +1757,7 @@ function AdminPage() {
         cell.alignment = { vertical: "middle" };
       });
       productsSheet.getColumn(exportHeaders.indexOf("Preço") + 1).numFmt = 'R$ #,##0.00';
-      if (activeControlsStock) productsSheet.getColumn(exportHeaders.indexOf("Estoque") + 1).numFmt = "0.000";
+      if (controlsStock) productsSheet.getColumn(exportHeaders.indexOf("Estoque") + 1).numFmt = "0.000";
       productsSheet.getColumn(exportHeaders.indexOf("Código/SKU") + 1).numFmt = "@";
       const statusColumnNumber = exportHeaders.indexOf("Status") + 1;
       productsSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
@@ -1773,7 +1809,7 @@ function AdminPage() {
         ["Código/SKU", "Não altere os códigos já exportados. Em produtos novos, informe um código próprio para permitir futuras atualizações."],
         ["Importação", "As abas Produtos e Categorias são importadas. Não altere os nomes das abas nem os títulos das colunas."],
       ];
-      if (activeControlsStock) instructionRows.splice(8, 0, ["Estoque", "Opcional. Aceita números inteiros ou decimais."]);
+      if (controlsStock) instructionRows.splice(8, 0, ["Estoque", "Opcional. Aceita números inteiros ou decimais."]);
       instructionsSheet.addRows(instructionRows);
       instructionsSheet.getRow(1).eachCell((cell) => {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -1841,6 +1877,8 @@ function AdminPage() {
     setImportingCatalog(true);
     setMessage("Validando a planilha...");
     try {
+      const controlsStock = await resolveBranchControlsStock(branchId);
+      setActiveControlsStock(controlsStock);
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
@@ -1900,7 +1938,7 @@ function AdminPage() {
         const category = excelValueToText(columnValue(rowNumber, "Categoria"));
         const name = excelValueToText(columnValue(rowNumber, "Produto"));
         const price = parseBrazilianNumber(columnValue(rowNumber, "Preço"));
-        const stockText = activeControlsStock ? excelValueToText(columnValue(rowNumber, "Estoque")) : "";
+        const stockText = controlsStock ? excelValueToText(columnValue(rowNumber, "Estoque")) : "";
         const stock = stockText ? parseBrazilianNumber(columnValue(rowNumber, "Estoque")) : null;
         const skuText = excelValueToText(columnValue(rowNumber, "Código/SKU"));
         const sku = skuText || null;
@@ -2015,7 +2053,7 @@ function AdminPage() {
           description: row.description,
           price: row.price,
           unit: row.unit,
-          ...(activeControlsStock ? { stock_quantity: row.stock } : {}),
+          ...(controlsStock ? { stock_quantity: row.stock } : {}),
           badge: row.badge,
           is_active: row.isActive,
           updated_at: new Date().toISOString(),

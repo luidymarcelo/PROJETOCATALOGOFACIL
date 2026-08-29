@@ -260,11 +260,14 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /header !== "Estoque"/);
   assert.match(adminPage, /"Produto", "Status", "Descrição"/);
   assert.match(adminPage, /PRODUCT_STATUS_OPTIONS = \["Ativo", "Desativado"\]/);
-  assert.match(adminPage, /const exportHeaders = catalogImportHeaders\(activeControlsStock\)/);
+  assert.match(adminPage, /async function resolveBranchControlsStock/);
+  assert.match(adminPage, /storeParameterResult\.data\?\.parameter_value \?\? tenantParameterResult\.data\?\.parameter_value/);
+  assert.match(adminPage, /const controlsStock = await resolveBranchControlsStock\(activeBranchId\)/);
+  assert.match(adminPage, /const exportHeaders = catalogImportHeaders\(controlsStock\)/);
   assert.match(adminPage, /productsSheet\.addRow\(exportHeaders\)/);
-  assert.match(adminPage, /if \(activeControlsStock\) instructionRows\.splice/);
+  assert.match(adminPage, /if \(controlsStock\) instructionRows\.splice/);
   assert.match(adminPage, /activeControlsStock \? <label>Estoque/);
-  assert.match(adminPage, /activeControlsStock \? \{ stock_quantity: row\.stock \} : \{\}/);
+  assert.match(adminPage, /controlsStock \? \{ stock_quantity: row\.stock \} : \{\}/);
   assert.match(adminPage, /listsSheet\.state = "veryHidden"/);
   assert.match(adminPage, /dataValidation = \{/);
   assert.match(adminPage, /formulae: \["'Listas'!\$A\$1:\$A\$2"\]/);
