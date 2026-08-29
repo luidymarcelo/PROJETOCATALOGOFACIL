@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -57,6 +57,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/012_company_branding_and_product_gallery.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/013_company_branch_management.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/014_branch_cover_notes.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/015_product_option_groups.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -130,6 +131,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
+  assert.match(page, /option_groups/);
+  assert.match(page, /ProductOptionsModal/);
+  assert.match(page, /selectedOptions/);
   assert.match(page, /delivery_fee_type/);
   assert.match(page, /calculatesDeliveryFee/);
   assert.match(page, /Math\.round\(targetMerchant\.deliveryFee \* deliveryDistanceKm \* 100\) \/ 100/);
@@ -279,6 +283,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /header !== "Estoque"/);
   assert.match(adminPage, /"Produto", "Status", "Descrição"/);
   assert.match(adminPage, /PRODUCT_STATUS_OPTIONS = \["Ativo", "Desativado"\]/);
+  assert.match(adminPage, /formatMoneyInput/);
+  assert.match(adminPage, /OPTION_IMPORT_HEADERS/);
+  assert.match(adminPage, /workbook\.getWorksheet\("Opcionais"\)/);
+  assert.match(adminPage, /Novo grupo de opcionais/);
+  assert.match(adminPage, /createOptionGroup/);
   assert.match(adminPage, /async function resolveBranchControlsStock/);
   assert.match(adminPage, /storeParameterResult\.data\?\.parameter_value \?\? tenantParameterResult\.data\?\.parameter_value/);
   assert.match(adminPage, /const controlsStock = await resolveBranchControlsStock\(activeBranchId\)/);
@@ -393,6 +402,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(branchCoverNotesSql, /add column if not exists cover_note_position/);
   assert.match(branchCoverNotesSql, /stores_cover_note_length_check/);
   assert.match(branchCoverNotesSql, /'cover_note_position', s\.cover_note_position/);
+  assert.match(productOptionGroupsSql, /create table if not exists public\.option_groups/);
+  assert.match(productOptionGroupsSql, /create table if not exists public\.option_group_items/);
+  assert.match(productOptionGroupsSql, /create table if not exists public\.product_option_groups/);
+  assert.match(productOptionGroupsSql, /public can read active option groups/);
   assert.match(createCompanyFunction, /latitude/);
   assert.match(createCompanyFunction, /longitude/);
   assert.match(createCompanyFunction, /tenant_parameters/);

@@ -53,7 +53,12 @@ type Product = {
   images?: string[];
   badge?: string;
   unit?: string;
+  optionGroups?: ProductOptionGroup[];
 };
+
+type ProductOptionItem = { id: string; name: string; priceDelta: number };
+type ProductOptionGroup = { id: string; name: string; minSelections: number; maxSelections: number; items: ProductOptionItem[] };
+type SelectedProductOption = { groupId: string; groupName: string; itemId: string; itemName: string; priceDelta: number };
 
 type CatalogLayout = "horizontal" | "showcase";
 
@@ -96,6 +101,7 @@ type CartItem = {
   merchantId: StoreId;
   product: Product;
   quantity: number;
+  selectedOptions: SelectedProductOption[];
 };
 
 type Checkout = {
@@ -719,11 +725,15 @@ function buildWhatsappMessage({
           ? `\n   Unidade: ${cleanOrderText(item.product.unit)}`
           : "";
 
+        const options = item.selectedOptions.length
+          ? `\n   Opcionais: ${item.selectedOptions.map((option) => `${cleanOrderText(option.itemName)}${option.priceDelta ? ` (+${formatPrice(option.priceDelta)})` : ""}`).join(", ")}`
+          : "";
+        const unitPrice = item.product.price + item.selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
         return `${String(index + 1).padStart(2, "0")}. *${cleanOrderText(
           item.product.name,
-        )}*\n   ${item.quantity} x ${formatPrice(
-          item.product.price,
-        )} = *${formatPrice(item.product.price * item.quantity)}*${unit}`;
+        )}*${options}\n   ${item.quantity} x ${formatPrice(
+          unitPrice,
+        )} = *${formatPrice(unitPrice * item.quantity)}*${unit}`;
       },
     )
     .join("\n\n");
@@ -813,6 +823,8 @@ export default function Home() {
   const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
   const [checkoutError, setCheckoutError] = useState("");
+  const [customizingProduct, setCustomizingProduct] = useState<Product | null>(null);
+  const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [locatingUser, setLocatingUser] = useState(false);
@@ -852,7 +864,7 @@ export default function Home() {
       const requestedStoreId = new URLSearchParams(window.location.search).get("loja")?.trim() || null;
       setDirectStoreId(requestedStoreId);
 
-      const [storeResult, tenantParameterResult, storeParameterResult, companyResult] = await Promise.all([
+      const [storeResult, tenantParameterResult, storeParameterResult, companyResult, optionGroupResult] = await Promise.all([
         supabase
           .from("stores")
           .select("*, categories(*), products(*, product_images(id, image_url, sort_order))")
@@ -867,6 +879,11 @@ export default function Home() {
           .select("store_id, parameter_key, parameter_value")
           .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout"]),
         supabase.rpc("get_public_catalog_companies"),
+        supabase
+          .from("option_groups")
+          .select("id, store_id, name, min_selections, max_selections, sort_order, option_group_items(id, name, price_delta, sort_order), product_option_groups(product_id, sort_order)")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true }),
       ]);
       let { data, error } = storeResult;
       if (error && /product_images|relationship|schema cache/i.test(error.message)) {
@@ -923,6 +940,23 @@ export default function Home() {
         }]),
       );
       const hasCompanyDirectory = !companyResult.error;
+      const optionGroupsByProduct = new Map<string, ProductOptionGroup[]>();
+      for (const group of optionGroupResult.data ?? []) {
+        for (const link of group.product_option_groups ?? []) {
+          const productGroups = optionGroupsByProduct.get(link.product_id) ?? [];
+          productGroups.push({
+            id: group.id,
+            name: group.name,
+            minSelections: Number(group.min_selections),
+            maxSelections: Number(group.max_selections),
+            items: [...(group.option_group_items ?? [])]
+              .filter((item) => item.is_active !== false)
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((item) => ({ id: item.id, name: item.name, priceDelta: Number(item.price_delta) })),
+          });
+          optionGroupsByProduct.set(link.product_id, productGroups);
+        }
+      }
 
       const loadedMerchants = data.flatMap((store) => {
         if (hasCompanyDirectory && !companyNames.has(store.tenant_id)) return [];
@@ -960,6 +994,7 @@ export default function Home() {
             images: gallery.length ? gallery : primaryImage ? [primaryImage] : [],
             badge: product.badge ?? undefined,
             unit: product.unit ?? undefined,
+            optionGroups: optionGroupsByProduct.get(product.id) ?? [],
             };
           });
 
@@ -1025,7 +1060,7 @@ export default function Home() {
     );
 
     if (savedCart) {
-      setCart(JSON.parse(savedCart) as CartItem[]);
+      setCart((JSON.parse(savedCart) as CartItem[]).map((item) => ({ ...item, selectedOptions: item.selectedOptions ?? [] })));
     }
 
     if (savedCheckout) {
@@ -1081,7 +1116,7 @@ export default function Home() {
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce(
-      (sum, item) => sum + item.product.price * item.quantity,
+      (sum, item) => sum + (item.product.price + item.selectedOptions.reduce((optionsTotal, option) => optionsTotal + option.priceDelta, 0)) * item.quantity,
       0,
     );
     const targetMerchant = cartMerchant ?? merchant;
@@ -1197,22 +1232,23 @@ export default function Home() {
     }
   }
 
-  function addToCart(product: Product) {
+  function addToCart(product: Product, selectedOptions: SelectedProductOption[] = []) {
     setCart((current) => {
       const currentMerchantId = current[0]?.merchantId;
+      const optionKey = selectedOptions.map((option) => option.itemId).sort().join(",");
 
       if (currentMerchantId && currentMerchantId !== merchant.id) {
-        return [{ merchantId: merchant.id, product, quantity: 1 }];
+        return [{ merchantId: merchant.id, product, quantity: 1, selectedOptions }];
       }
 
-      const existingItem = current.find((item) => item.product.id === product.id);
+      const existingItem = current.find((item) => item.product.id === product.id && item.selectedOptions.map((option) => option.itemId).sort().join(",") === optionKey);
 
       if (!existingItem) {
-        return [...current, { merchantId: merchant.id, product, quantity: 1 }];
+        return [...current, { merchantId: merchant.id, product, quantity: 1, selectedOptions }];
       }
 
       return current.map((item) =>
-        item.product.id === product.id
+        item.product.id === product.id && item.selectedOptions.map((option) => option.itemId).sort().join(",") === optionKey
           ? { ...item, quantity: item.quantity + 1 }
           : item,
       );
@@ -1229,6 +1265,28 @@ export default function Home() {
         )
         .filter((item) => item.quantity > 0),
     );
+  }
+
+  function openProductOptions(product: Product) {
+    setCustomizingProduct(product);
+    setSelectedOptionIds([]);
+  }
+
+  function confirmProductOptions() {
+    if (!customizingProduct) return;
+    const selectedOptions = (customizingProduct.optionGroups ?? []).flatMap((group) => group.items.filter((item) => selectedOptionIds.includes(item.id)).map((item) => ({ groupId: group.id, groupName: group.name, itemId: item.id, itemName: item.name, priceDelta: item.priceDelta })));
+    const invalidGroup = (customizingProduct.optionGroups ?? []).find((group) => {
+      const count = selectedOptions.filter((option) => option.groupId === group.id).length;
+      return count < group.minSelections || count > group.maxSelections;
+    });
+    if (invalidGroup) {
+      setCheckoutError(`${invalidGroup.name}: escolha entre ${invalidGroup.minSelections} e ${invalidGroup.maxSelections} opção(ões).`);
+      return;
+    }
+    addToCart(customizingProduct, selectedOptions);
+    setCustomizingProduct(null);
+    setSelectedOptionIds([]);
+    setCheckoutError("");
   }
 
   function sendWhatsappOrder() {
@@ -1413,9 +1471,7 @@ export default function Home() {
             {filteredProducts.length ? (
               <div className={`product-grid ${merchant.catalogLayout}`}>
                 {filteredProducts.map((product) => {
-                const quantity =
-                  cart.find((item) => item.product.id === product.id)?.quantity ??
-                  0;
+                const quantity = cart.filter((item) => item.product.id === product.id).reduce((sum, item) => sum + item.quantity, 0);
 
                 return (
                   <article className="product-card" key={product.id}>
@@ -1446,7 +1502,7 @@ export default function Home() {
                             <span>{quantity}</span>
                             <button
                               aria-label={`Adicionar ${product.name}`}
-                              onClick={() => addToCart(product)}
+                              onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
                             >
                               <Plus size={16} />
                             </button>
@@ -1454,7 +1510,7 @@ export default function Home() {
                         ) : (
                           <button
                             className="add-button"
-                            onClick={() => addToCart(product)}
+                            onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
                           >
                             <Plus size={18} />
                           </button>
@@ -1498,6 +1554,7 @@ export default function Home() {
             locationStatus={locationStatus}
             onUseCurrentLocation={useCurrentLocation}
           />
+          {customizingProduct ? <ProductOptionsModal product={customizingProduct} selectedOptionIds={selectedOptionIds} onToggle={(itemId, groupId) => setSelectedOptionIds((current) => { if (current.includes(itemId)) return current.filter((id) => id !== itemId); const group = customizingProduct.optionGroups?.find((item) => item.id === groupId); const withoutGroup = group?.maxSelections === 1 ? current.filter((id) => !group.items.some((item) => item.id === id)) : current; return [...withoutGroup, itemId]; })} onClose={() => setCustomizingProduct(null)} onConfirm={confirmProductOptions} /> : null}
           </div>
 
           {cartCount > 0 ? (
@@ -1682,6 +1739,11 @@ function ProductGallery({ product }: { product: Product }) {
   );
 }
 
+function ProductOptionsModal({ product, selectedOptionIds, onToggle, onClose, onConfirm }: { product: Product; selectedOptionIds: string[]; onToggle: (itemId: string, groupId: string) => void; onClose: () => void; onConfirm: () => void }) {
+  const canConfirm = (product.optionGroups ?? []).every((group) => selectedOptionIds.filter((id) => group.items.some((item) => item.id === id)).length >= group.minSelections);
+  return <div className="options-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="options-modal" role="dialog" aria-modal="true" aria-labelledby="options-modal-title"><header><div><span>Personalize seu pedido</span><h2 id="options-modal-title">{product.name}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar opções" onClick={onClose}><X size={19} /></button></header><div className="options-modal-body">{(product.optionGroups ?? []).map((group) => { const selectedCount = selectedOptionIds.filter((id) => group.items.some((item) => item.id === id)).length; return <fieldset className="customer-option-group" key={group.id}><legend><strong>{group.name}</strong><small>{group.minSelections > 0 ? `Obrigatório · escolha ${group.maxSelections === 1 ? "1" : `até ${group.maxSelections}`}` : `Opcional · até ${group.maxSelections}`} · {selectedCount} selecionado(s)</small></legend>{group.items.map((item) => <label key={item.id} className={selectedOptionIds.includes(item.id) ? "selected" : ""}><input type={group.maxSelections === 1 ? "radio" : "checkbox"} name={`option-group-${group.id}`} checked={selectedOptionIds.includes(item.id)} onChange={() => { if (!selectedOptionIds.includes(item.id) && group.maxSelections > 1 && selectedCount >= group.maxSelections) return; onToggle(item.id, group.id); }} /><span>{item.name}</span><strong>{item.priceDelta ? `+ ${formatPrice(item.priceDelta)}` : "Grátis"}</strong></label>)}</fieldset>; })}</div><footer><button className="admin-secondary" type="button" onClick={onClose}>Cancelar</button><button className="admin-primary" type="button" onClick={onConfirm} disabled={!canConfirm}><Plus size={17} /> Adicionar ao carrinho</button></footer></section></div>;
+}
+
 function CatalogImage({
   src,
   alt,
@@ -1794,9 +1856,10 @@ function CartPanel({
               <div>
                 <strong>{item.product.name}</strong>
                 <span>
-                  {formatPrice(item.product.price)}
+                  {formatPrice(item.product.price + item.selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0))}
                   {item.product.unit ? ` / ${item.product.unit}` : ""}
                 </span>
+                {item.selectedOptions.length ? <small className="cart-item-options">{item.selectedOptions.map((option) => option.itemName).join(", ")}</small> : null}
               </div>
               <div className="cart-stepper">
                 <button

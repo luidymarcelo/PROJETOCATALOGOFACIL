@@ -56,6 +56,17 @@ type Branch = {
   is_active?: boolean;
 };
 type ProductImage = { id: string; image_url: string; sort_order: number };
+type ProductOptionItem = { id: string; name: string; price_delta: number; sort_order: number; is_active: boolean };
+type ProductOptionGroup = {
+  id: string;
+  name: string;
+  min_selections: number;
+  max_selections: number;
+  sort_order: number;
+  is_active: boolean;
+  option_group_items?: ProductOptionItem[];
+  product_option_groups?: Array<{ product_id: string; sort_order: number }>;
+};
 type Category = { id: string; name: string; sort_order: number };
 type Product = {
   id: string;
@@ -71,6 +82,7 @@ type Product = {
   is_active: boolean;
   updated_at: string | null;
   product_images?: ProductImage[];
+  option_groups?: ProductOptionGroup[];
 };
 
 type CatalogImportRow = {
@@ -91,7 +103,20 @@ type CatalogImportCategory = {
   sortOrder: number | null;
 };
 
+type CatalogImportOptionRow = {
+  rowNumber: number;
+  group: string;
+  product: string;
+  required: boolean;
+  max: number;
+  option: string;
+  priceDelta: number;
+  isActive: boolean;
+  sortOrder: number;
+};
+
 type CatalogEditorMode = "product" | "category";
+type OptionDraft = { name: string; priceDelta: string };
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
 type DeliveryFeeType = "fixed" | "per_km";
 type BranchDeliveryFeeTypeMode = "inherit" | DeliveryFeeType;
@@ -147,6 +172,7 @@ type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
+const EXCEL_PRODUCT_TABLE_NAME = "CatalogProducts";
 
 type WorksheetWithRangeValidation = Worksheet & {
   dataValidations: {
@@ -173,6 +199,8 @@ function formatAdminProductUpdatedAt(value: string | null) {
   return Number.isNaN(date.getTime()) ? null : adminProductUpdatedAtFormatter.format(date);
 }
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
+const OPTION_IMPORT_HEADERS = ["Grupo", "Produto", "Obrigatório", "Máximo", "Opcional", "Acréscimo", "Status", "Ordem"] as const;
+const OPTION_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const IMPORT_COLUMN_WIDTHS: Record<ImportHeader, number> = {
   Categoria: 24,
   Produto: 32,
@@ -228,6 +256,17 @@ function parseBrazilianNumber(value: unknown) {
   if (!text) return Number.NaN;
   const normalized = text.includes(",") ? text.replace(/\./g, "").replace(",", ".") : text;
   return Number(normalized);
+}
+
+function formatMoneyInput(value: string) {
+  const digits = value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  if (!digits) return "";
+  return (Number(digits) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function moneyInputNumber(value: string) {
+  const parsed = parseBrazilianNumber(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function chunkRows<T>(rows: T[], size = 200) {
@@ -370,6 +409,7 @@ function AdminPage() {
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([]);
   const [message, setMessage] = useState("");
   const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
   const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
@@ -417,6 +457,12 @@ function AdminPage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const coverImageInputRef = useRef<HTMLInputElement>(null);
   const [categoryName, setCategoryName] = useState("");
+  const [showOptionGroupForm, setShowOptionGroupForm] = useState(false);
+  const [savingOptionGroup, setSavingOptionGroup] = useState(false);
+  const [deletingOptionGroupId, setDeletingOptionGroupId] = useState("");
+  const [optionGroupForm, setOptionGroupForm] = useState({ name: "", min: "0", max: "1", productIds: [] as string[] });
+  const [optionDrafts, setOptionDrafts] = useState<OptionDraft[]>([]);
+  const [optionDraftForm, setOptionDraftForm] = useState<OptionDraft>({ name: "", priceDelta: "0,00" });
   const [productImageFiles, setProductImageFiles] = useState<File[]>([]);
   const [productImagePreviews, setProductImagePreviews] = useState<string[]>([]);
   const [savingProduct, setSavingProduct] = useState(false);
@@ -639,7 +685,7 @@ function AdminPage() {
       return;
     }
 
-    const [categoryResult, initialProductResult, branchResult] = await Promise.all([
+    const [categoryResult, initialProductResult, branchResult, optionGroupResult] = await Promise.all([
       supabase
         .from("categories")
         .select("id, name, sort_order")
@@ -656,6 +702,11 @@ function AdminPage() {
         .select("cover_image_url")
         .eq("id", branchId)
         .maybeSingle(),
+      supabase
+        .from("option_groups")
+        .select("id, name, min_selections, max_selections, sort_order, is_active, option_group_items(id, name, price_delta, sort_order, is_active), product_option_groups(product_id, sort_order)")
+        .eq("store_id", branchId)
+        .order("sort_order", { ascending: true }),
     ]);
     let productResult = initialProductResult;
     if (productResult.error && /product_images|relationship|schema cache/i.test(productResult.error.message)) {
@@ -676,8 +727,18 @@ function AdminPage() {
           : [],
     }));
 
+    const branchOptionGroups = (optionGroupResult.data ?? []) as ProductOptionGroup[];
+    const optionGroupsByProduct = new Map<string, ProductOptionGroup[]>();
+    for (const group of branchOptionGroups) {
+      for (const link of group.product_option_groups ?? []) {
+        const current = optionGroupsByProduct.get(link.product_id) ?? [];
+        current.push({ ...group, option_group_items: [...(group.option_group_items ?? [])].sort((a, b) => a.sort_order - b.sort_order) });
+        optionGroupsByProduct.set(link.product_id, current);
+      }
+    }
     setCategories((categoryRows ?? []) as Category[]);
-    setProducts((productRows ?? []) as Product[]);
+    setOptionGroups(branchOptionGroups);
+    setProducts((productRows ?? []).map((product) => ({ ...product, option_groups: optionGroupsByProduct.get(product.id) ?? [] })) as Product[]);
     if (branchRow) {
       setBranches((current) => current.map((branch) => branch.id === branchId ? { ...branch, cover_image_url: branchRow.cover_image_url } : branch));
       setAdminBranches((current) => current.map((branch) => branch.id === branchId ? { ...branch, cover_image_url: branchRow.cover_image_url } : branch));
@@ -1017,6 +1078,77 @@ function AdminPage() {
     }
   }
 
+  function resetOptionGroupEditor() {
+    setOptionGroupForm({ name: "", min: "0", max: "1", productIds: [] });
+    setOptionDrafts([]);
+    setOptionDraftForm({ name: "", priceDelta: "0,00" });
+  }
+
+  function addOptionDraft() {
+    const name = optionDraftForm.name.trim();
+    if (!name) return;
+    if (optionDrafts.some((item) => normalizeText(item.name) === normalizeText(name))) {
+      setMessage("Esse opcional já foi adicionado ao grupo.");
+      return;
+    }
+    setOptionDrafts((current) => [...current, { name, priceDelta: formatMoneyInput(optionDraftForm.priceDelta) || "0,00" }]);
+    setOptionDraftForm({ name: "", priceDelta: "0,00" });
+  }
+
+  async function createOptionGroup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !activeBranchId || savingOptionGroup) return;
+    const name = optionGroupForm.name.trim();
+    const min = Number(optionGroupForm.min);
+    const max = Number(optionGroupForm.max);
+    if (!name || !optionDrafts.length || !optionGroupForm.productIds.length || !Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < 1 || min > max) {
+      setMessage("Informe o nome, vincule pelo menos um produto, adicione um opcional e confira mínimo/máximo.");
+      return;
+    }
+    if (min > optionDrafts.length) {
+      setMessage("O mínimo de escolhas não pode ser maior que a quantidade de opcionais.");
+      return;
+    }
+    setSavingOptionGroup(true);
+    setMessage("");
+    try {
+      const { data: group, error: groupError } = await supabase.from("option_groups").insert({
+        store_id: activeBranchId,
+        name,
+        min_selections: min,
+        max_selections: Math.min(max, optionDrafts.length),
+        sort_order: optionGroups.length,
+        is_active: true,
+      }).select("id").single();
+      if (groupError || !group) throw groupError ?? new Error("Não foi possível criar o grupo de opcionais.");
+      const { error: itemsError } = await supabase.from("option_group_items").insert(optionDrafts.map((item, index) => ({ group_id: group.id, name: item.name, price_delta: moneyInputNumber(item.priceDelta), sort_order: index, is_active: true })));
+      if (itemsError) throw itemsError;
+      const { error: linksError } = await supabase.from("product_option_groups").insert(optionGroupForm.productIds.map((productId, index) => ({ product_id: productId, group_id: group.id, sort_order: index })));
+      if (linksError) throw linksError;
+      resetOptionGroupEditor();
+      setShowOptionGroupForm(false);
+      await refreshBranchCatalog(activeBranchId);
+      setMessage(`Grupo de opcionais ${name} criado e vinculado a ${optionGroupForm.productIds.length} produto(s).`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível criar o grupo de opcionais.");
+    } finally {
+      setSavingOptionGroup(false);
+    }
+  }
+
+  async function deleteOptionGroup(group: ProductOptionGroup) {
+    if (!supabase || !activeBranchId || deletingOptionGroupId) return;
+    if (!window.confirm(`Excluir o grupo de opcionais "${group.name}"?`)) return;
+    setDeletingOptionGroupId(group.id);
+    const { error } = await supabase.from("option_groups").delete().eq("id", group.id).eq("store_id", activeBranchId);
+    if (error) setMessage(error.message);
+    else {
+      await refreshBranchCatalog(activeBranchId);
+      setMessage(`Grupo ${group.name} excluído.`);
+    }
+    setDeletingOptionGroupId("");
+  }
+
   function openAdminCatalog(tenantId: string) {
     const selectedTenant = adminTenants.find((item) => item.id === tenantId) ?? null;
     const selectedBranches = adminBranches.filter((branch) => branch.tenant_id === tenantId);
@@ -1225,7 +1357,7 @@ function AdminPage() {
     const branch = branches.find((item) => item.id === activeBranchId);
     if (!branch) return;
 
-    const fee = parseBrazilianNumber(branchDeliveryFees[branch.id] ?? "0");
+    const fee = moneyInputNumber(branchDeliveryFees[branch.id] ?? "0");
     if (!Number.isFinite(fee) || fee < 0) {
       setMessage(`Informe uma taxa de entrega válida para ${branch.name}.`);
       return;
@@ -1914,6 +2046,39 @@ function AdminPage() {
         error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
       });
 
+      listsSheet.addTable({
+        name: EXCEL_PRODUCT_TABLE_NAME,
+        ref: "C1",
+        headerRow: true,
+        totalsRow: false,
+        style: { theme: "TableStyleMedium4", showRowStripes: true },
+        columns: [{ name: "Produto", filterButton: false }],
+        rows: exportProducts.length ? exportProducts.map((product) => [product.name]) : [[""]],
+      });
+      const optionsSheet = workbook.addWorksheet("Opcionais", { views: [{ state: "frozen", ySplit: 1 }] });
+      optionsSheet.addRow(OPTION_IMPORT_HEADERS);
+      const optionRows = optionGroups.flatMap((group) => (group.product_option_groups ?? []).flatMap((link) => (group.option_group_items ?? []).map((item) => [
+        group.name,
+        exportProducts.find((product) => product.id === link.product_id)?.name ?? "",
+        group.min_selections > 0 ? "Sim" : "Não",
+        group.max_selections,
+        item.name,
+        Number(item.price_delta),
+        item.is_active ? "Ativo" : "Desativado",
+        item.sort_order,
+      ])));
+      optionsSheet.addRows(optionRows);
+      optionsSheet.columns = [{ width: 26 }, { width: 34 }, { width: 16 }, { width: 12 }, { width: 28 }, { width: 15 }, { width: 16 }, { width: 12 }];
+      optionsSheet.getRow(1).height = 25;
+      optionsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
+      optionsSheet.getColumn(6).numFmt = 'R$ #,##0.00';
+      const optionValidationLastRow = Math.max(1001, optionsSheet.rowCount + 200);
+      addExcelRangeValidation(optionsSheet, `B2:B${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("${EXCEL_PRODUCT_TABLE_NAME}[Produto]")`], showInputMessage: true, promptTitle: "Produto do grupo", prompt: "Escolha um produto da lista.", showErrorMessage: true, errorTitle: "Produto inválido", error: "Escolha um produto existente na lista." });
+      addExcelRangeValidation(optionsSheet, `C2:C${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$B$1:$B$2"], showErrorMessage: true, errorTitle: "Obrigatório inválido", error: "Escolha Sim ou Não." });
+      addExcelRangeValidation(optionsSheet, `G2:G${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
+      listsSheet.getCell(1, 2).value = "Sim";
+      listsSheet.getCell(2, 2).value = "Não";
+
       const instructionsSheet = workbook.addWorksheet("Instruções");
       instructionsSheet.columns = [{ width: 24 }, { width: 88 }];
       const instructionRows = [
@@ -2010,6 +2175,8 @@ function AdminPage() {
       if (!categoriesSheet) throw new Error('A planilha precisa ter uma aba chamada "Categorias".');
       const importedCategories: CatalogImportCategory[] = [];
       const importedCategoryKeys = new Set<string>();
+      const importedOptionRows: CatalogImportOptionRow[] = [];
+      const validationErrors: string[] = [];
 
       if (categoriesSheet) {
         const categoryHeaderColumns = new Map<string, number>();
@@ -2037,6 +2204,39 @@ function AdminPage() {
         }
       }
 
+      const optionsSheet = workbook.getWorksheet("Opcionais");
+      if (optionsSheet) {
+        const optionHeaderColumns = new Map<string, number>();
+        optionsSheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+          const header = normalizeText(excelValueToText(cell.value));
+          if (header) optionHeaderColumns.set(header, columnNumber);
+        });
+        const optionColumn = (rowNumber: number, header: string) => {
+          const columnNumber = optionHeaderColumns.get(normalizeText(header));
+          return columnNumber ? optionsSheet.getRow(rowNumber).getCell(columnNumber).value : null;
+        };
+        const requiredOptionHeaders = [...OPTION_IMPORT_HEADERS.slice(0, 7)];
+        const missingOptionHeaders = requiredOptionHeaders.filter((header) => !optionHeaderColumns.has(normalizeText(header)));
+        if (missingOptionHeaders.length) throw new Error(`A aba "Opcionais" precisa das colunas: ${missingOptionHeaders.join(", ")}.`);
+        for (let rowNumber = 2; rowNumber <= optionsSheet.rowCount; rowNumber += 1) {
+          const group = excelValueToText(optionColumn(rowNumber, "Grupo"));
+          const product = excelValueToText(optionColumn(rowNumber, "Produto"));
+          const option = excelValueToText(optionColumn(rowNumber, "Opcional"));
+          if (!group && !product && !option) continue;
+          const required = normalizeText(excelValueToText(optionColumn(rowNumber, OPTION_IMPORT_HEADERS[2])));
+          const max = parseBrazilianNumber(optionColumn(rowNumber, OPTION_IMPORT_HEADERS[3]));
+          const priceDelta = parseBrazilianNumber(optionColumn(rowNumber, OPTION_IMPORT_HEADERS[5]));
+          const status = productStatusValue(optionColumn(rowNumber, "Status"));
+          const sortOrder = parseBrazilianNumber(optionColumn(rowNumber, "Ordem"));
+          if (!group || !product || !option) validationErrors.push(`aba Opcionais linha ${rowNumber}: Grupo, Produto e Opcional são obrigatórios`);
+          if (required !== "sim" && required !== "nao") validationErrors.push(`aba Opcionais linha ${rowNumber}: Obrigatório deve ser Sim ou Não`);
+          if (!Number.isInteger(max) || max < 1) validationErrors.push(`aba Opcionais linha ${rowNumber}: Máximo inválido`);
+          if (!Number.isFinite(priceDelta)) validationErrors.push(`aba Opcionais linha ${rowNumber}: acréscimo inválido`);
+          if (status === null) validationErrors.push(`aba Opcionais linha ${rowNumber}: status inválido`);
+          importedOptionRows.push({ rowNumber, group, product, required: required === "sim", max, option, priceDelta, isActive: status ?? true, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 });
+        }
+      }
+
       const headerColumns = new Map<string, number>();
       sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
         const header = normalizeText(excelValueToText(cell.value));
@@ -2050,7 +2250,6 @@ function AdminPage() {
         return columnNumber ? sheet.getRow(rowNumber).getCell(columnNumber).value : null;
       };
       const importedRows: CatalogImportRow[] = [];
-      const validationErrors: string[] = [];
       const usedSkus = new Set<string>();
       const usedProductsWithoutSku = new Set<string>();
 
@@ -2095,7 +2294,7 @@ function AdminPage() {
         });
       }
 
-      if (!importedRows.length && !importedCategories.length) {
+      if (!importedRows.length && !importedCategories.length && !importedOptionRows.length) {
         throw new Error("A planilha não possui produtos nem categorias preenchidos.");
       }
       if (validationErrors.length) {
@@ -2200,8 +2399,30 @@ function AdminPage() {
         if (error) throw error;
       }
 
+      if (importedOptionRows.length) {
+        const { data: currentProducts, error: currentProductsError } = await supabase.from("products").select("id, name, external_id").eq("store_id", branchId);
+        if (currentProductsError) throw currentProductsError;
+        const productByName = new Map((currentProducts ?? []).map((product) => [normalizeText(product.name), product.id]));
+        const unknownProducts = [...new Set(importedOptionRows.map((row) => row.product).filter((name) => !productByName.has(normalizeText(name))))];
+        if (unknownProducts.length) throw new Error(`Produto(s) não encontrado(s) na aba Opcionais: ${unknownProducts.slice(0, 4).join(", ")}.`);
+        const groupedOptions = new Map<string, CatalogImportOptionRow[]>();
+        for (const row of importedOptionRows) groupedOptions.set(normalizeText(row.group), [...(groupedOptions.get(normalizeText(row.group)) ?? []), row]);
+        for (const rows of groupedOptions.values()) {
+          const first = rows[0];
+          const { data: group, error: groupError } = await supabase.from("option_groups").upsert({ store_id: branchId, name: first.group, min_selections: first.required ? 1 : 0, max_selections: Math.max(1, first.max), sort_order: first.sortOrder, is_active: true }, { onConflict: "store_id,name" }).select("id").single();
+          if (groupError || !group) throw groupError ?? new Error("Não foi possível sincronizar o grupo de opcionais.");
+          await supabase.from("option_group_items").delete().eq("group_id", group.id);
+          await supabase.from("product_option_groups").delete().eq("group_id", group.id);
+          const { error: itemError } = await supabase.from("option_group_items").insert(rows.map((row, index) => ({ group_id: group.id, name: row.option, price_delta: row.priceDelta, sort_order: row.sortOrder || index, is_active: row.isActive })));
+          if (itemError) throw itemError;
+          const productIds = [...new Set(rows.map((row) => productByName.get(normalizeText(row.product))).filter((id): id is string => Boolean(id)))];
+          const { error: linkError } = await supabase.from("product_option_groups").insert(productIds.map((productId, index) => ({ product_id: productId, group_id: group.id, sort_order: index })));
+          if (linkError) throw linkError;
+        }
+      }
+
       await refreshBranchCatalog(branchId);
-      setMessage(`${importedRows.length} produto(s) e ${requestedCategories.size} categoria(s) sincronizados em ${activeBranch?.name ?? "a filial"}.`);
+      setMessage(`${importedRows.length} produto(s), ${requestedCategories.size} categoria(s) e ${new Set(importedOptionRows.map((row) => row.group)).size} grupo(s) de opcionais sincronizados em ${activeBranch?.name ?? "a filial"}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível importar a planilha.");
     } finally {
@@ -2230,7 +2451,7 @@ function AdminPage() {
         category_id: productForm.categoryId || null,
         name: productForm.name.trim(),
         description: productForm.description.trim() || null,
-        price: Number(productForm.price.replace(",", ".")),
+        price: moneyInputNumber(productForm.price),
         unit: productForm.unit.trim() || null,
         ...(activeControlsStock ? { stock_quantity: productForm.stock ? Number(productForm.stock.replace(",", ".")) : null } : {}),
         image_url: imageUrl,
@@ -2659,11 +2880,25 @@ function AdminPage() {
             </section>
             <section className="catalog-management-bar">
               <div className="catalog-management-copy"><span>Cadastro manual</span><strong>Produtos e categorias</strong></div>
-              <button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
+              <div className="catalog-management-actions"><button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
                 {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
                 {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
-              </button>
+              </button><button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar opcionais" : "Novo grupo de opcionais"}</button></div>
             </section>
+            {showOptionGroupForm ? (
+              <section className="admin-form-panel option-group-editor-panel">
+                <div className="branch-form-heading"><div><span>Cadastro estruturado</span><h2>Grupo de opcionais</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar opcionais" onClick={() => setShowOptionGroupForm(false)}><X size={18} /></button></div>
+                <p className="admin-muted">Exemplo: monte um grupo “Acompanhamento” e vincule-o a vários produtos. O cliente escolherá os itens no momento do pedido.</p>
+                <form className="admin-product-form" onSubmit={createOptionGroup}>
+                  <div className="admin-form-grid"><label>Nome do grupo<input value={optionGroupForm.name} onChange={(event) => setOptionGroupForm({ ...optionGroupForm, name: event.target.value })} placeholder="Ex.: Acompanhamento" required /></label><div className="admin-form-grid"><label>Mínimo<input type="number" min="0" value={optionGroupForm.min} onChange={(event) => setOptionGroupForm({ ...optionGroupForm, min: event.target.value })} /></label><label>Máximo<input type="number" min="1" value={optionGroupForm.max} onChange={(event) => setOptionGroupForm({ ...optionGroupForm, max: event.target.value })} /></label></div></div>
+                  <div className="option-draft-entry"><label>Opcional<input value={optionDraftForm.name} onChange={(event) => setOptionDraftForm({ ...optionDraftForm, name: event.target.value })} placeholder="Ex.: Batata frita" /></label><label>Acréscimo<input value={optionDraftForm.priceDelta} onChange={(event) => setOptionDraftForm({ ...optionDraftForm, priceDelta: formatMoneyInput(event.target.value) })} placeholder="0,00" inputMode="decimal" /></label><button className="admin-secondary" type="button" onClick={addOptionDraft}><Plus size={16} /> Adicionar item</button></div>
+                  {optionDrafts.length ? <div className="option-draft-list">{optionDrafts.map((item, index) => <div className="option-draft-row" key={`${item.name}-${index}`}><span>{item.name}</span><strong>{moneyInputNumber(item.priceDelta) ? `+ R$ ${item.priceDelta}` : "Sem acréscimo"}</strong><button className="icon-button" type="button" title="Remover item" aria-label={`Remover ${item.name}`} onClick={() => setOptionDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={15} /></button></div>)}</div> : <p className="admin-muted">Adicione pelo menos um item ao grupo.</p>}
+                  <fieldset className="option-product-selector"><legend>Produtos vinculados</legend><div className="option-product-grid">{products.map((product) => <label key={product.id}><input type="checkbox" checked={optionGroupForm.productIds.includes(product.id)} onChange={(event) => setOptionGroupForm((current) => ({ ...current, productIds: event.target.checked ? [...current.productIds, product.id] : current.productIds.filter((id) => id !== product.id) }))} /><span>{product.name}</span></label>)}</div></fieldset>
+                  <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={() => setShowOptionGroupForm(false)}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingOptionGroup}><Save size={16} /> {savingOptionGroup ? "Salvando..." : "Salvar grupo"}</button></div>
+                </form>
+              </section>
+            ) : null}
+            {optionGroups.length ? <section className="admin-form-panel option-groups-panel"><h2>Grupos de opcionais <span className="count-badge">{optionGroups.length}</span></h2><div className="admin-list">{optionGroups.map((group) => { const linkedProducts = (group.product_option_groups ?? []).map((link) => products.find((product) => product.id === link.product_id)?.name).filter(Boolean); return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections === 0 ? "Opcional" : `Escolha no mínimo ${group.min_selections}`} · até {group.max_selections} · {group.option_group_items?.length ?? 0} item(ns)</small><small>Produtos: {linkedProducts.join(", ") || "nenhum"}</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}</div></section> : null}
             {catalogEditorMode ? (
               <section className="admin-form-panel catalog-editor-panel">
                 <div className="branch-form-heading"><div><span>Cadastro manual</span><h2>{catalogEditorMode === "product" ? (editingProductId ? "Editar produto" : "Novo produto") : "Nova categoria"}</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar cadastro" onClick={closeCatalogEditor}><X size={18} /></button></div>
@@ -2677,7 +2912,7 @@ function AdminPage() {
                 <form className="admin-product-form" onSubmit={createProduct}>
                   <label>Nome<input value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} required /></label>
                   <label>Descrição<textarea value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} /></label>
-                  <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
+                  <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: formatMoneyInput(event.target.value) })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
                   <div className={activeControlsStock ? "admin-form-grid" : "admin-form-grid single"}>{activeControlsStock ? <label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label> : null}<label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
                   <div className="product-gallery-editor">
                     <div className="product-gallery-editor-heading"><div><strong>Fotos do produto</strong><small>{productEditorImageCount} de {activeProductImageLimit} foto(s) utilizadas</small></div><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()} disabled={savingProduct || productEditorImageCount >= activeProductImageLimit}><ImagePlus size={16} /> Adicionar fotos</button></div>
@@ -2717,7 +2952,7 @@ function AdminPage() {
                             <strong>{product.name}</strong>
                             <span className={product.is_active ? "product-status-badge active" : "product-status-badge inactive"}>{product.is_active ? "Ativo" : "Inativo"}</span>
                           </div>
-                          <small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s)</small>
+                          <small>{product.unit ?? "unidade"} · R$ {Number(product.price).toFixed(2).replace(".", ",")} · {product.product_images?.length ?? 0}/{activeProductImageLimit} foto(s){product.option_groups?.length ? ` · ${product.option_groups.length} grupo(s) de opcionais` : ""}</small>
                           <span className="product-admin-updated"><RefreshCw size={12} /> Última atualização: {updatedAtLabel ?? "sem registro"}</span>
                         </div>
                         <div className="product-admin-actions">
@@ -3163,7 +3398,7 @@ function ParameterWorkspace({
                         <label className={activeDeliveryFeeTypeMode === "per_km" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="per_km" checked={activeDeliveryFeeTypeMode === "per_km"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "per_km")} /><MapPin size={17} /><span><strong>Por km</strong><small>Calculada pela localização</small></span></label>
                       </div>
                     </fieldset>
-                    <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">{activeDeliveryFeeType === "fixed" ? "Valor da taxa fixa" : "Valor por quilômetro"}</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? activeDeliveryFeeType === "fixed" ? "Este valor será somado a qualquer pedido com entrega." : "A taxa será a distância até o cliente multiplicada por este valor." : "Disponível quando o parâmetro estiver ativo."}</small></div>
+                    <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">{activeDeliveryFeeType === "fixed" ? "Valor da taxa fixa" : "Valor por quilômetro"}</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, formatMoneyInput(event.target.value))} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? activeDeliveryFeeType === "fixed" ? "Este valor será somado a qualquer pedido com entrega." : "A taxa será a distância até o cliente multiplicada por este valor." : "Disponível quando o parâmetro estiver ativo."}</small></div>
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
