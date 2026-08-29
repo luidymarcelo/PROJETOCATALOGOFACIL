@@ -93,6 +93,8 @@ type CatalogImportCategory = {
 
 type CatalogEditorMode = "product" | "category";
 type FreightParameterMode = "inherit" | "enabled" | "disabled";
+type DeliveryFeeType = "fixed" | "per_km";
+type BranchDeliveryFeeTypeMode = "inherit" | DeliveryFeeType;
 type StockControlMode = "inherit" | "enabled" | "disabled";
 type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
@@ -112,6 +114,7 @@ type BranchDetailsForm = {
 };
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
+const DELIVERY_FEE_TYPE_PARAMETER_KEY = "delivery_fee_type";
 const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
 const PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit";
 const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
@@ -321,6 +324,10 @@ function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function deliveryFeeTypeValue(value: unknown, fallback: DeliveryFeeType = "fixed"): DeliveryFeeType {
+  return value === "fixed" || value === "per_km" ? value : fallback;
+}
+
 function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizontal"): CatalogLayout {
   return value === "horizontal" || value === "showcase" ? value : fallback;
 }
@@ -387,6 +394,8 @@ function AdminPage() {
   const [savingAccess, setSavingAccess] = useState(false);
   const [companyCalculatesDeliveryFee, setCompanyCalculatesDeliveryFee] = useState(true);
   const [branchFreightModes, setBranchFreightModes] = useState<Record<string, FreightParameterMode>>({});
+  const [companyDeliveryFeeType, setCompanyDeliveryFeeType] = useState<DeliveryFeeType>("fixed");
+  const [branchDeliveryFeeTypeModes, setBranchDeliveryFeeTypeModes] = useState<Record<string, BranchDeliveryFeeTypeMode>>({});
   const [branchDeliveryFees, setBranchDeliveryFees] = useState<Record<string, string>>({});
   const [companyCatalogLayout, setCompanyCatalogLayout] = useState<CatalogLayout>("horizontal");
   const [branchCatalogLayouts, setBranchCatalogLayouts] = useState<Record<string, BranchCatalogLayoutMode>>({});
@@ -1046,6 +1055,8 @@ function AdminPage() {
     if (companyProfileInputRef.current) companyProfileInputRef.current.value = "";
     setCompanyCalculatesDeliveryFee(true);
     setBranchFreightModes({});
+    setCompanyDeliveryFeeType("fixed");
+    setBranchDeliveryFeeTypeModes({});
     setCompanyCatalogLayout("horizontal");
     setBranchCatalogLayouts({});
     setCompanyProductImageLimit(1);
@@ -1068,7 +1079,7 @@ function AdminPage() {
       ? supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY])
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
@@ -1079,7 +1090,7 @@ function AdminPage() {
         .from("tenant_parameters")
         .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
-        .in("parameter_key", [FREIGHT_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY]),
+        .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY]),
       branchParameterRequest,
     ]);
     setLoadingSettings(false);
@@ -1097,6 +1108,7 @@ function AdminPage() {
       (tenantParameterResult.data ?? []).map((row) => [row.parameter_key, row.parameter_value]),
     );
     setCompanyCalculatesDeliveryFee(parameterBoolean(tenantParameters.get(FREIGHT_PARAMETER_KEY), true));
+    setCompanyDeliveryFeeType(deliveryFeeTypeValue(tenantParameters.get(DELIVERY_FEE_TYPE_PARAMETER_KEY)));
     setCompanyCatalogLayout(catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
     setCompanyProductImageLimit(productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1));
     setCompanyControlsStock(parameterBoolean(tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY), true));
@@ -1104,6 +1116,11 @@ function AdminPage() {
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
         .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+    );
+    const deliveryFeeTypeParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === DELIVERY_FEE_TYPE_PARAMETER_KEY)
+        .map((row) => [row.store_id, deliveryFeeTypeValue(row.parameter_value)]),
     );
     const layoutParameterByStore = new Map(
       (branchParameterResult.data ?? [])
@@ -1125,6 +1142,10 @@ function AdminPage() {
       freightParameterByStore.has(branch.id)
         ? freightParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
+    ])));
+    setBranchDeliveryFeeTypeModes(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      deliveryFeeTypeParameterByStore.get(branch.id) ?? "inherit",
     ])));
     setBranchCatalogLayouts(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
@@ -1153,6 +1174,13 @@ function AdminPage() {
         tenant_id: tenant.id,
         parameter_key: FREIGHT_PARAMETER_KEY,
         parameter_value: companyCalculatesDeliveryFee,
+        is_public: true,
+        updated_at: updatedAt,
+      },
+      {
+        tenant_id: tenant.id,
+        parameter_key: DELIVERY_FEE_TYPE_PARAMETER_KEY,
+        parameter_value: companyDeliveryFeeType,
         is_public: true,
         updated_at: updatedAt,
       },
@@ -1206,6 +1234,7 @@ function AdminPage() {
     setSavingParameters(true);
     setMessage("");
     const freightMode = branchFreightModes[branch.id] ?? "inherit";
+    const deliveryFeeTypeMode = branchDeliveryFeeTypeModes[branch.id] ?? "inherit";
     const layoutMode = branchCatalogLayouts[branch.id] ?? "inherit";
     const imageLimitMode = branchProductImageLimits[branch.id] ?? "inherit";
     const stockControlMode = branchStockControlModes[branch.id] ?? "inherit";
@@ -1219,6 +1248,19 @@ function AdminPage() {
           store_id: branch.id,
           parameter_key: FREIGHT_PARAMETER_KEY,
           parameter_value: freightMode === "enabled",
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
+    const deliveryFeeTypeParameterRequest = deliveryFeeTypeMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", DELIVERY_FEE_TYPE_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: DELIVERY_FEE_TYPE_PARAMETER_KEY,
+          parameter_value: deliveryFeeTypeMode,
           is_public: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
@@ -1262,7 +1304,7 @@ function AdminPage() {
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
 
-    const parameterError = freightParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error;
+    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error;
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
@@ -1547,6 +1589,7 @@ function AdminPage() {
     setAdminBranches((current) => [...current, branchRow]);
     setActiveBranchId(branchRow.id);
     setBranchFreightModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchDeliveryFeeTypeModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchCatalogLayouts((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchProductImageLimits((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchStockControlModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
@@ -2482,7 +2525,7 @@ function AdminPage() {
                     <div className="settings-metric-grid">
                       <div className="settings-metric"><Store size={19} /><span>Filiais</span><strong>{branches.length}</strong></div>
                       <div className="settings-metric"><KeyRound size={19} /><span>Acesso principal</span><strong>{loadingSettings ? "Carregando" : accessForm.email || "Não configurado"}</strong></div>
-                      <div className="settings-metric"><Truck size={19} /><span>Regra de frete</span><strong>{companyCalculatesDeliveryFee ? "Calculado" : "A combinar"}</strong></div>
+                      <div className="settings-metric"><Truck size={19} /><span>Regra de frete</span><strong>{companyCalculatesDeliveryFee ? companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "A combinar"}</strong></div>
                       <div className="settings-metric"><Power size={19} /><span>Status público</span><strong>{companyIdentity.isActive ? "Ativa" : "Inativa"}</strong></div>
                     </div>
                     <CompanyAvailabilityPanel
@@ -2526,6 +2569,8 @@ function AdminPage() {
                     scope={parameterScope}
                     companyEnabled={companyCalculatesDeliveryFee}
                     branchModes={branchFreightModes}
+                    companyDeliveryFeeType={companyDeliveryFeeType}
+                    branchDeliveryFeeTypeModes={branchDeliveryFeeTypeModes}
                     branchFees={branchDeliveryFees}
                     companyCatalogLayout={companyCatalogLayout}
                     branchCatalogLayouts={branchCatalogLayouts}
@@ -2539,6 +2584,8 @@ function AdminPage() {
                     onBranchChange={(branchId) => { setActiveBranchId(branchId); setParameterScope("branch"); setMessage(""); }}
                     onCompanyEnabledChange={setCompanyCalculatesDeliveryFee}
                     onBranchModeChange={(branchId, mode) => setBranchFreightModes((current) => ({ ...current, [branchId]: mode }))}
+                    onCompanyDeliveryFeeTypeChange={setCompanyDeliveryFeeType}
+                    onBranchDeliveryFeeTypeModeChange={(branchId, mode) => setBranchDeliveryFeeTypeModes((current) => ({ ...current, [branchId]: mode }))}
                     onBranchFeeChange={(branchId, fee) => setBranchDeliveryFees((current) => ({ ...current, [branchId]: fee }))}
                     onCompanyCatalogLayoutChange={setCompanyCatalogLayout}
                     onBranchCatalogLayoutChange={(branchId, mode) => setBranchCatalogLayouts((current) => ({ ...current, [branchId]: mode }))}
@@ -2948,6 +2995,8 @@ function ParameterWorkspace({
   scope,
   companyEnabled,
   branchModes,
+  companyDeliveryFeeType,
+  branchDeliveryFeeTypeModes,
   branchFees,
   companyCatalogLayout,
   branchCatalogLayouts,
@@ -2961,6 +3010,8 @@ function ParameterWorkspace({
   onBranchChange,
   onCompanyEnabledChange,
   onBranchModeChange,
+  onCompanyDeliveryFeeTypeChange,
+  onBranchDeliveryFeeTypeModeChange,
   onBranchFeeChange,
   onCompanyCatalogLayoutChange,
   onBranchCatalogLayoutChange,
@@ -2977,6 +3028,8 @@ function ParameterWorkspace({
   scope: ParameterScope;
   companyEnabled: boolean;
   branchModes: Record<string, FreightParameterMode>;
+  companyDeliveryFeeType: DeliveryFeeType;
+  branchDeliveryFeeTypeModes: Record<string, BranchDeliveryFeeTypeMode>;
   branchFees: Record<string, string>;
   companyCatalogLayout: CatalogLayout;
   branchCatalogLayouts: Record<string, BranchCatalogLayoutMode>;
@@ -2990,6 +3043,8 @@ function ParameterWorkspace({
   onBranchChange: (branchId: string) => void;
   onCompanyEnabledChange: (enabled: boolean) => void;
   onBranchModeChange: (branchId: string, mode: FreightParameterMode) => void;
+  onCompanyDeliveryFeeTypeChange: (type: DeliveryFeeType) => void;
+  onBranchDeliveryFeeTypeModeChange: (branchId: string, mode: BranchDeliveryFeeTypeMode) => void;
   onBranchFeeChange: (branchId: string, fee: string) => void;
   onCompanyCatalogLayoutChange: (layout: CatalogLayout) => void;
   onBranchCatalogLayoutChange: (branchId: string, mode: BranchCatalogLayoutMode) => void;
@@ -3003,6 +3058,8 @@ function ParameterWorkspace({
   const activeBranch = branches.find((branch) => branch.id === activeBranchId) ?? branches[0] ?? null;
   const activeMode = activeBranch ? branchModes[activeBranch.id] ?? "inherit" : "inherit";
   const activeEnabled = activeMode === "inherit" ? companyEnabled : activeMode === "enabled";
+  const activeDeliveryFeeTypeMode = activeBranch ? branchDeliveryFeeTypeModes[activeBranch.id] ?? "inherit" : "inherit";
+  const activeDeliveryFeeType = activeDeliveryFeeTypeMode === "inherit" ? companyDeliveryFeeType : activeDeliveryFeeTypeMode;
   const activeLayoutMode = activeBranch ? branchCatalogLayouts[activeBranch.id] ?? "inherit" : "inherit";
   const activeCatalogLayout = activeLayoutMode === "inherit" ? companyCatalogLayout : activeLayoutMode;
   const activeImageLimitMode = activeBranch ? branchProductImageLimits[activeBranch.id] ?? "inherit" : "inherit";
@@ -3032,9 +3089,16 @@ function ParameterWorkspace({
               <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
                 <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · Padrão da empresa</small></span><strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · Padrão da empresa</small></span><strong className={companyEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnabled ? companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
                   <div className="parameter-compact-body">
                     <ParameterToggle checked={companyEnabled} title="Calcular taxa de entrega" description="As filiais que herdam o padrão seguirão esta escolha." onChange={onCompanyEnabledChange} />
+                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset" disabled={!companyEnabled}>
+                      <legend>Forma de cálculo padrão</legend>
+                      <div className="parameter-mode-options parameter-layout-options two">
+                        <label className={companyDeliveryFeeType === "fixed" ? "selected" : ""}><input type="radio" name="company-delivery-fee-type" value="fixed" checked={companyDeliveryFeeType === "fixed"} onChange={() => onCompanyDeliveryFeeTypeChange("fixed")} /><Truck size={18} /><span><strong>Taxa fixa</strong><small>Soma o mesmo valor em qualquer entrega</small></span></label>
+                        <label className={companyDeliveryFeeType === "per_km" ? "selected" : ""}><input type="radio" name="company-delivery-fee-type" value="per_km" checked={companyDeliveryFeeType === "per_km"} onChange={() => onCompanyDeliveryFeeTypeChange("per_km")} /><MapPin size={18} /><span><strong>Valor por km</strong><small>Distância × preço por quilômetro</small></span></label>
+                      </div>
+                    </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
                     <footer className="parameter-form-footer"><span>Afeta somente filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
@@ -3081,7 +3145,7 @@ function ParameterWorkspace({
               <>
               <form className="parameter-compact-form" onSubmit={onSaveBranch}>
                 <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · {activeMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <summary><span className="parameter-item-icon"><Truck size={19} /></span><span className="parameter-item-name"><strong>Taxa de entrega</strong><small>Entrega · {activeMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeEnabled ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeEnabled ? activeDeliveryFeeType === "fixed" ? "Taxa fixa" : "Por km" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
                   <div className="parameter-compact-body branch">
                     <fieldset className="parameter-mode-fieldset">
                       <legend>Comportamento nesta filial</legend>
@@ -3091,7 +3155,15 @@ function ParameterWorkspace({
                         <label className={activeMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-parameter-mode" value="disabled" checked={activeMode === "disabled"} onChange={() => onBranchModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Não utilizar</small></span></label>
                       </div>
                     </fieldset>
-                    <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">Taxa fixa</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? "Incluída no total do pedido." : "Disponível quando o parâmetro estiver ativo."}</small></div>
+                    <fieldset className="parameter-mode-fieldset parameter-layout-fieldset" disabled={!activeEnabled}>
+                      <legend>Forma de cálculo nesta filial</legend>
+                      <div className="parameter-mode-options parameter-layout-options">
+                        <label className={activeDeliveryFeeTypeMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="inherit" checked={activeDeliveryFeeTypeMode === "inherit"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>{companyDeliveryFeeType === "fixed" ? "Taxa fixa" : "Valor por km"} da empresa</small></span></label>
+                        <label className={activeDeliveryFeeTypeMode === "fixed" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="fixed" checked={activeDeliveryFeeTypeMode === "fixed"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "fixed")} /><Truck size={17} /><span><strong>Taxa fixa</strong><small>Mesmo valor por pedido</small></span></label>
+                        <label className={activeDeliveryFeeTypeMode === "per_km" ? "selected" : ""}><input type="radio" name="branch-delivery-fee-type" value="per_km" checked={activeDeliveryFeeTypeMode === "per_km"} onChange={() => onBranchDeliveryFeeTypeModeChange(activeBranch.id, "per_km")} /><MapPin size={17} /><span><strong>Por km</strong><small>Calculada pela localização</small></span></label>
+                      </div>
+                    </fieldset>
+                    <div className="parameter-money-field"><label htmlFor="branch-delivery-fee">{activeDeliveryFeeType === "fixed" ? "Valor da taxa fixa" : "Valor por quilômetro"}</label><div><b>R$</b><input id="branch-delivery-fee" value={branchFees[activeBranch.id] ?? "0,00"} onChange={(event) => onBranchFeeChange(activeBranch.id, event.target.value)} placeholder="0,00" inputMode="decimal" disabled={!activeEnabled} /></div><small>{activeEnabled ? activeDeliveryFeeType === "fixed" ? "Este valor será somado a qualquer pedido com entrega." : "A taxa será a distância até o cliente multiplicada por este valor." : "Disponível quando o parâmetro estiver ativo."}</small></div>
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>

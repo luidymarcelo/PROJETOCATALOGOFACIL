@@ -41,6 +41,7 @@ import { supabase } from "../lib/supabase";
 type StoreId = string;
 type ViewMode = "catalog" | "admin";
 type FulfillmentMode = "delivery" | "pickup";
+type DeliveryFeeType = "fixed" | "per_km";
 
 type Product = {
   id: string;
@@ -69,6 +70,7 @@ type Merchant = {
   deliveryTime: string;
   minimumOrder: number;
   deliveryFee: number;
+  deliveryFeeType: DeliveryFeeType;
   calculatesDeliveryFee: boolean;
   catalogLayout: CatalogLayout;
   whatsapp: string;
@@ -108,6 +110,13 @@ type Checkout = {
 };
 
 type Coordinates = { latitude: number; longitude: number };
+type OrderTotals = {
+  subtotal: number;
+  delivery: number;
+  total: number;
+  deliveryDistanceKm: number | null;
+  deliveryFeePending: boolean;
+};
 
 const STORE_RADIUS_KM = 30;
 
@@ -129,6 +138,10 @@ function formatWhatsapp(value: string) {
 
 function parameterBoolean(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function deliveryFeeTypeValue(value: unknown, fallback: DeliveryFeeType = "fixed"): DeliveryFeeType {
+  return value === "fixed" || value === "per_km" ? value : fallback;
 }
 
 function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizontal"): CatalogLayout {
@@ -207,6 +220,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryTime: "35-45 min",
     minimumOrder: 25,
     deliveryFee: 5.99,
+    deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     whatsapp: "5599999990001",
@@ -280,6 +294,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryTime: "20-30 min",
     minimumOrder: 15,
     deliveryFee: 3.99,
+    deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     whatsapp: "5599999990002",
@@ -354,6 +369,7 @@ const fallbackMerchants: Merchant[] = [
     deliveryTime: "2-4 h",
     minimumOrder: 80,
     deliveryFee: 18,
+    deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     whatsapp: "5599999990003",
@@ -549,6 +565,7 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
     deliveryTime: "Consulte a filial",
     minimumOrder: 0,
     deliveryFee: 0,
+    deliveryFeeType: "fixed",
     calculatesDeliveryFee: true,
     catalogLayout: "horizontal",
     whatsapp: "",
@@ -689,7 +706,7 @@ function buildWhatsappMessage({
   cart: CartItem[];
   checkout: Checkout;
   fulfillment: FulfillmentMode;
-  totals: { subtotal: number; delivery: number; total: number };
+  totals: OrderTotals;
   orderCode: string;
   createdAt: Date;
 }) {
@@ -718,6 +735,7 @@ function buildWhatsappMessage({
           "Modalidade: Entrega",
           `Endereço: ${cleanOrderText(checkout.address)}`,
           ...(hasCoordinates(checkout) ? [`Localização no mapa: ${mapsUrl(checkout)}`] : []),
+          ...(totals.deliveryDistanceKm !== null ? [`Distância estimada: ${distanceLabel(totals.deliveryDistanceKm)}`] : []),
           `Complemento/referência: ${cleanOrderText(
             checkout.reference,
             "Não informado",
@@ -734,7 +752,7 @@ function buildWhatsappMessage({
 
   const changeAmount =
     checkout.payment === "Dinheiro" ? parseMoney(checkout.changeFor) : null;
-  const deliveryIsPending = fulfillment === "delivery" && !merchant.calculatesDeliveryFee;
+  const deliveryIsPending = totals.deliveryFeePending;
   const paymentSection = [
     "*PAGAMENTO*",
     `Forma: ${cleanOrderText(checkout.payment)}`,
@@ -767,6 +785,9 @@ function buildWhatsappMessage({
     "----------------------------",
     "*RESUMO DE VALORES*",
     `Subtotal: ${formatPrice(totals.subtotal)}`,
+    ...(fulfillment === "delivery" && merchant.deliveryFeeType === "per_km" && totals.deliveryDistanceKm !== null
+      ? [`Cálculo da entrega: ${distanceLabel(totals.deliveryDistanceKm)} × ${formatPrice(merchant.deliveryFee)}/km`]
+      : []),
     `Taxa de entrega: ${deliveryIsPending ? "A combinar" : formatPrice(totals.delivery)}`,
     `*${deliveryIsPending ? "TOTAL PARCIAL" : "TOTAL"}: ${formatPrice(totals.total)}*`,
     "",
@@ -840,11 +861,11 @@ export default function Home() {
         supabase
           .from("tenant_parameters")
           .select("tenant_id, parameter_key, parameter_value")
-          .in("parameter_key", ["calculate_delivery_fee", "catalog_layout"]),
+          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout"]),
         supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", ["calculate_delivery_fee", "catalog_layout"]),
+          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout"]),
         supabase.rpc("get_public_catalog_companies"),
       ]);
       let { data, error } = storeResult;
@@ -873,6 +894,16 @@ export default function Home() {
         (storeParameterResult.data ?? [])
           .filter((row) => row.parameter_key === "calculate_delivery_fee")
           .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+      );
+      const tenantDeliveryFeeTypes = new Map(
+        (tenantParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "delivery_fee_type")
+          .map((row) => [row.tenant_id, deliveryFeeTypeValue(row.parameter_value)]),
+      );
+      const storeDeliveryFeeTypes = new Map(
+        (storeParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "delivery_fee_type")
+          .map((row) => [row.store_id, deliveryFeeTypeValue(row.parameter_value)]),
       );
       const tenantLayoutParameters = new Map(
         (tenantParameterResult.data ?? [])
@@ -949,6 +980,9 @@ export default function Home() {
             whatsapp: normalizeWhatsapp(store.whatsapp_phone),
             minimumOrder: Number(store.minimum_order),
             deliveryFee: Number(store.delivery_fee),
+            deliveryFeeType: storeDeliveryFeeTypes.get(store.id)
+              ?? tenantDeliveryFeeTypes.get(store.tenant_id)
+              ?? "fixed",
             calculatesDeliveryFee: storeFreightParameters.has(store.id)
               ? storeFreightParameters.get(store.id)!
               : tenantFreightParameters.get(store.tenant_id) ?? true,
@@ -1050,16 +1084,31 @@ export default function Home() {
       (sum, item) => sum + item.product.price * item.quantity,
       0,
     );
-    const deliveryFee = cartMerchant?.deliveryFee ?? merchant.deliveryFee;
-    const calculatesDeliveryFee = cartMerchant?.calculatesDeliveryFee ?? merchant.calculatesDeliveryFee;
-    const delivery = subtotal > 0 && fulfillment === "delivery" && calculatesDeliveryFee ? deliveryFee : 0;
+    const targetMerchant = cartMerchant ?? merchant;
+    const deliveryDistanceKm = fulfillment === "delivery"
+      && targetMerchant.deliveryFeeType === "per_km"
+      && hasCoordinates(targetMerchant)
+      && hasCoordinates(checkout)
+      ? distanceInKm(targetMerchant, checkout)
+      : null;
+    const deliveryFeePending = fulfillment === "delivery" && (
+      !targetMerchant.calculatesDeliveryFee
+      || (targetMerchant.deliveryFeeType === "per_km" && deliveryDistanceKm === null)
+    );
+    const delivery = subtotal > 0 && fulfillment === "delivery" && !deliveryFeePending
+      ? targetMerchant.deliveryFeeType === "per_km" && deliveryDistanceKm !== null
+        ? Math.round(targetMerchant.deliveryFee * deliveryDistanceKm * 100) / 100
+        : targetMerchant.deliveryFee
+      : 0;
 
     return {
       subtotal,
       delivery,
       total: subtotal + delivery,
+      deliveryDistanceKm,
+      deliveryFeePending,
     };
-  }, [cart, cartMerchant?.calculatesDeliveryFee, cartMerchant?.deliveryFee, fulfillment, merchant.calculatesDeliveryFee, merchant.deliveryFee]);
+  }, [cart, cartMerchant, checkout.latitude, checkout.longitude, fulfillment, merchant]);
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartIsFromActiveStore = !cartMerchant || cartMerchant.id === merchant.id;
@@ -1197,6 +1246,17 @@ export default function Home() {
     if (fulfillment === "delivery" && checkout.address.trim().length < 5 && !hasCoordinates(checkout)) {
       setCheckoutError("Informe o endereço ou use sua localização atual.");
       return;
+    }
+
+    if (fulfillment === "delivery" && targetMerchant.calculatesDeliveryFee && targetMerchant.deliveryFeeType === "per_km") {
+      if (!hasCoordinates(targetMerchant)) {
+        setCheckoutError("A filial precisa configurar sua localização antes de calcular a entrega por km.");
+        return;
+      }
+      if (!hasCoordinates(checkout)) {
+        setCheckoutError("Use sua localização atual para calcular a taxa de entrega por km.");
+        return;
+      }
     }
 
     if (totals.subtotal < targetMerchant.minimumOrder) {
@@ -1590,7 +1650,7 @@ function StoreDiscovery({
                 <div className="discovery-store-content">
                   <div className="discovery-store-title"><span className={store.companyProfileImage ? "store-avatar company-profile" : "store-avatar"}>{store.companyProfileImage ? <img src={store.companyProfileImage} alt="" /> : <Icon size={20} />}</span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>
                   <p>{store.tagline}</p>
-                  <footer><span><Clock size={15} /> {store.deliveryTime}</span>{currentDistance !== undefined ? <span><MapPin size={15} /> {distanceLabel(currentDistance)}</span> : <span><Truck size={15} /> {store.calculatesDeliveryFee ? formatPrice(store.deliveryFee) : "A combinar"}</span>}</footer>
+                  <footer><span><Clock size={15} /> {store.deliveryTime}</span>{currentDistance !== undefined ? <span><MapPin size={15} /> {distanceLabel(currentDistance)}</span> : <span><Truck size={15} /> {store.calculatesDeliveryFee ? store.deliveryFeeType === "per_km" ? `${formatPrice(store.deliveryFee)}/km` : formatPrice(store.deliveryFee) : "A combinar"}</span>}</footer>
                 </div>
               </a>
             );
@@ -1680,7 +1740,7 @@ function CartPanel({
   checkoutError: string;
   fulfillment: FulfillmentMode;
   isCartOpen: boolean;
-  totals: { subtotal: number; delivery: number; total: number };
+  totals: OrderTotals;
   onCheckoutChange: (checkout: Checkout) => void;
   onClose: () => void;
   onFulfillmentChange: (mode: FulfillmentMode) => void;
@@ -1692,6 +1752,11 @@ function CartPanel({
 }) {
   const disabled = cart.length === 0;
   const cartBranchName = merchantBranchLabel(cartMerchant);
+  const deliveryFeeLabel = fulfillment === "delivery" && totals.deliveryFeePending
+    ? cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km"
+      ? "Aguardando localização"
+      : "A combinar"
+    : formatPrice(totals.delivery);
 
   return (
     <>
@@ -1805,6 +1870,18 @@ function CartPanel({
           <p className="location-feedback">{locationStatus}</p>
         ) : null}
 
+        {fulfillment === "delivery" && cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km" ? (
+          totals.deliveryDistanceKm !== null ? (
+            <div className="checkout-delivery-calculation">
+              <Truck size={17} />
+              <span><strong>{distanceLabel(totals.deliveryDistanceKm)} estimados</strong><small>{formatPrice(cartMerchant.deliveryFee)} por km</small></span>
+              <b>{formatPrice(totals.delivery)}</b>
+            </div>
+          ) : (
+            <p className="checkout-delivery-guidance">{hasCoordinates(cartMerchant) ? "Use sua localização para calcular automaticamente a taxa de entrega." : "Esta filial precisa configurar sua localização para calcular a entrega por km."}</p>
+          )
+        ) : null}
+
         {fulfillment === "delivery" ? (
           <label>
             <MapPin size={16} />
@@ -1897,10 +1974,10 @@ function CartPanel({
           Subtotal <strong>{formatPrice(totals.subtotal)}</strong>
         </span>
         <span>
-          Taxa <strong>{fulfillment === "delivery" && !cartMerchant.calculatesDeliveryFee ? "A combinar" : formatPrice(totals.delivery)}</strong>
+          {totals.deliveryDistanceKm !== null ? `Taxa (${distanceLabel(totals.deliveryDistanceKm)} estimados)` : "Taxa"} <strong>{deliveryFeeLabel}</strong>
         </span>
         <span className="grand-total">
-          {fulfillment === "delivery" && !cartMerchant.calculatesDeliveryFee ? "Total parcial" : "Total"} <strong>{formatPrice(totals.total)}</strong>
+          {totals.deliveryFeePending ? "Total parcial" : "Total"} <strong>{formatPrice(totals.total)}</strong>
         </span>
       </div>
 

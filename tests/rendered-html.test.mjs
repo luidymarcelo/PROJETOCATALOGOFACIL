@@ -130,7 +130,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.commerce-grid,\s*\.commerce-grid\.direct-store\s*\{\s*grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(page, /function StoreNotFound/);
   assert.match(page, /calculate_delivery_fee/);
+  assert.match(page, /delivery_fee_type/);
   assert.match(page, /calculatesDeliveryFee/);
+  assert.match(page, /Math\.round\(targetMerchant\.deliveryFee \* deliveryDistanceKm \* 100\) \/ 100/);
+  assert.match(page, /Use sua localização para calcular automaticamente a taxa de entrega/);
+  assert.match(page, /Cálculo da entrega/);
   assert.match(page, /catalog_layout/);
   assert.match(page, /catalogLayout/);
   assert.match(page, /product-grid \$\{merchant\.catalogLayout\}/);
@@ -167,6 +171,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /<details className="parameter-compact-item">/);
   assert.match(adminPage, /CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout"/);
   assert.match(adminPage, /STOCK_CONTROL_PARAMETER_KEY = "control_stock"/);
+  assert.match(adminPage, /DELIVERY_FEE_TYPE_PARAMETER_KEY = "delivery_fee_type"/);
+  assert.match(adminPage, /Forma de cálculo padrão/);
+  assert.match(adminPage, /Valor por km/);
+  assert.match(adminPage, /branch-delivery-fee-type/);
   assert.match(adminPage, /Controle de estoque/);
   assert.match(adminPage, />4 parâmetros</);
   assert.match(adminPage, /branch-stock-control-mode/);

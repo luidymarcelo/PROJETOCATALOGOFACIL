@@ -1136,6 +1136,44 @@ img {
   font-weight: 900;
 }
 
+.checkout-delivery-calculation {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(23, 107, 82, 0.24);
+  border-radius: 8px;
+  background: rgba(23, 107, 82, 0.06);
+  color: var(--primary-dark);
+}
+
+.checkout-delivery-calculation span {
+  display: grid;
+  gap: 1px;
+}
+
+.checkout-delivery-calculation small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.checkout-delivery-calculation b {
+  font-size: 0.86rem;
+}
+
+.checkout-delivery-guidance {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid #ead9a6;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #755b15;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .location-feedback {
   margin: 0;
   color: var(--muted);
@@ -4887,6 +4925,14 @@ img {
   margin: 0;
   padding: 11px 14px 12px;
   border: 0;
+}
+
+.parameter-mode-fieldset:disabled {
+  opacity: 0.55;
+}
+
+.parameter-mode-fieldset:disabled label {
+  cursor: not-allowed;
 }
 
 .parameter-mode-fieldset legend {
