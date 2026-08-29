@@ -207,7 +207,8 @@ function formatAdminProductUpdatedAt(value: string | null) {
 }
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
 const ADDITION_GROUP_HEADERS = ["Grupo", "Obrigat\u00f3rio", "Status", "Ordem"] as const;
-const ADDITION_IMPORT_HEADERS = ["Grupo", "Produto", "Obrigat\u00f3rio", "M\u00e1ximo", "Adicional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
+const ADDITION_IMPORT_HEADERS = ["Grupo", "Produto", "M\u00e1ximo", "Adicional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
+const LEGACY_OPTION_IMPORT_HEADERS = ["Grupo", "Produto", "Obrigat\u00f3rio", "M\u00e1ximo", "Opcional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
 const OPTION_IMPORT_HEADERS = ADDITION_IMPORT_HEADERS;
 const OPTION_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const IMPORT_COLUMN_WIDTHS: Record<ImportHeader, number> = {
@@ -2122,7 +2123,6 @@ function AdminPage() {
       const optionRows = optionGroups.flatMap((group) => (group.product_option_groups ?? []).flatMap((link) => (group.option_group_items ?? []).map((item) => [
         group.name,
         exportProducts.find((product) => product.id === link.product_id)?.name ?? "",
-        group.min_selections > 0 ? "Sim" : "Não",
         group.max_selections,
         item.name,
         Number(item.price_delta),
@@ -2137,8 +2137,8 @@ function AdminPage() {
       const optionValidationLastRow = Math.max(1001, optionsSheet.rowCount + 200);
       addExcelRangeValidation(optionsSheet, `A2:A${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("${EXCEL_ADDITION_GROUP_TABLE_NAME}[Grupo]")`], showInputMessage: true, promptTitle: "Grupo de adicionais", prompt: 'Cadastre os grupos na aba "Grupos de adicionais" e selecione uma opção.', showErrorMessage: true, errorTitle: "Grupo inválido", error: 'Escolha um grupo existente na aba "Grupos de adicionais".' });
       addExcelRangeValidation(optionsSheet, `B2:B${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("'Produtos'!$B$2:$B$5000")`], showInputMessage: true, promptTitle: "Produto do grupo", prompt: "Escolha um produto da aba Produtos.", showErrorMessage: true, errorTitle: "Produto inválido", error: "Escolha um produto existente na aba Produtos." });
-      addExcelRangeValidation(optionsSheet, `C2:C${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$B$1:$B$2"], showErrorMessage: true, errorTitle: "Obrigatório inválido", error: "Escolha Sim ou Não." });
-      addExcelRangeValidation(optionsSheet, `G2:G${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
+      addExcelRangeValidation(optionsSheet, `C2:C${optionValidationLastRow}`, { type: "whole", operator: "greaterThanOrEqual", allowBlank: false, formulae: ["0"], showErrorMessage: true, errorTitle: "Máximo inválido", error: "Informe um número maior ou igual a zero." });
+      addExcelRangeValidation(optionsSheet, `F2:F${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
       listsSheet.getCell(1, 2).value = "Sim";
       listsSheet.getCell(2, 2).value = "Não";
 
@@ -2310,18 +2310,22 @@ function AdminPage() {
         const requiredOptionHeaders = [...ADDITION_IMPORT_HEADERS.slice(0, 7)];
         const missingOptionHeaders = requiredOptionHeaders.filter((header) => !optionHeaderColumns.has(normalizeText(header)));
         if (missingOptionHeaders.length && optionsSheet.name === "Adicionais") throw new Error(`A aba "Adicionais" precisa das colunas: ${missingOptionHeaders.join(", ")}.`);
+        const requiredByGroup = new Map(importedAdditionGroups.map((item) => [normalizeText(item.name), item.required]));
         for (let rowNumber = 2; rowNumber <= optionsSheet.rowCount; rowNumber += 1) {
           const group = excelValueToText(optionColumn(rowNumber, "Grupo"));
           const product = excelValueToText(optionColumn(rowNumber, "Produto"));
           const option = excelValueToText(optionColumn(rowNumber, "Adicional")) || excelValueToText(optionColumn(rowNumber, "Opcional"));
           if (!group && !product && !option) continue;
-          const required = normalizeText(excelValueToText(optionColumn(rowNumber, "Obrigatório")));
+          const legacyRequired = normalizeText(excelValueToText(optionColumn(rowNumber, "Obrigatório")));
+          const groupRequired = requiredByGroup.get(normalizeText(group));
+          const required = groupRequired === undefined ? legacyRequired : groupRequired ? "sim" : "nao";
           const max = parseBrazilianNumber(optionColumn(rowNumber, "Máximo"));
           const priceDelta = parseBrazilianNumber(optionColumn(rowNumber, "Acréscimo"));
           const status = productStatusValue(optionColumn(rowNumber, "Status"));
           const sortOrder = parseBrazilianNumber(optionColumn(rowNumber, "Ordem"));
           if (!group || !product || !option) validationErrors.push(`aba Opcionais linha ${rowNumber}: Grupo, Produto e Opcional são obrigatórios`);
-          if (required !== "sim" && required !== "nao") validationErrors.push(`aba Opcionais linha ${rowNumber}: Obrigatório deve ser Sim ou Não`);
+          if (optionsSheet.name === "Adicionais" && groupRequired === undefined) validationErrors.push(`aba Adicionais linha ${rowNumber}: o grupo "${group}" não foi cadastrado na aba Grupos de adicionais`);
+          if (optionsSheet.name === "Opcionais" && required !== "sim" && required !== "nao") validationErrors.push(`aba Opcionais linha ${rowNumber}: Obrigatório deve ser Sim ou Não`);
           if (!Number.isInteger(max) || max < 1) validationErrors.push(`aba Opcionais linha ${rowNumber}: Máximo inválido`);
           if (!Number.isFinite(priceDelta)) validationErrors.push(`aba Opcionais linha ${rowNumber}: acréscimo inválido`);
           if (status === null) validationErrors.push(`aba Opcionais linha ${rowNumber}: status inválido`);
