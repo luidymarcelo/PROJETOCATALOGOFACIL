@@ -2192,8 +2192,13 @@ function AdminPage() {
       exampleSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
       applyProductStatusValidation(exampleSheet, 100);
 
-      const orderedSheets = [productsSheet, optionsSheet, categoriesSheet, additionGroupsSheet, listsSheet, instructionsSheet, exampleSheet];
-      workbook.worksheets.splice(0, workbook.worksheets.length, ...orderedSheets);
+      productsSheet.orderNo = 1;
+      optionsSheet.orderNo = 2;
+      categoriesSheet.orderNo = 3;
+      additionGroupsSheet.orderNo = 4;
+      listsSheet.orderNo = 5;
+      instructionsSheet.orderNo = 6;
+      exampleSheet.orderNo = 7;
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer as BlobPart], {
