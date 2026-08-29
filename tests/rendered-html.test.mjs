@@ -285,6 +285,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /PRODUCT_STATUS_OPTIONS = \["Ativo", "Desativado"\]/);
   assert.match(adminPage, /formatMoneyInput/);
   assert.match(adminPage, /OPTION_IMPORT_HEADERS/);
+  assert.match(adminPage, /function readableCatalogError/);
+  assert.match(adminPage, /Execute a migration 015_product_option_groups\.sql/);
   assert.match(adminPage, /workbook\.getWorksheet\("Opcionais"\)/);
   assert.match(adminPage, /INDIRECT\("'Produtos'!\$B\$2:\$B\$5000"\)/);
   assert.match(adminPage, /Novo grupo de opcionais/);

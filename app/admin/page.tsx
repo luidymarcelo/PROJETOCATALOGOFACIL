@@ -268,6 +268,17 @@ function moneyInputNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function readableCatalogError(error: unknown) {
+  const record = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  const message = error instanceof Error
+    ? error.message
+    : String(record?.message ?? record?.details ?? record?.hint ?? "");
+  if (/option_groups|option_group_items|product_option_groups|relation .* does not exist|schema cache/i.test(message)) {
+    return `${message || "As tabelas de opcionais ainda não estão disponíveis."} Execute a migration 015_product_option_groups.sql no SQL Editor do Supabase e tente novamente.`;
+  }
+  return message || "Não foi possível importar a planilha. Verifique os dados e tente novamente.";
+}
+
 function chunkRows<T>(rows: T[], size = 200) {
   const chunks: T[][] = [];
   for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
@@ -2414,7 +2425,7 @@ function AdminPage() {
       await refreshBranchCatalog(branchId);
       setMessage(`${importedRows.length} produto(s), ${requestedCategories.size} categoria(s) e ${new Set(importedOptionRows.map((row) => row.group)).size} grupo(s) de opcionais sincronizados em ${activeBranch?.name ?? "a filial"}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível importar a planilha.");
+      setMessage(readableCatalogError(error));
     } finally {
       setImportingCatalog(false);
     }
