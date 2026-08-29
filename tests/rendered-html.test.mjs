@@ -258,12 +258,24 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /productsSheet\.addRows\(exportProducts\.map/);
   assert.match(adminPage, /function catalogImportHeaders/);
   assert.match(adminPage, /header !== "Estoque"/);
+  assert.match(adminPage, /"Produto", "Status", "Descrição"/);
+  assert.match(adminPage, /PRODUCT_STATUS_OPTIONS = \["Ativo", "Desativado"\]/);
   assert.match(adminPage, /const exportHeaders = catalogImportHeaders\(activeControlsStock\)/);
   assert.match(adminPage, /productsSheet\.addRow\(exportHeaders\)/);
   assert.match(adminPage, /if \(activeControlsStock\) instructionRows\.splice/);
   assert.match(adminPage, /activeControlsStock \? <label>Estoque/);
   assert.match(adminPage, /activeControlsStock \? \{ stock_quantity: row\.stock \} : \{\}/);
+  assert.match(adminPage, /listsSheet\.state = "veryHidden"/);
+  assert.match(adminPage, /dataValidation = \{/);
+  assert.match(adminPage, /formulae: \["'Listas'!\$A\$1:\$A\$2"\]/);
+  assert.match(adminPage, /is_active: row\.isActive/);
+  assert.match(adminPage, /status inválido; use Ativo ou Desativado/);
   assert.match(adminPage, /const \[categoryResult, productResult\] = await Promise\.all/);
+  const downloadCatalogSource = adminPage.slice(
+    adminPage.indexOf("async function downloadCatalogTemplate"),
+    adminPage.indexOf("async function importCatalog"),
+  );
+  assert.doesNotMatch(downloadCatalogSource, /\.from\("products"\)[\s\S]*?\.eq\("is_active", true\)/);
   assert.match(adminPage, /external_id: `CAT-\$\{productId\}`/);
   assert.doesNotMatch(adminPage, /skuText\.toUpperCase/);
   assert.match(adminPage, /Código\/SKU/);

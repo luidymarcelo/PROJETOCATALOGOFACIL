@@ -82,6 +82,7 @@ type CatalogImportRow = {
   stock: number | null;
   badge: string | null;
   sku: string | null;
+  isActive: boolean;
 };
 
 type CatalogImportCategory = {
@@ -137,9 +138,10 @@ const CATALOG_IMAGE_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
 };
-const IMPORT_HEADERS = ["Categoria", "Produto", "Descrição", "Preço", "Unidade", "Estoque", "Selo", "Código/SKU"] as const;
+const IMPORT_HEADERS = ["Categoria", "Produto", "Status", "Descrição", "Preço", "Unidade", "Estoque", "Selo", "Código/SKU"] as const;
 type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
+const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 
 const adminProductUpdatedAtFormatter = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
@@ -159,6 +161,7 @@ const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
 const IMPORT_COLUMN_WIDTHS: Record<ImportHeader, number> = {
   Categoria: 24,
   Produto: 32,
+  Status: 16,
   Descrição: 48,
   Preço: 14,
   Unidade: 16,
@@ -177,6 +180,13 @@ function normalizeText(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
+}
+
+function productStatusValue(value: unknown): boolean | null {
+  const status = normalizeText(excelValueToText(value));
+  if (!status || status === "ativo") return true;
+  if (status === "desativado" || status === "inativo") return false;
+  return null;
 }
 
 function excelValueToText(value: unknown): string {
@@ -1661,7 +1671,6 @@ function AdminPage() {
           .from("products")
           .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
           .eq("store_id", activeBranchId)
-          .eq("is_active", true)
           .order("name", { ascending: true }),
       ]);
       if (categoryResult.error) throw categoryResult.error;
@@ -1679,6 +1688,11 @@ function AdminPage() {
       const productsSheet = workbook.addWorksheet("Produtos", {
         views: [{ state: "frozen", ySplit: 1 }],
       });
+      const listsSheet = workbook.addWorksheet("Listas");
+      PRODUCT_STATUS_OPTIONS.forEach((status, index) => {
+        listsSheet.getCell(index + 1, 1).value = status;
+      });
+      listsSheet.state = "veryHidden";
       const exportHeaders = catalogImportHeaders(activeControlsStock);
       const spreadsheetEndColumn = String.fromCharCode(64 + exportHeaders.length);
       productsSheet.addRow(exportHeaders);
@@ -1687,6 +1701,7 @@ function AdminPage() {
         const values: Record<ImportHeader, string | number> = {
           Categoria: product.category_id ? categoryNameById.get(product.category_id) ?? "" : "",
           Produto: product.name,
+          Status: product.is_active ? "Ativo" : "Desativado",
           Descrição: product.description ?? "",
           Preço: Number(product.price),
           Unidade: product.unit ?? "",
@@ -1708,6 +1723,24 @@ function AdminPage() {
       productsSheet.getColumn(exportHeaders.indexOf("Preço") + 1).numFmt = 'R$ #,##0.00';
       if (activeControlsStock) productsSheet.getColumn(exportHeaders.indexOf("Estoque") + 1).numFmt = "0.000";
       productsSheet.getColumn(exportHeaders.indexOf("Código/SKU") + 1).numFmt = "@";
+      const statusColumnNumber = exportHeaders.indexOf("Status") + 1;
+      productsSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
+      const applyProductStatusValidation = (worksheet: typeof productsSheet, lastRow: number) => {
+        for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
+          worksheet.getCell(rowNumber, statusColumnNumber).dataValidation = {
+            type: "list",
+            allowBlank: true,
+            formulae: ["'Listas'!$A$1:$A$2"],
+            showInputMessage: true,
+            promptTitle: "Status do produto",
+            prompt: "Selecione Ativo ou Desativado.",
+            showErrorMessage: true,
+            errorTitle: "Status inválido",
+            error: "Escolha Ativo ou Desativado na lista.",
+          };
+        }
+      };
+      applyProductStatusValidation(productsSheet, Math.max(1001, productsSheet.rowCount + 200));
 
       const categoriesSheet = workbook.addWorksheet("Categorias", {
         views: [{ state: "frozen", ySplit: 1 }],
@@ -1734,6 +1767,7 @@ function AdminPage() {
         ["Descrição", "Opcional."],
         ["Preço", "Obrigatório. Aceita 12,50 ou 12.50."],
         ["Unidade", "Opcional. Exemplos: unidade, caixa, kg, metro."],
+        ["Status", "Selecione Ativo para exibir o produto ou Desativado para ocultá-lo do catálogo."],
         ["Fotos", "Envie as fotos pelo botão de imagem de cada produto no Portal da empresa."],
         ["Selo", "Opcional. Exemplo: Mais vendido."],
         ["Código/SKU", "Não altere os códigos já exportados. Em produtos novos, informe um código próprio para permitir futuras atualizações."],
@@ -1753,8 +1787,8 @@ function AdminPage() {
         views: [{ state: "frozen", ySplit: 1 }],
       });
       const exampleProducts: Array<Record<ImportHeader, string | number>> = [
-        { Categoria: "Bebidas", Produto: "Refrigerante Cola 2 L", Descrição: "Garrafa gelada", Preço: 12, Unidade: "unidade", Estoque: 35, Selo: "Mais vendido", "Código/SKU": "BEB-001" },
-        { Categoria: "Mercearia", Produto: "Arroz 5 kg", Descrição: "Pacote tipo 1", Preço: 27.9, Unidade: "pacote", Estoque: 20, Selo: "", "Código/SKU": "MER-001" },
+        { Categoria: "Bebidas", Produto: "Refrigerante Cola 2 L", Status: "Ativo", Descrição: "Garrafa gelada", Preço: 12, Unidade: "unidade", Estoque: 35, Selo: "Mais vendido", "Código/SKU": "BEB-001" },
+        { Categoria: "Mercearia", Produto: "Arroz 5 kg", Status: "Desativado", Descrição: "Pacote tipo 1", Preço: 27.9, Unidade: "pacote", Estoque: 20, Selo: "", "Código/SKU": "MER-001" },
       ];
       exampleSheet.addRows([
         exportHeaders,
@@ -1766,7 +1800,9 @@ function AdminPage() {
         cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
       });
-      exampleSheet.getColumn(4).numFmt = 'R$ #,##0.00';
+      exampleSheet.getColumn(exportHeaders.indexOf("Preço") + 1).numFmt = 'R$ #,##0.00';
+      exampleSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
+      applyProductStatusValidation(exampleSheet, 100);
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer as BlobPart], {
@@ -1868,10 +1904,12 @@ function AdminPage() {
         const stock = stockText ? parseBrazilianNumber(columnValue(rowNumber, "Estoque")) : null;
         const skuText = excelValueToText(columnValue(rowNumber, "Código/SKU"));
         const sku = skuText || null;
+        const isActive = productStatusValue(columnValue(rowNumber, "Status"));
 
         if (!name) validationErrors.push(`linha ${rowNumber}: produto vazio`);
         if (!Number.isFinite(price) || price < 0) validationErrors.push(`linha ${rowNumber}: preço inválido`);
         if (stock !== null && (!Number.isFinite(stock) || stock < 0)) validationErrors.push(`linha ${rowNumber}: estoque inválido`);
+        if (isActive === null) validationErrors.push(`linha ${rowNumber}: status inválido; use Ativo ou Desativado`);
         if (sku && usedSkus.has(normalizeText(sku))) validationErrors.push(`linha ${rowNumber}: Código/SKU repetido (${sku})`);
         if (sku) usedSkus.add(normalizeText(sku));
         if (!sku && name) {
@@ -1890,6 +1928,7 @@ function AdminPage() {
           stock,
           badge: excelValueToText(columnValue(rowNumber, "Selo")) || null,
           sku,
+          isActive: isActive ?? true,
         });
       }
 
@@ -1978,7 +2017,7 @@ function AdminPage() {
           unit: row.unit,
           ...(activeControlsStock ? { stock_quantity: row.stock } : {}),
           badge: row.badge,
-          is_active: true,
+          is_active: row.isActive,
           updated_at: new Date().toISOString(),
         };
       });
