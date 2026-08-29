@@ -256,6 +256,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Adicionar ao catálogo/);
   assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
   assert.match(adminPage, /name: EXCEL_CATEGORY_TABLE_NAME/);
+  assert.match(adminPage, /function addExcelRangeValidation/);
+  assert.match(adminPage, /dataValidations\.add\(address, validation\)/);
   assert.match(adminPage, /INDIRECT\("\$\{EXCEL_CATEGORY_TABLE_NAME\}\[Categoria\]\"\)/);
   assert.match(adminPage, /Categoria inválida/);
   assert.match(adminPage, /categoria \"\$\{category\}\" não cadastrada na aba Categorias/);
@@ -273,7 +275,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /activeControlsStock \? <label>Estoque/);
   assert.match(adminPage, /controlsStock \? \{ stock_quantity: row\.stock \} : \{\}/);
   assert.match(adminPage, /listsSheet\.state = "veryHidden"/);
-  assert.match(adminPage, /dataValidation = \{/);
+  assert.match(adminPage, /addExcelRangeValidation\(productsSheet/);
   assert.match(adminPage, /formulae: \["'Listas'!\$A\$1:\$A\$2"\]/);
   assert.match(adminPage, /is_active: row\.isActive/);
   assert.match(adminPage, /status inválido; use Ativo ou Desativado/);
@@ -409,17 +411,22 @@ test("preserves the category dropdown when writing the Excel catalog", async () 
     rows: [["Bebidas", 0]],
   });
   const productsSheet = workbook.addWorksheet("Produtos");
-  productsSheet.getCell("A2").dataValidation = {
+  productsSheet.dataValidations.add("A2:A1001", {
     type: "list",
     allowBlank: true,
     formulae: ['INDIRECT("CatalogCategories[Categoria]")'],
-  };
+  });
+  assert.equal(productsSheet.rowCount, 0);
 
   const savedWorkbook = new ExcelJS.Workbook();
   await savedWorkbook.xlsx.load(await workbook.xlsx.writeBuffer());
 
   assert.deepEqual(
     savedWorkbook.getWorksheet("Produtos").getCell("A2").dataValidation.formulae,
+    ['INDIRECT("CatalogCategories[Categoria]")'],
+  );
+  assert.deepEqual(
+    savedWorkbook.getWorksheet("Produtos").getCell("A1001").dataValidation.formulae,
     ['INDIRECT("CatalogCategories[Categoria]")'],
   );
   assert.ok(savedWorkbook.getWorksheet("Categorias").getTable("CatalogCategories"));

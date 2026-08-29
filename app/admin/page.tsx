@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
+import type { DataValidation, Worksheet } from "exceljs";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
 import { supabase } from "../../lib/supabase";
 
@@ -143,6 +144,16 @@ type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
+
+type WorksheetWithRangeValidation = Worksheet & {
+  dataValidations: {
+    add: (address: string, validation: DataValidation) => void;
+  };
+};
+
+function addExcelRangeValidation(worksheet: Worksheet, address: string, validation: DataValidation) {
+  (worksheet as WorksheetWithRangeValidation).dataValidations.add(address, validation);
+}
 
 const adminProductUpdatedAtFormatter = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
@@ -1763,21 +1774,21 @@ function AdminPage() {
       const statusColumnNumber = exportHeaders.indexOf("Status") + 1;
       productsSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
       const applyProductStatusValidation = (worksheet: typeof productsSheet, lastRow: number) => {
-        for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
-          worksheet.getCell(rowNumber, statusColumnNumber).dataValidation = {
-            type: "list",
-            allowBlank: true,
-            formulae: ["'Listas'!$A$1:$A$2"],
-            showInputMessage: true,
-            promptTitle: "Status do produto",
-            prompt: "Selecione Ativo ou Desativado.",
-            showErrorMessage: true,
-            errorTitle: "Status inválido",
-            error: "Escolha Ativo ou Desativado na lista.",
-          };
-        }
+        const columnLetter = worksheet.getColumn(statusColumnNumber).letter;
+        addExcelRangeValidation(worksheet, `${columnLetter}2:${columnLetter}${lastRow}`, {
+          type: "list",
+          allowBlank: true,
+          formulae: ["'Listas'!$A$1:$A$2"],
+          showInputMessage: true,
+          promptTitle: "Status do produto",
+          prompt: "Selecione Ativo ou Desativado.",
+          showErrorMessage: true,
+          errorTitle: "Status inválido",
+          error: "Escolha Ativo ou Desativado na lista.",
+        });
       };
-      applyProductStatusValidation(productsSheet, Math.max(1001, productsSheet.rowCount + 200));
+      const productValidationLastRow = Math.max(1001, productsSheet.rowCount + 200);
+      applyProductStatusValidation(productsSheet, productValidationLastRow);
 
       const categoriesSheet = workbook.addWorksheet("Categorias", {
         views: [{ state: "frozen", ySplit: 1 }],
@@ -1805,20 +1816,19 @@ function AdminPage() {
       });
       const categoryColumnNumber = exportHeaders.indexOf("Categoria") + 1;
       productsSheet.getColumn(categoryColumnNumber).alignment = { vertical: "middle" };
-      for (let rowNumber = 2; rowNumber <= Math.max(1001, productsSheet.rowCount + 200); rowNumber += 1) {
-        productsSheet.getCell(rowNumber, categoryColumnNumber).dataValidation = {
-          type: "list",
-          allowBlank: true,
-          formulae: [`INDIRECT("${EXCEL_CATEGORY_TABLE_NAME}[Categoria]")`],
-          showInputMessage: true,
-          promptTitle: "Categoria do produto",
-          prompt: 'Cadastre as categorias na aba "Categorias" e selecione uma opção.',
-          showErrorMessage: true,
-          errorStyle: "error",
-          errorTitle: "Categoria inválida",
-          error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
-        };
-      }
+      const categoryColumnLetter = productsSheet.getColumn(categoryColumnNumber).letter;
+      addExcelRangeValidation(productsSheet, `${categoryColumnLetter}2:${categoryColumnLetter}${productValidationLastRow}`, {
+        type: "list",
+        allowBlank: true,
+        formulae: [`INDIRECT("${EXCEL_CATEGORY_TABLE_NAME}[Categoria]")`],
+        showInputMessage: true,
+        promptTitle: "Categoria do produto",
+        prompt: 'Cadastre as categorias na aba "Categorias" e selecione uma opção.',
+        showErrorMessage: true,
+        errorStyle: "error",
+        errorTitle: "Categoria inválida",
+        error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
+      });
 
       const instructionsSheet = workbook.addWorksheet("Instruções");
       instructionsSheet.columns = [{ width: 24 }, { width: 88 }];
