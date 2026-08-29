@@ -59,6 +59,7 @@ type Product = {
 type ProductOptionItem = { id: string; name: string; priceDelta: number };
 type ProductOptionGroup = { id: string; name: string; minSelections: number; maxSelections: number; items: ProductOptionItem[] };
 type SelectedProductOption = { groupId: string; groupName: string; itemId: string; itemName: string; priceDelta: number };
+type ProductCategorySection = { category: string; products: Product[] };
 
 type CatalogLayout = "horizontal" | "showcase";
 
@@ -167,6 +168,17 @@ function catalogLocationError(error: GeolocationPositionError) {
 
 function storeCatalogUrl(storeId: StoreId) {
   return `/?loja=${encodeURIComponent(storeId)}`;
+}
+
+function categorySectionId(storeId: StoreId, category: string) {
+  const slug = category
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return `catalog-category-${storeId}-${slug || "categoria"}`;
 }
 
 function normalizeWhatsapp(value: string) {
@@ -1096,18 +1108,67 @@ export default function Home() {
     const normalizedSearch = search.trim().toLowerCase();
 
     return merchant.products.filter((product) => {
-      const matchesCategory =
-        activeCategory === "Mais pedidos" ||
-        product.category === activeCategory ||
-        product.badge;
       const matchesSearch =
         !normalizedSearch ||
         product.name.toLowerCase().includes(normalizedSearch) ||
         product.description.toLowerCase().includes(normalizedSearch);
 
-      return matchesCategory && matchesSearch;
+      return matchesSearch;
     });
-  }, [activeCategory, merchant, search]);
+  }, [merchant.products, search]);
+
+  const productSections = useMemo<ProductCategorySection[]>(() => {
+    const knownCategories = merchant.categories.filter((category) => category !== "Mais pedidos");
+    const sections: ProductCategorySection[] = [];
+
+    if (merchant.categories.includes("Mais pedidos")) {
+      const popularProducts = filteredProducts.filter((product) => product.badge);
+      if (popularProducts.length) sections.push({ category: "Mais pedidos", products: popularProducts });
+    }
+
+    for (const category of knownCategories) {
+      const products = filteredProducts.filter((product) => product.category === category);
+      if (products.length) sections.push({ category, products });
+    }
+
+    const listedCategories = new Set(knownCategories);
+    const otherProducts = filteredProducts.filter((product) => !listedCategories.has(product.category));
+    if (otherProducts.length) sections.push({ category: "Outros", products: otherProducts });
+
+    return sections;
+  }, [filteredProducts, merchant.categories]);
+
+  useEffect(() => {
+    if (!productSections.length) return;
+    if (productSections.some((section) => section.category === activeCategory)) return;
+    setActiveCategory(productSections[0].category);
+  }, [activeCategory, productSections]);
+
+  useEffect(() => {
+    if (!directStoreId || !productSections.length) return;
+    if (!("IntersectionObserver" in window)) return;
+
+    const observers = productSections
+      .map((section) => document.getElementById(categorySectionId(merchant.id, section.category)))
+      .filter((element): element is HTMLElement => Boolean(element));
+
+    if (!observers.length) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+
+      if (visible?.target instanceof HTMLElement) {
+        const category = visible.target.dataset.category;
+        if (category) setActiveCategory(category);
+      }
+    }, { rootMargin: "-145px 0px -55% 0px", threshold: [0.08, 0.24, 0.42] });
+
+    observers.forEach((element) => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, [directStoreId, merchant.id, productSections]);
 
   const cartMerchant = useMemo(
     () => merchants.find((store) => store.id === cart[0]?.merchantId),
@@ -1367,6 +1428,16 @@ export default function Home() {
     setIsCartOpen(false);
   }
 
+  function scrollToCategory(category: string) {
+    setActiveCategory(category);
+
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById(categorySectionId(merchant.id, category))
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   async function signOut() {
     await supabase?.auth.signOut();
     setView("catalog");
@@ -1450,7 +1521,7 @@ export default function Home() {
           <div className="commerce-grid direct-store">
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <nav className="category-strip" aria-label="Categorias">
-              {merchant.categories.map((category) => {
+              {productSections.map(({ category }) => {
                 const CategoryIcon =
                   categoryIcons[category as keyof typeof categoryIcons] ??
                   ClipboardList;
@@ -1459,7 +1530,7 @@ export default function Home() {
                   <button
                     key={category}
                     className={activeCategory === category ? "active" : ""}
-                    onClick={() => setActiveCategory(category)}
+                    onClick={() => scrollToCategory(category)}
                   >
                     <CategoryIcon size={17} />
                     <span>{category}</span>
@@ -1468,58 +1539,74 @@ export default function Home() {
               })}
             </nav>
 
-            {filteredProducts.length ? (
-              <div className={`product-grid ${merchant.catalogLayout}`}>
-                {filteredProducts.map((product) => {
-                const quantity = cart.filter((item) => item.product.id === product.id).reduce((sum, item) => sum + item.quantity, 0);
+            {productSections.length ? (
+              <div className="catalog-category-list">
+                {productSections.map((section) => (
+                  <section
+                    className="catalog-category-section"
+                    data-category={section.category}
+                    id={categorySectionId(merchant.id, section.category)}
+                    key={section.category}
+                  >
+                    <header className="catalog-category-heading">
+                      <h2>{section.category}</h2>
+                      <span>{section.products.length} {section.products.length === 1 ? "item" : "itens"}</span>
+                    </header>
 
-                return (
-                  <article className="product-card" key={product.id}>
-                    <ProductGallery product={product} />
-                    <div className="product-content">
-                      <div>
-                        {product.badge ? (
-                          <span className="product-badge">{product.badge}</span>
-                        ) : null}
-                        <h2>{product.name}</h2>
-                        <p>{product.description}</p>
-                      </div>
-                      <footer>
-                        <span className="price-stack">
-                          <strong>{formatPrice(product.price)}</strong>
-                          {product.unit ? <small>{product.unit}</small> : null}
-                        </span>
-                        {quantity > 0 ? (
-                          <div className="quantity-stepper">
-                            <button
-                              aria-label={`Remover ${product.name}`}
-                              onClick={() =>
-                                updateQuantity(product.id, quantity - 1)
-                              }
-                            >
-                              <Minus size={16} />
-                            </button>
-                            <span>{quantity}</span>
-                            <button
-                              aria-label={`Adicionar ${product.name}`}
-                              onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
-                            >
-                              <Plus size={16} />
-                            </button>
+                    <div className={`product-grid ${merchant.catalogLayout}`}>
+                      {section.products.map((product) => {
+                      const quantity = cart.filter((item) => item.product.id === product.id).reduce((sum, item) => sum + item.quantity, 0);
+
+                      return (
+                        <article className="product-card" key={product.id}>
+                          <ProductGallery product={product} />
+                          <div className="product-content">
+                            <div>
+                              {product.badge ? (
+                                <span className="product-badge">{product.badge}</span>
+                              ) : null}
+                              <h2>{product.name}</h2>
+                              <p>{product.description}</p>
+                            </div>
+                            <footer>
+                              <span className="price-stack">
+                                <strong>{formatPrice(product.price)}</strong>
+                                {product.unit ? <small>{product.unit}</small> : null}
+                              </span>
+                              {quantity > 0 ? (
+                                <div className="quantity-stepper">
+                                  <button
+                                    aria-label={`Remover ${product.name}`}
+                                    onClick={() =>
+                                      updateQuantity(product.id, quantity - 1)
+                                    }
+                                  >
+                                    <Minus size={16} />
+                                  </button>
+                                  <span>{quantity}</span>
+                                  <button
+                                    aria-label={`Adicionar ${product.name}`}
+                                    onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
+                                  >
+                                    <Plus size={16} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  className="add-button"
+                                  onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
+                                >
+                                  <Plus size={18} />
+                                </button>
+                              )}
+                            </footer>
                           </div>
-                        ) : (
-                          <button
-                            className="add-button"
-                            onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
-                          >
-                            <Plus size={18} />
-                          </button>
-                        )}
-                      </footer>
+                        </article>
+                      );
+                      })}
                     </div>
-                  </article>
-                );
-                })}
+                  </section>
+                ))}
               </div>
             ) : (
               <div className="empty-products">
