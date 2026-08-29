@@ -179,6 +179,7 @@ type ImportHeader = (typeof IMPORT_HEADERS)[number];
 const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
+const EXCEL_ADDITION_GROUP_TABLE_NAME = "CatalogAdditionGroups";
 
 type WorksheetWithRangeValidation = Worksheet & {
   dataValidations: {
@@ -2101,7 +2102,15 @@ function AdminPage() {
 
       const additionGroupsSheet = workbook.addWorksheet("Grupos de adicionais", { views: [{ state: "frozen", ySplit: 1 }] });
       additionGroupsSheet.addRow(ADDITION_GROUP_HEADERS);
-      additionGroupsSheet.addRows(optionGroups.map((group) => [group.name, group.min_selections > 0 ? "Sim" : "Não", group.is_active ? "Ativo" : "Desativado", group.sort_order]));
+      additionGroupsSheet.addTable({
+        name: EXCEL_ADDITION_GROUP_TABLE_NAME,
+        ref: "A1",
+        headerRow: true,
+        totalsRow: false,
+        style: { theme: "TableStyleMedium4", showRowStripes: true },
+        columns: ADDITION_GROUP_HEADERS.map((name) => ({ name, filterButton: true })),
+        rows: optionGroups.length ? optionGroups.map((group) => [group.name, group.min_selections > 0 ? "Sim" : "Não", group.is_active ? "Ativo" : "Desativado", group.sort_order]) : [["", "", "", ""]],
+      });
       additionGroupsSheet.columns = [{ width: 34 }, { width: 16 }, { width: 16 }, { width: 12 }];
       additionGroupsSheet.getRow(1).height = 25;
       additionGroupsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
@@ -2126,6 +2135,7 @@ function AdminPage() {
       optionsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
       optionsSheet.getColumn(6).numFmt = 'R$ #,##0.00';
       const optionValidationLastRow = Math.max(1001, optionsSheet.rowCount + 200);
+      addExcelRangeValidation(optionsSheet, `A2:A${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("${EXCEL_ADDITION_GROUP_TABLE_NAME}[Grupo]")`], showInputMessage: true, promptTitle: "Grupo de adicionais", prompt: 'Cadastre os grupos na aba "Grupos de adicionais" e selecione uma opção.', showErrorMessage: true, errorTitle: "Grupo inválido", error: 'Escolha um grupo existente na aba "Grupos de adicionais".' });
       addExcelRangeValidation(optionsSheet, `B2:B${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("'Produtos'!$B$2:$B$5000")`], showInputMessage: true, promptTitle: "Produto do grupo", prompt: "Escolha um produto da aba Produtos.", showErrorMessage: true, errorTitle: "Produto inválido", error: "Escolha um produto existente na aba Produtos." });
       addExcelRangeValidation(optionsSheet, `C2:C${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$B$1:$B$2"], showErrorMessage: true, errorTitle: "Obrigatório inválido", error: "Escolha Sim ou Não." });
       addExcelRangeValidation(optionsSheet, `G2:G${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
@@ -2181,6 +2191,9 @@ function AdminPage() {
       exampleSheet.getColumn(exportHeaders.indexOf("Preço") + 1).numFmt = 'R$ #,##0.00';
       exampleSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
       applyProductStatusValidation(exampleSheet, 100);
+
+      const orderedSheets = [productsSheet, optionsSheet, categoriesSheet, additionGroupsSheet, listsSheet, instructionsSheet, exampleSheet];
+      workbook.worksheets.splice(0, workbook.worksheets.length, ...orderedSheets);
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer as BlobPart], {
