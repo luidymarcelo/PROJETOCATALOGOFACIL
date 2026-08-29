@@ -825,6 +825,9 @@ export default function Home() {
   const [checkoutError, setCheckoutError] = useState("");
   const [customizingProduct, setCustomizingProduct] = useState<Product | null>(null);
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
+  const [recentAddedProductId, setRecentAddedProductId] = useState("");
+  const [recentAddedProductName, setRecentAddedProductName] = useState("");
+  const [recentAddedFeedbackKey, setRecentAddedFeedbackKey] = useState(0);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [locatingUser, setLocatingUser] = useState(false);
@@ -1088,6 +1091,17 @@ export default function Home() {
   }, [checkout]);
 
   useEffect(() => {
+    if (!recentAddedProductId) return;
+
+    const timeout = window.setTimeout(() => {
+      setRecentAddedProductId("");
+      setRecentAddedProductName("");
+    }, 1600);
+
+    return () => window.clearTimeout(timeout);
+  }, [recentAddedFeedbackKey, recentAddedProductId]);
+
+  useEffect(() => {
     setActiveCategory("Mais pedidos");
     setSearch("");
   }, [activeStoreId]);
@@ -1233,6 +1247,10 @@ export default function Home() {
   }
 
   function addToCart(product: Product, selectedOptions: SelectedProductOption[] = []) {
+    setRecentAddedProductId(product.id);
+    setRecentAddedProductName(product.name);
+    setRecentAddedFeedbackKey(Date.now());
+
     setCart((current) => {
       const currentMerchantId = current[0]?.merchantId;
       const optionKey = selectedOptions.map((option) => option.itemId).sort().join(",");
@@ -1474,7 +1492,7 @@ export default function Home() {
                 const quantity = cart.filter((item) => item.product.id === product.id).reduce((sum, item) => sum + item.quantity, 0);
 
                 return (
-                  <article className="product-card" key={product.id}>
+                  <article className={recentAddedProductId === product.id ? "product-card just-added" : "product-card"} key={product.id}>
                     <ProductGallery product={product} />
                     <div className="product-content">
                       <div>
@@ -1509,10 +1527,11 @@ export default function Home() {
                           </div>
                         ) : (
                           <button
-                            className="add-button"
+                            className={recentAddedProductId === product.id ? "add-button added" : "add-button"}
                             onClick={() => product.optionGroups?.length ? openProductOptions(product) : addToCart(product)}
+                            aria-label={`Adicionar ${product.name}`}
                           >
-                            <Plus size={18} />
+                            {recentAddedProductId === product.id ? <CheckCircle2 size={18} /> : <Plus size={18} />}
                           </button>
                         )}
                       </footer>
@@ -1554,6 +1573,7 @@ export default function Home() {
             locationStatus={locationStatus}
             onUseCurrentLocation={useCurrentLocation}
           />
+          {recentAddedProductName ? <div className="cart-feedback" role="status" key={recentAddedFeedbackKey}><CheckCircle2 size={17} /><span>{recentAddedProductName} adicionado</span></div> : null}
           {customizingProduct ? <ProductOptionsModal product={customizingProduct} selectedOptionIds={selectedOptionIds} onToggle={(itemId, groupId) => setSelectedOptionIds((current) => { if (current.includes(itemId)) return current.filter((id) => id !== itemId); const group = customizingProduct.optionGroups?.find((item) => item.id === groupId); const withoutGroup = group?.maxSelections === 1 ? current.filter((id) => !group.items.some((item) => item.id === id)) : current; return [...withoutGroup, itemId]; })} onClose={() => setCustomizingProduct(null)} onConfirm={confirmProductOptions} /> : null}
           </div>
 

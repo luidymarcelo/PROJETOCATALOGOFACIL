@@ -5524,3 +5524,330 @@ img {
     white-space: nowrap;
   }
 }
+
+/* UX refinements */
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+.product-card,
+.discovery-store-card,
+.cart-item,
+.customer-option-group label,
+.catalog-modal,
+.options-modal,
+.admin-primary,
+.admin-secondary,
+.icon-button,
+.search-box,
+.location-pill,
+.catalog-panel-search {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+button:active,
+a:active,
+.customer-option-group label:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 24%, transparent);
+  outline-offset: 2px;
+}
+
+.topbar {
+  box-shadow: 0 10px 28px rgba(27, 35, 29, 0.055);
+}
+
+.search-box:focus-within,
+.location-pill:hover,
+.catalog-panel-search:focus-within,
+.checkout-block label:focus-within,
+.pickup-address:focus-within {
+  border-color: color-mix(in srgb, var(--primary) 42%, white);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 11%, transparent);
+}
+
+.nav-action:hover,
+.category-strip button:hover,
+.filter-button:hover,
+.primary-outline:hover,
+.admin-secondary:hover,
+.icon-button:hover {
+  border-color: color-mix(in srgb, var(--primary) 28%, white);
+  background: color-mix(in srgb, var(--primary) 7%, white);
+  color: var(--primary-dark);
+}
+
+.admin-primary:hover,
+.whatsapp-button:hover,
+.checkout-location-button:hover,
+.add-button:hover,
+.mobile-cart-bar:hover {
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--primary) 20%, transparent);
+  transform: translateY(-1px);
+}
+
+.product-card {
+  position: relative;
+}
+
+.product-card:hover {
+  border-color: color-mix(in srgb, var(--primary) 24%, white);
+  box-shadow: 0 14px 34px rgba(32, 37, 33, 0.095);
+  transform: translateY(-2px);
+}
+
+.product-card.just-added {
+  border-color: color-mix(in srgb, var(--primary) 58%, white);
+  box-shadow:
+    0 16px 36px color-mix(in srgb, var(--primary) 14%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--primary) 36%, white);
+  animation: productAddedPulse 560ms ease;
+}
+
+.product-card.just-added::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 42%, transparent);
+  content: "";
+}
+
+.add-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.add-button.added {
+  background: var(--success);
+}
+
+.add-button::after,
+.whatsapp-button::after,
+.mobile-cart-bar::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.26) 45%, transparent 75%);
+  opacity: 0;
+  transform: translateX(-100%);
+  content: "";
+}
+
+.add-button:hover::after,
+.whatsapp-button:hover::after,
+.mobile-cart-bar:hover::after {
+  opacity: 1;
+  transform: translateX(100%);
+  transition: transform 520ms ease, opacity 180ms ease;
+}
+
+.quantity-stepper,
+.cart-stepper {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.quantity-stepper button:hover,
+.cart-stepper button:hover {
+  background: color-mix(in srgb, var(--primary) 9%, white);
+}
+
+.cart-item {
+  background: #fff;
+}
+
+.cart-item:hover {
+  border-color: color-mix(in srgb, var(--primary) 22%, white);
+  box-shadow: 0 8px 22px rgba(26, 32, 27, 0.07);
+}
+
+.cart-feedback {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 95;
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  max-width: min(360px, calc(100vw - 32px));
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, white);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--primary-dark);
+  box-shadow: 0 18px 44px rgba(25, 31, 27, 0.18);
+  font-size: 0.9rem;
+  font-weight: 850;
+  animation: cartFeedbackIn 220ms ease both;
+}
+
+.cart-feedback span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cart-feedback svg {
+  flex: 0 0 auto;
+  color: var(--success);
+}
+
+.options-modal-backdrop,
+.catalog-modal-backdrop {
+  animation: softBackdropIn 180ms ease both;
+}
+
+.options-modal,
+.catalog-modal {
+  border-radius: 10px;
+  animation: modalRiseIn 220ms ease both;
+}
+
+.customer-option-group label {
+  border-radius: 8px;
+}
+
+.customer-option-group label:hover {
+  border-color: color-mix(in srgb, var(--primary) 28%, white);
+  background: color-mix(in srgb, var(--primary) 5%, white);
+}
+
+.customer-option-group label.selected {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.checkout-location-confirmation,
+.checkout-delivery-calculation,
+.checkout-error,
+.location-feedback {
+  animation: inlineFeedbackIn 180ms ease both;
+}
+
+.whatsapp-button,
+.mobile-cart-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes productAddedPulse {
+  0% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.012);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes cartFeedbackIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes softBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalRiseIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes inlineFeedbackIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1080px) {
+  .cart-panel {
+    box-shadow: -18px 0 54px rgba(20, 27, 23, 0.18);
+    transition: transform 240ms cubic-bezier(.2, .8, .2, 1);
+  }
+
+  .cart-backdrop {
+    transition: opacity 220ms ease;
+  }
+
+  .cart-feedback {
+    right: 14px;
+    bottom: 82px;
+    left: 14px;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 760px) {
+  .product-card:hover {
+    transform: none;
+  }
+
+  .product-card.just-added {
+    animation-duration: 420ms;
+  }
+
+  .options-modal,
+  .catalog-modal {
+    border-radius: 12px 12px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
