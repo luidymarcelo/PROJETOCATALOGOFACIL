@@ -1217,6 +1217,23 @@ img {
   flex: 1;
 }
 
+.option-group-row > div {
+  display: grid;
+  gap: 3px;
+  padding: 2px 0;
+}
+
+.option-group-row > div > strong {
+  color: var(--foreground);
+  font-size: 0.9rem;
+}
+
+.option-group-row > div > small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
 .option-draft-row strong {
   color: var(--primary-dark);
   font-size: .82rem;
