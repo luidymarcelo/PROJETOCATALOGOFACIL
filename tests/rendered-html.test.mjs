@@ -137,6 +137,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /option_groups/);
   assert.match(page, /ProductOptionsModal/);
   assert.match(page, /selectedOptions/);
+  assert.match(pageStyles, /\.customer-option-group label\.selected\s*\{\s*border-color: var\(--line\);\s*background: var\(--surface-strong\);/s);
+  assert.match(pageStyles, /\.direct-store-theme \.quantity-stepper button:active,[\s\S]*?background: var\(--primary, #176b52\);[\s\S]*?transition-duration: 0s;/);
+  assert.match(pageStyles, /@media \(hover: none\), \(pointer: coarse\)[\s\S]*?button:hover:not\(:active\)[\s\S]*?background: transparent;/);
   assert.match(page, /delivery_fee_type/);
   assert.match(page, /calculatesDeliveryFee/);
   assert.match(page, /Math\.round\(targetMerchant\.deliveryFee \* deliveryDistanceKm \* 100\) \/ 100/);

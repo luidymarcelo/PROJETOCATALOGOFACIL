@@ -1528,8 +1528,8 @@ img {
 }
 
 .customer-option-group label.selected {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 8%, white);
+  border-color: var(--line);
+  background: var(--surface-strong);
 }
 
 .customer-option-group label strong {
@@ -6521,7 +6521,7 @@ img {
 
 .direct-store-theme .quantity-stepper button:hover,
 .direct-store-theme .cart-stepper button:hover {
-  background: var(--primary-soft, #e8f7f1);
+  background: transparent;
 }
 
 .direct-store-theme .add-button,
@@ -6530,17 +6530,24 @@ img {
   -webkit-tap-highlight-color: transparent;
   appearance: none;
   transition:
-    background-color 120ms ease,
-    color 120ms ease,
+    background-color 180ms ease-out,
+    color 180ms ease-out,
     filter 120ms ease,
     transform 120ms ease;
 }
 
-.direct-store-theme .add-button:active,
-.direct-store-theme .quantity-stepper button:active,
-.direct-store-theme .cart-stepper button:active {
+.direct-store-theme .add-button:active {
   filter: brightness(0.86);
   transform: scale(0.92);
+}
+
+.direct-store-theme .quantity-stepper button:active,
+.direct-store-theme .cart-stepper button:active {
+  background: var(--primary, #176b52);
+  color: var(--primary-contrast, #fff);
+  filter: none;
+  transform: scale(0.94);
+  transition-duration: 0s;
 }
 
 .direct-store-theme .add-button:focus:not(:focus-visible),
@@ -6612,9 +6619,13 @@ img {
   box-shadow: 0 8px 24px rgba(27, 35, 29, 0.055);
 }
 
-.product-card:hover,
+.product-card:hover {
+  border-color: var(--line-soft);
+  box-shadow: 0 14px 32px rgba(27, 35, 29, 0.09);
+}
+
 .discovery-store-card:hover {
-  border-color: color-mix(in srgb, var(--primary) 24%, white);
+  border-color: color-mix(in srgb, var(--store-color) 24%, white);
   box-shadow: 0 14px 32px rgba(27, 35, 29, 0.09);
 }
 
@@ -6652,7 +6663,7 @@ img {
 }
 
 .customer-option-group label.selected {
-  border-color: color-mix(in srgb, var(--primary) 34%, white);
+  border-color: var(--line-soft);
 }
 
 @media (max-width: 760px) {
@@ -6913,10 +6924,15 @@ img {
   transition: border-color 140ms ease, transform 140ms ease;
 }
 
-.discovery-store-card:hover,
+.discovery-store-card:hover {
+  border-color: color-mix(in srgb, var(--store-color) 32%, var(--line));
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
 .product-card:hover,
 .direct-store-page .product-card:hover {
-  border-color: color-mix(in srgb, var(--primary) 32%, var(--line));
+  border-color: var(--line);
   box-shadow: none;
   transform: translateY(-1px);
 }
@@ -7215,8 +7231,23 @@ img {
 }
 
 .customer-option-group label.selected {
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--line));
-  background: var(--primary-soft);
+  border-color: var(--line);
+  background: var(--surface-strong);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .direct-store-theme .quantity-stepper button:hover:not(:active),
+  .direct-store-theme .cart-stepper button:hover:not(:active) {
+    background: transparent;
+    color: var(--primary-dark, #176b52);
+  }
+
+  .product-card:hover,
+  .direct-store-page .product-card:hover {
+    border-color: var(--line);
+    box-shadow: none;
+    transform: none;
+  }
 }
 
 .admin-page,
