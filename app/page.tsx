@@ -162,6 +162,11 @@ function orderModeValue(value: unknown, fallback: OrderMode = "whatsapp"): Order
   return value === "internal" || value === "whatsapp" || value === "both" ? value : fallback;
 }
 
+function orderChannelAvailable(mode: OrderMode | undefined, channel: OrderChannel) {
+  const resolvedMode = mode ?? "whatsapp";
+  return resolvedMode === "both" || resolvedMode === channel;
+}
+
 function requestCurrentPosition(options: PositionOptions) {
   return new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
 }
@@ -173,8 +178,9 @@ function catalogLocationError(error: GeolocationPositionError) {
   return "Não foi possível obter sua localização.";
 }
 
-function storeCatalogUrl(storeId: StoreId) {
-  return `/?loja=${encodeURIComponent(storeId)}`;
+function storeCatalogUrl(storeId: StoreId, channel: OrderChannel = "whatsapp") {
+  const path = channel === "internal" ? "/comanda" : "/";
+  return `${path}?loja=${encodeURIComponent(storeId)}`;
 }
 
 function categorySectionId(storeId: StoreId, category: string) {
@@ -837,7 +843,7 @@ function buildWhatsappMessage({
   ].join("\n");
 }
 
-export default function Home() {
+export function CatalogApplication({ orderChannel }: { orderChannel: OrderChannel }) {
   const [merchants, setMerchants] = useState<Merchant[]>(
     hasSupabaseConfig ? [] : fallbackMerchants,
   );
@@ -847,7 +853,7 @@ export default function Home() {
   const [view, setView] = useState<ViewMode>("catalog");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
+  const [fulfillment, setFulfillment] = useState<FulfillmentMode>(orderChannel === "internal" ? "pickup" : "delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
   const [checkoutError, setCheckoutError] = useState("");
   const [submittingInternalOrder, setSubmittingInternalOrder] = useState(false);
@@ -861,6 +867,8 @@ export default function Home() {
   const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
   const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
+  const cartStorageKey = `catalogo-facil-cart-${orderChannel}`;
+  const checkoutStorageKey = `catalogo-facil-checkout-${orderChannel}`;
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
     "farmacia-vida": fallbackMerchants[1].integration.lastSync,
@@ -1114,10 +1122,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const savedCart = window.localStorage.getItem("catalogo-facil-cart");
-    const savedCheckout = window.localStorage.getItem(
-      "catalogo-facil-checkout",
-    );
+    const savedCart = window.localStorage.getItem(cartStorageKey)
+      ?? (orderChannel === "whatsapp" ? window.localStorage.getItem("catalogo-facil-cart") : null);
+    const savedCheckout = window.localStorage.getItem(checkoutStorageKey)
+      ?? (orderChannel === "whatsapp" ? window.localStorage.getItem("catalogo-facil-checkout") : null);
 
     if (savedCart) {
       setCart((JSON.parse(savedCart) as CartItem[]).map((item) => ({ ...item, selectedOptions: item.selectedOptions ?? [] })));
@@ -1134,18 +1142,15 @@ export default function Home() {
         setLocationStatus(`Localização ativa · lojas em até ${STORE_RADIUS_KM} km`);
       }
     }
-  }, []);
+  }, [cartStorageKey, checkoutStorageKey, orderChannel]);
 
   useEffect(() => {
-    window.localStorage.setItem("catalogo-facil-cart", JSON.stringify(cart));
-  }, [cart]);
+    window.localStorage.setItem(cartStorageKey, JSON.stringify(cart));
+  }, [cart, cartStorageKey]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      "catalogo-facil-checkout",
-      JSON.stringify(checkout),
-    );
-  }, [checkout]);
+    window.localStorage.setItem(checkoutStorageKey, JSON.stringify(checkout));
+  }, [checkout, checkoutStorageKey]);
 
   useEffect(() => {
     setActiveCategory("Mais pedidos");
@@ -1334,11 +1339,12 @@ export default function Home() {
   }, [merchants, userLocation]);
 
   const nearbyMerchants = useMemo(() => {
-    if (!userLocation || showAllStores) return merchants;
-    return merchants
+    const availableMerchants = merchants.filter((store) => orderChannelAvailable(store.orderMode, orderChannel));
+    if (!userLocation || showAllStores) return availableMerchants;
+    return availableMerchants
       .filter((store) => (merchantDistances.get(store.id) ?? Number.POSITIVE_INFINITY) <= STORE_RADIUS_KM)
       .sort((left, right) => (merchantDistances.get(left.id) ?? 0) - (merchantDistances.get(right.id) ?? 0));
-  }, [merchantDistances, merchants, showAllStores, userLocation]);
+  }, [merchantDistances, merchants, orderChannel, showAllStores, userLocation]);
 
   const discoveryMerchants = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
@@ -1580,16 +1586,19 @@ export default function Home() {
     setInternalOrderCode(order?.order_code ?? "registrada");
     setCart([]);
     setCheckout(initialCheckout);
-    setFulfillment("delivery");
+    setFulfillment(orderChannel === "internal" ? "pickup" : "delivery");
     setIsCartOpen(false);
   }
 
-  function sendOrder(requestedChannel: OrderChannel) {
+  function sendOrder() {
     const targetMerchant = cartMerchant ?? merchant;
-    const channel = targetMerchant.orderMode === "both"
-      ? requestedChannel
-      : targetMerchant.orderMode ?? "whatsapp";
-    if (channel === "internal") {
+    if (!orderChannelAvailable(targetMerchant.orderMode, orderChannel)) {
+      setCheckoutError(orderChannel === "internal"
+        ? "As comandas internas não estão habilitadas para esta filial."
+        : "Os pedidos por WhatsApp não estão habilitados para esta filial.");
+      return;
+    }
+    if (orderChannel === "internal") {
       void sendInternalOrder();
       return;
     }
@@ -1645,7 +1654,7 @@ export default function Home() {
           <span className="brand-mark"><Store size={20} /></span>
           <span>
             <strong>Catalogo Facil</strong>
-            <small>Catálogos e pedidos</small>
+            <small>{orderChannel === "internal" ? "Comandas internas" : "Catálogos e pedidos"}</small>
           </span>
         </button>
 
@@ -1693,7 +1702,9 @@ export default function Home() {
         !merchants.length ? (
           <EmptyCatalog />
         ) : directStoreId && !merchants.some((store) => store.id === directStoreId) ? (
-          <StoreNotFound />
+          <StoreNotFound orderChannel={orderChannel} />
+        ) : directStoreId && displayMerchant && !orderChannelAvailable(displayMerchant.orderMode, orderChannel) ? (
+          <OrderChannelUnavailable orderChannel={orderChannel} />
         ) : (
         <section className={directStoreId ? "direct-store-page" : "commerce-grid discovery"}>
           {!directStoreId ? (
@@ -1702,6 +1713,7 @@ export default function Home() {
               distances={merchantDistances}
               hasLocation={Boolean(userLocation)}
               showingAll={showAllStores}
+              orderChannel={orderChannel}
               onToggleAll={() => setShowAllStores((current) => !current)}
             />
           ) : <>
@@ -1806,7 +1818,7 @@ export default function Home() {
             cartIsFromActiveStore={cartIsFromActiveStore}
             checkout={checkout}
             fulfillment={fulfillment}
-            orderMode={cartMerchant?.orderMode ?? merchant.orderMode ?? "whatsapp"}
+            orderChannel={orderChannel}
             isCartOpen={isCartOpen}
             totals={totals}
             checkoutError={checkoutError}
@@ -1871,6 +1883,10 @@ export default function Home() {
       )}
     </main>
   );
+}
+
+export default function Home() {
+  return <CatalogApplication orderChannel="whatsapp" />;
 }
 
 function AdminLogin() {
@@ -1946,13 +1962,23 @@ function EmptyCatalog() {
   );
 }
 
-function StoreNotFound() {
+function StoreNotFound({ orderChannel }: { orderChannel: OrderChannel }) {
   return (
     <section className="empty-catalog" aria-live="polite">
       <Store size={30} />
       <h1>Loja não encontrada</h1>
       <p>Este catálogo não está disponível ou o endereço informado está incorreto.</p>
-      <a className="primary-button" href="/">Ver todas as lojas</a>
+      <a className="primary-button" href={orderChannel === "internal" ? "/comanda" : "/"}>Ver catálogos disponíveis</a>
+    </section>
+  );
+}
+
+function OrderChannelUnavailable({ orderChannel }: { orderChannel: OrderChannel }) {
+  return (
+    <section className="empty-catalog" aria-live="polite">
+      {orderChannel === "internal" ? <ClipboardList size={30} /> : <MessageCircle size={30} />}
+      <h1>{orderChannel === "internal" ? "Comanda interna indisponível" : "Pedidos por WhatsApp indisponíveis"}</h1>
+      <p>Esta filial não está habilitada para receber pedidos por este caminho.</p>
     </section>
   );
 }
@@ -1962,18 +1988,20 @@ function StoreDiscovery({
   distances,
   hasLocation,
   showingAll,
+  orderChannel,
   onToggleAll,
 }: {
   merchants: Merchant[];
   distances: Map<StoreId, number>;
   hasLocation: boolean;
   showingAll: boolean;
+  orderChannel: OrderChannel;
   onToggleAll: () => void;
 }) {
   return (
     <section className="store-discovery">
       <header className="discovery-heading">
-        <div><span>Catálogo Fácil</span><h1>Lojas e catálogos</h1><p>Restaurantes, farmácias, materiais de construção e comércios da sua região.</p></div>
+        <div><span>Catálogo Fácil</span><h1>{orderChannel === "internal" ? "Catálogos para comanda" : "Lojas e catálogos"}</h1><p>{orderChannel === "internal" ? "Selecione a filial para iniciar uma nova comanda interna." : "Restaurantes, farmácias, materiais de construção e comércios da sua região."}</p></div>
         {hasLocation ? <div className="discovery-radius"><MapPin size={17} /><span>{showingAll ? "Todas as lojas" : `Lojas em até ${STORE_RADIUS_KM} km`}</span><button type="button" onClick={onToggleAll}>{showingAll ? "Ver próximas" : "Ver todas"}</button></div> : null}
       </header>
 
@@ -1985,7 +2013,7 @@ function StoreDiscovery({
             const currentDistance = distances.get(store.id);
             const branchName = merchantBranchLabel(store);
             return (
-              <a className="discovery-store-card" href={storeCatalogUrl(store.id)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
+              <a className="discovery-store-card" href={storeCatalogUrl(store.id, orderChannel)} target="_blank" rel="noopener noreferrer" key={store.id} style={{ "--store-color": store.palette } as CSSProperties}>
                 <div className="discovery-store-media"><CatalogImage src={store.cover} alt={store.companyName} variant="discovery-store-image" icon="store" /></div>
                 <div className="discovery-store-content">
                   <div className="discovery-store-title"><span className={store.companyProfileImage ? "store-avatar company-profile" : "store-avatar"}>{store.companyProfileImage ? <img src={store.companyProfileImage} alt="" /> : <Icon size={20} />}</span><div><h2>{store.companyName}</h2>{branchName ? <span className="discovery-branch-name">{branchName}</span> : null}<small>{store.address}</small></div></div>
@@ -2123,7 +2151,7 @@ function CartPanel({
   checkout,
   checkoutError,
   fulfillment,
-  orderMode,
+  orderChannel,
   isCartOpen,
   totals,
   onCheckoutChange,
@@ -2142,24 +2170,22 @@ function CartPanel({
   checkout: Checkout;
   checkoutError: string;
   fulfillment: FulfillmentMode;
-  orderMode: OrderMode;
+  orderChannel: OrderChannel;
   isCartOpen: boolean;
   totals: OrderTotals;
   onCheckoutChange: (checkout: Checkout) => void;
   onClose: () => void;
   onFulfillmentChange: (mode: FulfillmentMode) => void;
   onQuantityChange: (productId: string, nextQuantity: number) => void;
-  onSendOrder: (channel: OrderChannel) => void;
+  onSendOrder: () => void;
   submittingOrder: boolean;
   locatingUser: boolean;
   locationStatus: string;
   onUseCurrentLocation: () => void;
 }) {
   const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
-  const [selectedOrderChannel, setSelectedOrderChannel] = useState<OrderChannel>("whatsapp");
   const disabled = cart.length === 0;
   const cartBranchName = merchantBranchLabel(cartMerchant);
-  const activeOrderChannel = orderMode === "both" ? selectedOrderChannel : orderMode;
   const deliveryFeeLabel = fulfillment === "delivery" && totals.deliveryFeePending
     ? cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km"
       ? "Aguardando localização"
@@ -2254,34 +2280,26 @@ function CartPanel({
         )}
       </div>
 
-      <div className={showCheckoutDetails ? "cart-section-heading delivery-section-heading expanded" : "cart-section-heading delivery-section-heading"}><div><strong>{activeOrderChannel === "internal" ? "Detalhes da comanda" : "Detalhes da entrega"}</strong><small>{showCheckoutDetails ? "Confira os dados antes de enviar." : "Clique em Continuar para preencher os dados."}</small></div></div>
+      <div className={showCheckoutDetails ? "cart-section-heading delivery-section-heading expanded" : "cart-section-heading delivery-section-heading"}><div><strong>{orderChannel === "internal" ? "Detalhes da comanda" : "Detalhes da entrega"}</strong><small>{showCheckoutDetails ? "Confira os dados antes de enviar." : "Clique em Continuar para preencher os dados."}</small></div></div>
       {showCheckoutDetails ? <div className="checkout-block" id="cart-checkout">
-        {orderMode === "both" ? (
-          <div className="order-channel-selector">
-            <span>Enviar pedido por</span>
-            <div className="segmented-control" role="group" aria-label="Escolher destino do pedido">
-              <button type="button" className={selectedOrderChannel === "whatsapp" ? "active" : ""} aria-pressed={selectedOrderChannel === "whatsapp"} onClick={() => setSelectedOrderChannel("whatsapp")}><MessageCircle size={16} /> WhatsApp</button>
-              <button type="button" className={selectedOrderChannel === "internal" ? "active" : ""} aria-pressed={selectedOrderChannel === "internal"} onClick={() => setSelectedOrderChannel("internal")}><ClipboardList size={16} /> Comanda</button>
-            </div>
-            <small>{activeOrderChannel === "internal" ? "O pedido será registrado no painel da filial." : "A comanda será aberta no WhatsApp da filial."}</small>
+        {orderChannel === "whatsapp" ? (
+          <div className="segmented-control">
+            <button
+              className={fulfillment === "delivery" ? "active" : ""}
+              onClick={() => onFulfillmentChange("delivery")}
+            >
+              <Truck size={16} />
+              Entrega
+            </button>
+            <button
+              className={fulfillment === "pickup" ? "active" : ""}
+              onClick={() => onFulfillmentChange("pickup")}
+            >
+              <Store size={16} />
+              Retirada
+            </button>
           </div>
         ) : null}
-        <div className="segmented-control">
-          <button
-            className={fulfillment === "delivery" ? "active" : ""}
-            onClick={() => onFulfillmentChange("delivery")}
-          >
-            <Truck size={16} />
-            Entrega
-          </button>
-          <button
-            className={fulfillment === "pickup" ? "active" : ""}
-            onClick={() => onFulfillmentChange("pickup")}
-          >
-            <Store size={16} />
-            Retirada
-          </button>
-        </div>
 
         <label>
           <User size={16} />
@@ -2296,7 +2314,7 @@ function CartPanel({
           />
         </label>
 
-        {activeOrderChannel === "internal" ? (
+        {orderChannel === "internal" ? (
           <label>
             <ClipboardList size={16} />
             <input
@@ -2309,24 +2327,24 @@ function CartPanel({
           </label>
         ) : null}
 
-        {fulfillment === "delivery" ? (
+        {orderChannel === "whatsapp" && fulfillment === "delivery" ? (
           <button className="checkout-location-button" type="button" onClick={onUseCurrentLocation} disabled={locatingUser}>
             {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
             {locatingUser ? "Obtendo localização..." : hasCoordinates(checkout) ? "Atualizar minha localização" : "Usar minha localização"}
           </button>
         ) : null}
 
-        {fulfillment === "delivery" && hasCoordinates(checkout) ? (
+        {orderChannel === "whatsapp" && fulfillment === "delivery" && hasCoordinates(checkout) ? (
           <div className="checkout-location-confirmation">
             <CheckCircle2 size={16} />
             <span>Localização anexada à comanda</span>
             <a href={mapsUrl(checkout)} target="_blank" rel="noreferrer">Ver mapa</a>
           </div>
-        ) : fulfillment === "delivery" && locationStatus ? (
+        ) : orderChannel === "whatsapp" && fulfillment === "delivery" && locationStatus ? (
           <p className="location-feedback">{locationStatus}</p>
         ) : null}
 
-        {fulfillment === "delivery" && cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km" ? (
+        {orderChannel === "whatsapp" && fulfillment === "delivery" && cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km" ? (
           totals.deliveryDistanceKm !== null ? (
             <div className="checkout-delivery-calculation">
               <Truck size={17} />
@@ -2338,30 +2356,30 @@ function CartPanel({
           )
         ) : null}
 
-        {fulfillment === "delivery" ? (
-          <label>
-            <MapPin size={16} />
-            <input
-              value={checkout.address}
-              onChange={(event) =>
-                onCheckoutChange({ ...checkout, address: event.target.value })
-              }
-              placeholder="Rua, número e bairro"
-              autoComplete="street-address"
-              aria-invalid={Boolean(
-                checkoutError && checkout.address.trim().length < 5 && !hasCoordinates(checkout),
-              )}
-            />
-          </label>
-        ) : (
-          <div className="pickup-address">
-            <MapPin size={16} />
-            <span>{cartMerchant.address}</span>
-            {hasCoordinates(cartMerchant) ? <a href={mapsUrl(cartMerchant)} target="_blank" rel="noreferrer">Ver mapa</a> : null}
-          </div>
-        )}
+        {orderChannel === "whatsapp" ? fulfillment === "delivery" ? (
+            <label>
+              <MapPin size={16} />
+              <input
+                value={checkout.address}
+                onChange={(event) =>
+                  onCheckoutChange({ ...checkout, address: event.target.value })
+                }
+                placeholder="Rua, número e bairro"
+                autoComplete="street-address"
+                aria-invalid={Boolean(
+                  checkoutError && checkout.address.trim().length < 5 && !hasCoordinates(checkout),
+                )}
+              />
+            </label>
+          ) : (
+            <div className="pickup-address">
+              <MapPin size={16} />
+              <span>{cartMerchant.address}</span>
+              {hasCoordinates(cartMerchant) ? <a href={mapsUrl(cartMerchant)} target="_blank" rel="noreferrer">Ver mapa</a> : null}
+            </div>
+          ) : null}
 
-        {fulfillment === "delivery" ? (
+        {orderChannel === "whatsapp" && fulfillment === "delivery" ? (
           <label>
             <MapPin size={16} />
             <input
@@ -2429,17 +2447,19 @@ function CartPanel({
         <span>
           Subtotal <strong>{formatPrice(totals.subtotal)}</strong>
         </span>
-        <span>
-          {totals.deliveryDistanceKm !== null ? `Taxa (${distanceLabel(totals.deliveryDistanceKm)} estimados)` : "Taxa"} <strong>{deliveryFeeLabel}</strong>
-        </span>
+        {fulfillment === "delivery" ? (
+          <span>
+            {totals.deliveryDistanceKm !== null ? `Taxa (${distanceLabel(totals.deliveryDistanceKm)} estimados)` : "Taxa"} <strong>{deliveryFeeLabel}</strong>
+          </span>
+        ) : null}
         <span className="grand-total">
           {totals.deliveryFeePending ? "Total parcial" : "Total"} <strong>{formatPrice(totals.total)}</strong>
         </span>
       </div>
 
-          <button className="whatsapp-button" disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? () => onSendOrder(activeOrderChannel) : goToCheckout}>
-            {showCheckoutDetails ? activeOrderChannel === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
-            {showCheckoutDetails ? activeOrderChannel === "internal" ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Enviar pelo WhatsApp" : "Continuar"}
+          <button className="whatsapp-button" disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? onSendOrder : goToCheckout}>
+            {showCheckoutDetails ? orderChannel === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
+            {showCheckoutDetails ? orderChannel === "internal" ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Enviar pelo WhatsApp" : "Continuar"}
           </button>
       </div>
     </aside>

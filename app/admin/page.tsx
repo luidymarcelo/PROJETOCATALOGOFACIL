@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Copy,
   Download,
   ExternalLink,
   FileSpreadsheet,
@@ -13,6 +14,7 @@ import {
   Images,
   KeyRound,
   LayoutDashboard,
+  Link2,
   LocateFixed,
   LogOut,
   MapPin,
@@ -3883,6 +3885,53 @@ function BranchDetailsEditor({
   );
 }
 
+function branchOrderPath(branchSlug: string, channel: Exclude<OrderMode, "both">) {
+  const path = channel === "internal" ? "/comanda" : "/";
+  return `${path}?loja=${encodeURIComponent(branchSlug)}`;
+}
+
+function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode }) {
+  const [copiedChannel, setCopiedChannel] = useState<"whatsapp" | "internal" | "">("");
+  const channels = (["whatsapp", "internal"] as const).filter((channel) => mode === "both" || mode === channel);
+
+  async function copyLink(channel: "whatsapp" | "internal") {
+    const path = branchOrderPath(branch.slug, channel);
+    const url = new URL(path, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const field = document.createElement("textarea");
+      field.value = url;
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.appendChild(field);
+      field.select();
+      document.execCommand("copy");
+      field.remove();
+    }
+    setCopiedChannel(channel);
+    window.setTimeout(() => setCopiedChannel((current) => current === channel ? "" : current), 1800);
+  }
+
+  return (
+    <section className="branch-order-links" aria-label={`Links de pedido de ${branch.name}`}>
+      <header><Link2 size={17} /><span><strong>Links desta filial</strong><small>Cada link abre o catálogo no fluxo correto.</small></span></header>
+      <div>
+        {channels.map((channel) => {
+          const isInternal = channel === "internal";
+          const path = branchOrderPath(branch.slug, channel);
+          return (
+            <article key={channel}>
+              <span>{isInternal ? <ClipboardList size={17} /> : <MessageSquareText size={17} />}<span><strong>{isInternal ? "Equipe · Comanda interna" : "Cliente · WhatsApp"}</strong><small>{isInternal ? "/comanda" : "/?loja"}</small></span></span>
+              <div><button className="icon-button" type="button" title="Copiar link" aria-label={`Copiar link de ${isInternal ? "comanda interna" : "WhatsApp"}`} onClick={() => void copyLink(channel)}>{copiedChannel === channel ? <CheckCircle2 size={17} /> : <Copy size={17} />}</button><a className="icon-button" href={path} target="_blank" rel="noreferrer" title="Abrir link" aria-label={`Abrir link de ${isInternal ? "comanda interna" : "WhatsApp"}`}><ExternalLink size={17} /></a></div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ParameterWorkspace({
   tenant,
   branches,
@@ -4040,7 +4089,7 @@ function ParameterWorkspace({
                       <div className="parameter-mode-options parameter-layout-options">
                         <label className={companyOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="company-order-mode" value="whatsapp" checked={companyOrderMode === "whatsapp"} onChange={() => onCompanyOrderModeChange("whatsapp")} /><MessageSquareText size={18} /><span><strong>WhatsApp</strong><small>Envia a comanda para a loja</small></span></label>
                         <label className={companyOrderMode === "internal" ? "selected" : ""}><input type="radio" name="company-order-mode" value="internal" checked={companyOrderMode === "internal"} onChange={() => onCompanyOrderModeChange("internal")} /><ClipboardList size={18} /><span><strong>Comanda interna</strong><small>Envia para o painel de pedidos</small></span></label>
-                        <label className={companyOrderMode === "both" ? "selected" : ""}><input type="radio" name="company-order-mode" value="both" checked={companyOrderMode === "both"} onChange={() => onCompanyOrderModeChange("both")} /><SlidersHorizontal size={18} /><span><strong>Ambos</strong><small>Escolha o destino na finalização</small></span></label>
+                        <label className={companyOrderMode === "both" ? "selected" : ""}><input type="radio" name="company-order-mode" value="both" checked={companyOrderMode === "both"} onChange={() => onCompanyOrderModeChange("both")} /><SlidersHorizontal size={18} /><span><strong>Ambos</strong><small>Um link para cada operação</small></span></label>
                       </div>
                     </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedOrderModeBranchCount} {inheritedOrderModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedOrderModeBranchCount > 0 ? `${branches.length - inheritedOrderModeBranchCount} com modo próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
@@ -4154,9 +4203,10 @@ function ParameterWorkspace({
                         <label className={activeOrderMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="inherit" checked={activeOrderMode === "inherit"} onChange={() => onBranchOrderModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue {tenant.name}</small></span></label>
                         <label className={activeOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="whatsapp" checked={activeOrderMode === "whatsapp"} onChange={() => onBranchOrderModeChange(activeBranch.id, "whatsapp")} /><MessageSquareText size={17} /><span><strong>WhatsApp</strong><small>Enviar para a loja</small></span></label>
                         <label className={activeOrderMode === "internal" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="internal" checked={activeOrderMode === "internal"} onChange={() => onBranchOrderModeChange(activeBranch.id, "internal")} /><ClipboardList size={17} /><span><strong>Comanda</strong><small>Usar painel de pedidos</small></span></label>
-                        <label className={activeOrderMode === "both" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="both" checked={activeOrderMode === "both"} onChange={() => onBranchOrderModeChange(activeBranch.id, "both")} /><SlidersHorizontal size={17} /><span><strong>Ambos</strong><small>Escolher ao finalizar</small></span></label>
+                        <label className={activeOrderMode === "both" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="both" checked={activeOrderMode === "both"} onChange={() => onBranchOrderModeChange(activeBranch.id, "both")} /><SlidersHorizontal size={17} /><span><strong>Ambos</strong><small>Dois links separados</small></span></label>
                       </div>
                     </fieldset>
+                    <BranchOrderLinks branch={activeBranch} mode={activeOrderModeValue} />
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
