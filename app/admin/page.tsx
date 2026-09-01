@@ -303,11 +303,35 @@ function moneyInputNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function readableCatalogError(error: unknown) {
+function supabaseErrorMessage(error: unknown) {
   const record = error && typeof error === "object" ? error as Record<string, unknown> : null;
-  const message = error instanceof Error
+  return error instanceof Error
     ? error.message
     : String(record?.message ?? record?.details ?? record?.hint ?? "");
+}
+
+function isMeasurementUnitsUnavailable(error: unknown) {
+  const message = supabaseErrorMessage(error);
+  return /measurement_units/i.test(message) && /PGRST205|relation .* does not exist|schema cache/i.test(message);
+}
+
+function readableMeasurementUnitError(error: unknown) {
+  const message = supabaseErrorMessage(error);
+  if (isMeasurementUnitsUnavailable(error)) {
+    return "As unidades de medida ainda não estão habilitadas no banco. Execute a migration 016_measurement_units.sql no SQL Editor do Supabase e tente novamente.";
+  }
+  if (/23505|duplicate key|measurement_units_tenant_id_(code|name)_key/i.test(message)) {
+    return "Já existe uma unidade com esse código ou nome.";
+  }
+  if (/42501|row-level security/i.test(message)) {
+    return "Este acesso não tem permissão para alterar as unidades de medida desta empresa.";
+  }
+  return message || "Não foi possível cadastrar a unidade de medida.";
+}
+
+function readableCatalogError(error: unknown) {
+  const message = supabaseErrorMessage(error);
+  if (isMeasurementUnitsUnavailable(error)) return readableMeasurementUnitError(error);
   if (/option_groups|option_group_items|product_option_groups|relation .* does not exist|schema cache/i.test(message)) {
     return `${message || "As tabelas de adicionais ainda não estão disponíveis."} Execute a migration 015_product_option_groups.sql no SQL Editor do Supabase e tente novamente.`;
   }
@@ -1273,11 +1297,7 @@ function AdminPage() {
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
     if (error) {
-      if (/measurement_units|relation|schema cache/i.test(error.message)) {
-        setMessage("Execute a migration 016_measurement_units.sql no SQL Editor do Supabase para habilitar as unidades de medida.");
-      } else {
-        setMessage(error.message);
-      }
+      setMessage(readableMeasurementUnitError(error));
       return;
     }
     setMeasurementUnits((data ?? []) as MeasurementUnit[]);
@@ -1321,7 +1341,7 @@ function AdminPage() {
       setShowMeasurementUnitForm(false);
       setMessage(`Unidade ${name} cadastrada.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível cadastrar a unidade de medida.");
+      setMessage(readableMeasurementUnitError(error));
     } finally {
       setSavingMeasurementUnit(false);
     }
@@ -1337,7 +1357,7 @@ function AdminPage() {
       .eq("id", unit.id)
       .eq("tenant_id", tenant.id);
     if (error) {
-      setMessage(error.message);
+      setMessage(readableMeasurementUnitError(error));
     } else {
       setMeasurementUnits((current) => current.filter((item) => item.id !== unit.id));
       setMessage(`Unidade ${unit.name} excluída.`);
@@ -2229,7 +2249,7 @@ function AdminPage() {
       ]);
       if (categoryResult.error) throw categoryResult.error;
       if (productResult.error) throw productResult.error;
-      const measurementUnitsUnavailable = Boolean(measurementUnitResult.error && /measurement_units|relation|schema cache/i.test(measurementUnitResult.error.message));
+      const measurementUnitsUnavailable = Boolean(measurementUnitResult.error && isMeasurementUnitsUnavailable(measurementUnitResult.error));
       if (measurementUnitResult.error && !measurementUnitsUnavailable) throw measurementUnitResult.error;
       const exportCategories = (categoryResult.data ?? []) as Category[];
       const exportProducts = (productResult.data ?? []) as Product[];

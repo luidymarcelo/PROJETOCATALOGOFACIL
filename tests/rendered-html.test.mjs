@@ -294,6 +294,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /EXCEL_MEASUREMENT_UNIT_TABLE_NAME/);
   assert.match(adminPage, /async function createMeasurementUnit/);
   assert.match(adminPage, /measurement_units/);
+  assert.match(adminPage, /function readableMeasurementUnitError/);
+  assert.match(adminPage, /Execute a migration 016_measurement_units\.sql/);
+  assert.match(adminPage, /isMeasurementUnitsUnavailable\(error\)/);
   assert.match(adminPage, /Código<input/);
   assert.match(adminPage, /Nome da unidade<input/);
   assert.match(adminPage, /function addExcelRangeValidation/);
