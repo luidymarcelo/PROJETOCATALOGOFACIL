@@ -7,12 +7,14 @@ import {
   ClipboardList,
   Clock,
   CreditCard,
+  ExternalLink,
   Hammer,
   LocateFixed,
   LogOut,
   MapPin,
   MessageCircle,
   Minus,
+  Navigation,
   Package,
   Pill,
   Pizza,
@@ -2061,6 +2063,7 @@ function merchantMapUrl(merchant: Merchant) {
 function MerchantHero({ merchant }: { merchant: Merchant }) {
   const branchName = merchantBranchLabel(merchant);
   const mapUrl = merchantMapUrl(merchant);
+  const locationUrl = hasCoordinates(merchant) ? mapsUrl(merchant) : null;
 
   return (
     <section className="merchant-presentation" style={{ "--merchant-color": merchant.palette } as CSSProperties}>
@@ -2096,6 +2099,12 @@ function MerchantHero({ merchant }: { merchant: Merchant }) {
               </div>
             )}
           </div>
+          {locationUrl ? (
+            <a className="merchant-location-link" href={locationUrl} target="_blank" rel="noopener noreferrer" aria-label={`Abrir localização de ${merchant.companyName} no Google Maps`}>
+              <span className="merchant-location-link-copy"><Navigation size={16} /><span><strong>Abrir localização</strong><small>Google Maps</small></span></span>
+              <ExternalLink size={15} />
+            </a>
+          ) : null}
           {merchant.coverNote ? <p className="merchant-cover-note">{merchant.coverNote}</p> : null}
         </div>
       </div>

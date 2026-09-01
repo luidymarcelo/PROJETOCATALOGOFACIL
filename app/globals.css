@@ -695,7 +695,7 @@ img {
   margin-top: 20px;
   overflow: hidden;
   border: 1px solid var(--line-soft);
-  border-radius: 14px;
+  border-radius: 14px 14px 0 0;
   background: #edf1ed;
 }
 
@@ -717,6 +717,62 @@ img {
   color: var(--muted);
   font-size: 0.86rem;
   text-align: center;
+}
+
+.merchant-location-link {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-soft);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--surface);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.merchant-location-link-copy {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.merchant-location-link-copy > svg,
+.merchant-location-link > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  stroke-width: 1.7;
+}
+
+.merchant-location-link-copy > span {
+  display: grid;
+  gap: 1px;
+}
+
+.merchant-location-link strong,
+.merchant-location-link small {
+  line-height: 1.25;
+}
+
+.merchant-location-link strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.merchant-location-link small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .merchant-location-link:hover {
+    background: var(--surface-strong);
+  }
 }
 
 .merchant-cover-note {
@@ -3636,7 +3692,11 @@ img {
   .merchant-location-map {
     height: 150px;
     margin-top: 16px;
-    border-radius: 12px;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .merchant-location-link {
+    border-radius: 0 0 12px 12px;
   }
 
   .merchant-cover-note {
@@ -7000,8 +7060,13 @@ img {
 .merchant-location-map {
   height: 170px;
   border-color: var(--line);
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   background: var(--surface-strong);
+}
+
+.merchant-location-link {
+  border-color: var(--line);
+  border-radius: 0 0 8px 8px;
 }
 
 .merchant-cover-note {

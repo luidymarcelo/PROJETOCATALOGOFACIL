@@ -111,6 +111,9 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /<span>\{store\.segment\}<\/span>/);
   assert.match(page, /className="merchant-info-card"/);
   assert.match(page, /className="merchant-cover-note"/);
+  assert.match(page, /className="merchant-location-link"/);
+  assert.match(page, /Abrir localização/);
+  assert.match(page, /locationUrl = hasCoordinates\(merchant\) \? mapsUrl\(merchant\) : null/);
   assert.doesNotMatch(page, /coverNotePositionValue/);
   assert.match(page, /directStoreId \? "direct-store-page"/);
   assert.match(page, /commerce-grid direct-store/);
@@ -122,6 +125,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.merchant-hero \{[\s\S]*?width: 100%;[\s\S]*?border-radius: 0;/);
   assert.doesNotMatch(pageStyles, /\.merchant-cover-description/);
   assert.match(pageStyles, /\.merchant-cover-note/);
+  assert.match(pageStyles, /\.merchant-location-link/);
+  assert.match(pageStyles, /\.merchant-location-link-copy/);
   assert.doesNotMatch(pageStyles, /\.topbar\.direct-store-topbar\s*\{[\s\S]*?position: sticky !important;/);
   assert.match(pageStyles, /\.merchant-info-card/);
   assert.match(pageStyles, /\.category-strip \{\s*position: static;/);
