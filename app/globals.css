@@ -4378,37 +4378,6 @@ img {
   min-width: 0;
 }
 
-.measurement-unit-form {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr) auto;
-  align-items: end;
-  margin-top: 18px;
-}
-
-.measurement-unit-form label {
-  min-width: 0;
-}
-
-.measurement-unit-overview-form {
-  display: grid;
-  grid-template-columns: minmax(84px, 0.35fr) minmax(0, 1fr) 38px;
-  gap: 8px;
-  align-items: end;
-  margin: 16px 0;
-}
-
-.measurement-unit-overview-form label {
-  min-width: 0;
-}
-
-.measurement-unit-overview-form .icon-button {
-  width: 38px;
-  height: 38px;
-  border-color: color-mix(in srgb, var(--primary) 30%, white);
-  background: var(--primary-soft);
-  color: var(--primary-dark);
-}
-
 .measurement-unit-row > div {
   display: grid;
   gap: 3px;
@@ -4435,13 +4404,6 @@ img {
     grid-template-columns: 1fr;
   }
 
-  .measurement-unit-form {
-    grid-template-columns: 1fr;
-  }
-
-  .measurement-unit-form .admin-primary {
-    width: 100%;
-  }
 }
 
 /* Internal order workspace */

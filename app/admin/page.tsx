@@ -458,6 +458,7 @@ function AdminPage() {
   const [measurementUnitCode, setMeasurementUnitCode] = useState("");
   const [measurementUnitName, setMeasurementUnitName] = useState("");
   const [measurementUnitQuery, setMeasurementUnitQuery] = useState("");
+  const [showMeasurementUnitForm, setShowMeasurementUnitForm] = useState(false);
   const [savingMeasurementUnit, setSavingMeasurementUnit] = useState(false);
   const [deletingMeasurementUnitId, setDeletingMeasurementUnitId] = useState("");
   const [parameterScope, setParameterScope] = useState<ParameterScope>("company");
@@ -564,6 +565,19 @@ function AdminPage() {
   function openCategoryEditor() {
     resetProductEditor();
     setCatalogEditorMode("category");
+  }
+
+  function openMeasurementUnitEditor() {
+    setMeasurementUnitCode("");
+    setMeasurementUnitName("");
+    setShowMeasurementUnitForm(true);
+    setMessage("");
+  }
+
+  function closeMeasurementUnitEditor() {
+    setShowMeasurementUnitForm(false);
+    setMeasurementUnitCode("");
+    setMeasurementUnitName("");
   }
 
   function editProduct(product: Product) {
@@ -889,6 +903,7 @@ function AdminPage() {
     setEditingProductId("");
     setProductForm({ ...EMPTY_PRODUCT_FORM });
     setCatalogEditorMode(null);
+    closeMeasurementUnitEditor();
     setUploadingProductImageId("");
     quickProductImageTargetRef.current = "";
     if (coverImageInputRef.current) coverImageInputRef.current.value = "";
@@ -1303,6 +1318,7 @@ function AdminPage() {
       setMeasurementUnits((current) => [...current, data as MeasurementUnit]);
       setMeasurementUnitCode("");
       setMeasurementUnitName("");
+      setShowMeasurementUnitForm(false);
       setMessage(`Unidade ${name} cadastrada.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível cadastrar a unidade de medida.");
@@ -3209,12 +3225,7 @@ function AdminPage() {
                       </div>
                     </section>
                     <section className="admin-form-panel company-settings-panel measurement-units-settings-panel">
-                      <div className="branch-form-heading"><div><span>Referência do catálogo</span><h2>Unidades de medida</h2><p>Cadastre o código usado em integrações e o nome exibido nos produtos e na planilha.</p></div><Package size={21} /></div>
-                      <form className="inline-form measurement-unit-form" onSubmit={createMeasurementUnit}>
-                        <label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toLowerCase())} placeholder="Ex.: un, kg, cx" maxLength={20} required /></label>
-                        <label>Nome da unidade<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma, Caixa" maxLength={80} required /></label>
-                        <button className="admin-primary" type="submit" disabled={savingMeasurementUnit}><Plus size={16} /> {savingMeasurementUnit ? "Salvando..." : "Adicionar unidade"}</button>
-                      </form>
+                      <div className="branch-form-heading"><div><span>Referência do catálogo</span><h2>Unidades de medida</h2><p>Cadastre o código usado em integrações e o nome exibido nos produtos e na planilha.</p></div><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={19} /></button></div>
                       <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
                       <div className="admin-list catalog-scroll-list measurement-unit-list">
                         {visibleMeasurementUnits.map((unit) => <div className="admin-list-row measurement-unit-row" key={unit.id}><div><strong>{unit.code}</strong><small>{unit.name}</small></div><button className="category-delete-button" type="button" title="Excluir unidade" aria-label={`Excluir unidade ${unit.name}`} disabled={Boolean(deletingMeasurementUnitId)} onClick={() => deleteMeasurementUnit(unit)}><Trash2 size={17} /></button></div>)}
@@ -3418,12 +3429,7 @@ function AdminPage() {
                  <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
                </section> : null}
                <section className="admin-form-panel measurement-units-overview-panel">
-                 <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2></div>
-                 <form className="measurement-unit-overview-form" onSubmit={createMeasurementUnit}>
-                   <label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toLowerCase())} placeholder="Ex.: un, kg, cx" maxLength={20} required /></label>
-                   <label>Nome<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma" maxLength={80} required /></label>
-                   <button className="icon-button" type="submit" title="Adicionar unidade" aria-label="Adicionar unidade" disabled={savingMeasurementUnit}><Plus size={18} /></button>
-                 </form>
+                 <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={18} /></button></div>
                  <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
                  <div className="admin-list catalog-scroll-list measurement-unit-list">
                    {visibleMeasurementUnits.map((unit) => <div className="admin-list-row measurement-unit-row" key={unit.id}><div><strong>{unit.code}</strong><small>{unit.name}</small></div><button className="category-delete-button" type="button" title="Excluir unidade" aria-label={`Excluir unidade ${unit.name}`} disabled={Boolean(deletingMeasurementUnitId)} onClick={() => deleteMeasurementUnit(unit)}><Trash2 size={17} /></button></div>)}
@@ -3472,6 +3478,18 @@ function AdminPage() {
             </div>
           </>
         )}
+        {showMeasurementUnitForm ? (
+          <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeMeasurementUnitEditor(); }}>
+            <section className="admin-form-panel catalog-editor-panel catalog-modal measurement-unit-editor-panel" role="dialog" aria-modal="true" aria-labelledby="measurement-unit-editor-title">
+              <div className="branch-form-heading"><div><span>Cadastro estruturado</span><h2 id="measurement-unit-editor-title">Nova unidade de medida</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar unidade de medida" onClick={closeMeasurementUnitEditor}><X size={18} /></button></div>
+              <form className="admin-product-form" onSubmit={createMeasurementUnit}>
+                <div className="admin-form-grid"><label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toLowerCase())} placeholder="Ex.: un, kg, cx" maxLength={20} required /></label><label>Nome da unidade<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma, Caixa" maxLength={80} required /></label></div>
+                <p className="admin-muted">O código será usado nos produtos, nas integrações e na aba Unidades da planilha.</p>
+                <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={closeMeasurementUnitEditor}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingMeasurementUnit}><Save size={16} /> {savingMeasurementUnit ? "Salvando..." : "Salvar unidade"}</button></div>
+              </form>
+            </section>
+          </div>
+        ) : null}
         {message ? <p className="admin-message admin-console-message">{message}</p> : null}
           </div>
         </div>
