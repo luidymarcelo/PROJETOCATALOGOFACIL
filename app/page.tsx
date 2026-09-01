@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BadgePercent,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -9,8 +8,6 @@ import {
   Clock,
   CreditCard,
   Hammer,
-  HeartPulse,
-  Home,
   LocateFixed,
   LogOut,
   MapPin,
@@ -25,7 +22,6 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
-  SlidersHorizontal,
   Store,
   Trash2,
   Truck,
@@ -35,13 +31,14 @@ import {
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import type { CSSProperties } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type StoreId = string;
 type ViewMode = "catalog" | "admin";
 type FulfillmentMode = "delivery" | "pickup";
 type DeliveryFeeType = "fixed" | "per_km";
+type OrderMode = "whatsapp" | "internal";
 
 type Product = {
   id: string;
@@ -65,6 +62,8 @@ type CatalogLayout = "horizontal" | "showcase";
 
 type Merchant = {
   id: StoreId;
+  databaseId?: string;
+  orderMode?: OrderMode;
   companyName: string;
   companyProfileImage: string | null;
   themeColor: string;
@@ -107,6 +106,7 @@ type CartItem = {
 
 type Checkout = {
   name: string;
+  serviceLocation: string;
   address: string;
   reference: string;
   payment: string;
@@ -153,6 +153,10 @@ function deliveryFeeTypeValue(value: unknown, fallback: DeliveryFeeType = "fixed
 
 function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizontal"): CatalogLayout {
   return value === "horizontal" || value === "showcase" ? value : fallback;
+}
+
+function orderModeValue(value: unknown, fallback: OrderMode = "whatsapp"): OrderMode {
+  return value === "internal" || value === "whatsapp" ? value : fallback;
 }
 
 function requestCurrentPosition(options: PositionOptions) {
@@ -606,24 +610,9 @@ function neutralMerchant(store: { id: string; slug: string; name: string; segmen
   };
 }
 
-const categoryIcons = {
-  "Mais pedidos": BadgePercent,
-  Pizzas: Pizza,
-  Combos: ClipboardList,
-  Bebidas: ShoppingCart,
-  Medicamentos: Pill,
-  Higiene: ShieldCheck,
-  Dermocosmeticos: HeartPulse,
-  Cimento: Home,
-  "Obra grossa": Home,
-  Hidraulica: SlidersHorizontal,
-  Ferramentas: Hammer,
-  Eletrica: SlidersHorizontal,
-  Tintas: BadgePercent,
-};
-
 const initialCheckout: Checkout = {
   name: "",
+  serviceLocation: "",
   address: "",
   reference: "",
   payment: "Pix",
@@ -640,6 +629,11 @@ const hasSupabaseConfig = Boolean(
 
 function formatPrice(value: number) {
   return currency.format(value);
+}
+
+function formatOptionDelta(value: number) {
+  if (!value) return "Grátis";
+  return `${value > 0 ? "+ " : "- "}${formatPrice(Math.abs(value))}`;
 }
 
 function cleanOrderText(value: string, fallback = "Não informado") {
@@ -729,23 +723,39 @@ function buildWhatsappMessage({
   createdAt: Date;
 }) {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const productsTotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const additionsTotal = cart.reduce(
+    (sum, item) => sum + item.quantity * item.selectedOptions.reduce((optionsTotal, option) => optionsTotal + option.priceDelta, 0),
+    0,
+  );
+  const hasAdditions = cart.some((item) => item.selectedOptions.length > 0);
   const branchName = merchantBranchLabel(merchant);
   const items = cart
     .map(
       (item, index) => {
+        const optionsTotalPerUnit = item.selectedOptions.reduce(
+          (sum, option) => sum + option.priceDelta,
+          0,
+        );
+        const optionsTotal = optionsTotalPerUnit * item.quantity;
+        const unitPrice = item.product.price + optionsTotalPerUnit;
+        const options = item.selectedOptions.length
+          ? [
+              "   Adicionais:",
+              ...item.selectedOptions.map(
+                (option) => `   - ${cleanOrderText(option.groupName)}: ${cleanOrderText(option.itemName)} (${formatOptionDelta(option.priceDelta)})`,
+              ),
+              `   Total em adicionais: ${formatPrice(optionsTotal)}`,
+            ].join("\n")
+          : "";
         const unit = item.product.unit
           ? `\n   Unidade: ${cleanOrderText(item.product.unit)}`
           : "";
 
-        const options = item.selectedOptions.length
-          ? `\n   Adicionais: ${item.selectedOptions.map((option) => `${cleanOrderText(option.itemName)}${option.priceDelta ? ` (+${formatPrice(option.priceDelta)})` : ""}`).join(", ")}`
-          : "";
-        const unitPrice = item.product.price + item.selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0);
-        return `${String(index + 1).padStart(2, "0")}. *${cleanOrderText(
-          item.product.name,
-        )}*${options}\n   ${item.quantity} x ${formatPrice(
-          unitPrice,
-        )} = *${formatPrice(unitPrice * item.quantity)}*${unit}`;
+        return `${String(index + 1).padStart(2, "0")}. *${cleanOrderText(item.product.name)}*
+   Quantidade: ${item.quantity}
+   Valor do produto: ${formatPrice(item.product.price)}${unit}${options ? `\n${options}` : ""}
+   Total do item: *${formatPrice(unitPrice * item.quantity)}*`;
       },
     )
     .join("\n\n");
@@ -806,6 +816,8 @@ function buildWhatsappMessage({
     "",
     "----------------------------",
     "*RESUMO DE VALORES*",
+    `Produtos: ${formatPrice(productsTotal)}`,
+    ...(hasAdditions ? [`Total em adicionais: ${formatPrice(additionsTotal)}`] : []),
     `Subtotal: ${formatPrice(totals.subtotal)}`,
     ...(fulfillment === "delivery" && merchant.deliveryFeeType === "per_km" && totals.deliveryDistanceKm !== null
       ? [`Cálculo da entrega: ${distanceLabel(totals.deliveryDistanceKm)} × ${formatPrice(merchant.deliveryFee)}/km`]
@@ -835,6 +847,8 @@ export default function Home() {
   const [fulfillment, setFulfillment] = useState<FulfillmentMode>("delivery");
   const [checkout, setCheckout] = useState<Checkout>(initialCheckout);
   const [checkoutError, setCheckoutError] = useState("");
+  const [submittingInternalOrder, setSubmittingInternalOrder] = useState(false);
+  const [internalOrderCode, setInternalOrderCode] = useState("");
   const [customizingProduct, setCustomizingProduct] = useState<Product | null>(null);
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
@@ -842,6 +856,7 @@ export default function Home() {
   const [locatingUser, setLocatingUser] = useState(false);
   const [showAllStores, setShowAllStores] = useState(false);
   const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
+  const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
@@ -853,6 +868,9 @@ export default function Home() {
     merchants.find((store) => store.id === activeStoreId) ??
     merchants[0] ??
     fallbackMerchants[0];
+  const displayMerchant = directStoreId
+    ? merchants.find((store) => store.id === directStoreId) ?? null
+    : merchant;
 
   useEffect(() => {
     if (!supabase) return;
@@ -885,11 +903,11 @@ export default function Home() {
         supabase
           .from("tenant_parameters")
           .select("tenant_id, parameter_key, parameter_value")
-          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout"]),
+          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout", "enable_additions", "order_mode"]),
         supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout"]),
+          .in("parameter_key", ["calculate_delivery_fee", "delivery_fee_type", "catalog_layout", "enable_additions", "order_mode"]),
         supabase.rpc("get_public_catalog_companies"),
         supabase
           .from("option_groups")
@@ -944,6 +962,26 @@ export default function Home() {
           .filter((row) => row.parameter_key === "catalog_layout")
           .map((row) => [row.store_id, catalogLayoutValue(row.parameter_value)]),
       );
+      const tenantAdditionsParameters = new Map(
+        (tenantParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "enable_additions")
+          .map((row) => [row.tenant_id, parameterBoolean(row.parameter_value, true)]),
+      );
+      const storeAdditionsParameters = new Map(
+        (storeParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "enable_additions")
+          .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
+      );
+      const tenantOrderModes = new Map(
+        (tenantParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "order_mode")
+          .map((row) => [row.tenant_id, orderModeValue(row.parameter_value)]),
+      );
+      const storeOrderModes = new Map(
+        (storeParameterResult.data ?? [])
+          .filter((row) => row.parameter_key === "order_mode")
+          .map((row) => [row.store_id, orderModeValue(row.parameter_value)]),
+      );
       const companyNames = new Map(
         (companyResult.data ?? []).map((row) => [row.tenant_id, {
           name: row.company_name,
@@ -979,6 +1017,9 @@ export default function Home() {
         const companyIdentity = companyNames.get(store.tenant_id);
         const companyName = companyIdentity?.name?.trim() || store.name;
         const themeColor = companyIdentity?.themeColor ?? baseMerchant.themeColor;
+        const additionsEnabled = storeAdditionsParameters.has(store.id)
+          ? storeAdditionsParameters.get(store.id)!
+          : tenantAdditionsParameters.get(store.tenant_id) ?? false;
 
         const categories = [...(store.categories ?? [])].sort(
           (a, b) => a.sort_order - b.sort_order,
@@ -1006,7 +1047,7 @@ export default function Home() {
             images: gallery.length ? gallery : primaryImage ? [primaryImage] : [],
             badge: product.badge ?? undefined,
             unit: product.unit ?? undefined,
-            optionGroups: optionGroupsByProduct.get(product.id) ?? [],
+            optionGroups: additionsEnabled ? optionGroupsByProduct.get(product.id) ?? [] : [],
             };
           });
 
@@ -1014,6 +1055,10 @@ export default function Home() {
           {
             ...baseMerchant,
             id: store.slug,
+            databaseId: store.id,
+            orderMode: storeOrderModes.get(store.id)
+              ?? tenantOrderModes.get(store.tenant_id)
+              ?? "whatsapp",
             companyName,
             companyProfileImage: companyIdentity?.profileImage ?? null,
             themeColor,
@@ -1102,7 +1147,7 @@ export default function Home() {
   useEffect(() => {
     setActiveCategory("Mais pedidos");
     setSearch("");
-  }, [activeStoreId]);
+  }, [activeStoreId, directStoreId]);
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -1146,29 +1191,96 @@ export default function Home() {
 
   useEffect(() => {
     if (!directStoreId || !productSections.length) return;
-    if (!("IntersectionObserver" in window)) return;
-
-    const observers = productSections
+    const sections = productSections
       .map((section) => document.getElementById(categorySectionId(merchant.id, section.category)))
       .filter((element): element is HTMLElement => Boolean(element));
 
-    if (!observers.length) return;
+    if (!sections.length) return;
 
-    const observer = new IntersectionObserver((entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+    let frame = 0;
+    const updateActiveCategory = () => {
+      if (manualCategoryScrollRef.current) return;
 
-      if (visible?.target instanceof HTMLElement) {
-        const category = visible.target.dataset.category;
-        if (category) setActiveCategory(category);
+      const categoryStrip = document.querySelector<HTMLElement>(
+        ".direct-store-page .catalog-surface > .category-strip",
+      );
+      const activationLine = (categoryStrip?.getBoundingClientRect().bottom ?? 0) + 24;
+      let currentCategory = sections[0].dataset.category ?? productSections[0].category;
+
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top <= activationLine) {
+          currentCategory = section.dataset.category ?? currentCategory;
+        } else {
+          break;
+        }
       }
-    }, { rootMargin: "-145px 0px -55% 0px", threshold: [0.08, 0.24, 0.42] });
 
-    observers.forEach((element) => observer.observe(element));
+      setActiveCategory((current) => current === currentCategory ? current : currentCategory);
+    };
+    const scheduleUpdate = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateActiveCategory);
+    };
+    const finishManualScroll = () => {
+      if (!manualCategoryScrollRef.current) return;
+      window.clearTimeout(manualCategoryScrollRef.current.timeout);
+      manualCategoryScrollRef.current = null;
+      scheduleUpdate();
+    };
 
-    return () => observer.disconnect();
+    scheduleUpdate();
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scrollend", finishManualScroll);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (manualCategoryScrollRef.current) {
+        window.clearTimeout(manualCategoryScrollRef.current.timeout);
+        manualCategoryScrollRef.current = null;
+      }
+      window.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scrollend", finishManualScroll);
+    };
   }, [directStoreId, merchant.id, productSections]);
+
+  useEffect(() => {
+    if (!directStoreId) return;
+
+    const presentation = document.querySelector<HTMLElement>(
+      ".direct-store-page .merchant-presentation",
+    );
+    const hero = presentation?.querySelector<HTMLElement>(".merchant-hero");
+    if (!presentation || !hero) return;
+
+    let frame = 0;
+    const updateCoverPosition = () => {
+      frame = 0;
+      const scrolled = Math.max(0, -hero.getBoundingClientRect().top);
+      const progress = Math.min(scrolled / 180, 1);
+      const maximumShift = window.innerWidth <= 760 ? 42 : 50;
+      presentation.style.setProperty(
+        "--cover-scroll-shift",
+        `${Math.round(progress * maximumShift)}px`,
+      );
+    };
+    const scheduleCoverPosition = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateCoverPosition);
+    };
+
+    updateCoverPosition();
+    window.addEventListener("scroll", scheduleCoverPosition, { passive: true });
+    window.addEventListener("resize", scheduleCoverPosition);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", scheduleCoverPosition);
+      window.removeEventListener("resize", scheduleCoverPosition);
+      presentation.style.removeProperty("--cover-scroll-shift");
+    };
+  }, [directStoreId, merchant.id]);
 
   const cartMerchant = useMemo(
     () => merchants.find((store) => store.id === cart[0]?.merchantId),
@@ -1350,31 +1462,31 @@ export default function Home() {
     setCheckoutError("");
   }
 
-  function sendWhatsappOrder() {
+  function validateOrder() {
     const targetMerchant = cartMerchant ?? merchant;
     if (!cart.length) {
       setCheckoutError("Adicione pelo menos um produto ao pedido.");
-      return;
+      return null;
     }
 
     if (checkout.name.trim().length < 2) {
       setCheckoutError("Informe o nome de quem receberá o pedido.");
-      return;
+      return null;
     }
 
     if (fulfillment === "delivery" && checkout.address.trim().length < 5 && !hasCoordinates(checkout)) {
       setCheckoutError("Informe o endereço ou use sua localização atual.");
-      return;
+      return null;
     }
 
     if (fulfillment === "delivery" && targetMerchant.calculatesDeliveryFee && targetMerchant.deliveryFeeType === "per_km") {
       if (!hasCoordinates(targetMerchant)) {
         setCheckoutError("A filial precisa configurar sua localização antes de calcular a entrega por km.");
-        return;
+        return null;
       }
       if (!hasCoordinates(checkout)) {
         setCheckoutError("Use sua localização atual para calcular a taxa de entrega por km.");
-        return;
+        return null;
       }
     }
 
@@ -1382,7 +1494,7 @@ export default function Home() {
       setCheckoutError(
         `O pedido mínimo desta filial é ${formatPrice(targetMerchant.minimumOrder)}.`,
       );
-      return;
+      return null;
     }
 
     if (checkout.payment === "Dinheiro" && checkout.changeFor.trim()) {
@@ -1392,11 +1504,17 @@ export default function Home() {
         setCheckoutError(
           `O valor para troco deve ser igual ou maior que ${formatPrice(totals.total)}.`,
         );
-        return;
+        return null;
       }
     }
 
     setCheckoutError("");
+    return targetMerchant;
+  }
+
+  function sendWhatsappOrder() {
+    const targetMerchant = validateOrder();
+    if (!targetMerchant) return;
     const createdAt = new Date();
     const message = buildWhatsappMessage({
       merchant: targetMerchant,
@@ -1412,6 +1530,64 @@ export default function Home() {
     )}`;
 
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  async function sendInternalOrder() {
+    const targetMerchant = validateOrder();
+    if (!targetMerchant) return;
+    if (!supabase || !targetMerchant.databaseId) {
+      setCheckoutError("O painel de pedidos ainda não está conectado ao Supabase.");
+      return;
+    }
+
+    setSubmittingInternalOrder(true);
+    const { data, error } = await supabase.rpc("create_internal_order", {
+      p_store_id: targetMerchant.databaseId,
+      p_customer_name: checkout.name.trim(),
+      p_fulfillment_mode: fulfillment,
+      p_delivery_address: fulfillment === "delivery" ? checkout.address.trim() : targetMerchant.address,
+      p_reference: checkout.reference.trim() || null,
+      p_service_location: checkout.serviceLocation.trim() || null,
+      p_payment_method: checkout.payment,
+      p_change_for: checkout.payment === "Dinheiro" ? parseMoney(checkout.changeFor) : null,
+      p_notes: checkout.notes.trim() || null,
+      p_latitude: checkout.latitude,
+      p_longitude: checkout.longitude,
+      p_delivery_fee: totals.delivery,
+      p_items: cart.map((item) => ({
+        product_id: item.product.id,
+        quantity: item.quantity,
+        selected_options: item.selectedOptions.map((option) => ({
+          group_id: option.groupId,
+          group_name: option.groupName,
+          item_id: option.itemId,
+          item_name: option.itemName,
+          price_delta: option.priceDelta,
+        })),
+      })),
+    });
+    setSubmittingInternalOrder(false);
+
+    if (error) {
+      setCheckoutError(error.message || "Não foi possível registrar a comanda.");
+      return;
+    }
+
+    const order = data as { order_code?: string } | null;
+    setInternalOrderCode(order?.order_code ?? "registrada");
+    setCart([]);
+    setCheckout(initialCheckout);
+    setFulfillment("delivery");
+    setIsCartOpen(false);
+  }
+
+  function sendOrder() {
+    const targetMerchant = cartMerchant ?? merchant;
+    if (targetMerchant.orderMode === "internal") {
+      void sendInternalOrder();
+      return;
+    }
+    sendWhatsappOrder();
   }
 
   function simulateSync(storeId: StoreId) {
@@ -1430,6 +1606,15 @@ export default function Home() {
 
   function scrollToCategory(category: string) {
     setActiveCategory(category);
+    if (manualCategoryScrollRef.current) {
+      window.clearTimeout(manualCategoryScrollRef.current.timeout);
+    }
+    manualCategoryScrollRef.current = {
+      category,
+      timeout: window.setTimeout(() => {
+        manualCategoryScrollRef.current = null;
+      }, 1000),
+    };
 
     window.requestAnimationFrame(() => {
       document
@@ -1444,40 +1629,36 @@ export default function Home() {
   }
 
   return (
-    <main className={directStoreId ? "shell direct-store-theme" : "shell"} style={directStoreId ? catalogThemeStyle(merchant.themeColor) : undefined}>
-      <header className={directStoreId ? "topbar direct-store-topbar" : "topbar"}>
+    <main className={directStoreId ? "shell direct-store-theme" : "shell"} style={directStoreId && displayMerchant ? catalogThemeStyle(displayMerchant.themeColor) : undefined}>
+      {!directStoreId ? <header className="topbar">
         <button
           className="brand-lockup"
-          onClick={() => directStoreId ? window.location.assign("/") : setView("catalog")}
+          onClick={() => setView("catalog")}
           aria-label="Abrir catalogo"
         >
-          <span className={directStoreId && merchant.companyProfileImage ? "brand-mark company-profile" : "brand-mark"}>
-            {directStoreId && merchant.companyProfileImage ? <img src={merchant.companyProfileImage} alt="" /> : <Store size={20} />}
-          </span>
+          <span className="brand-mark"><Store size={20} /></span>
           <span>
-            <strong>{directStoreId ? merchant.companyName : "Catalogo Facil"}</strong>
-            {directStoreId
-              ? merchantBranchLabel(merchant) ? <small>{merchantBranchLabel(merchant)}</small> : null
-              : <small>Pedidos por WhatsApp</small>}
+            <strong>Catalogo Facil</strong>
+            <small>Pedidos por WhatsApp</small>
           </span>
         </button>
 
-        {!directStoreId ? <button className="location-pill" type="button" onClick={useCurrentLocation} disabled={locatingUser}>
+        <button className="location-pill" type="button" onClick={useCurrentLocation} disabled={locatingUser}>
           {locatingUser ? <RefreshCw size={17} /> : <LocateFixed size={17} />}
           <span>{locationStatus || "Usar minha localização"}</span>
           <ChevronRight size={16} />
-        </button> : null}
+        </button>
 
         <label className="search-box">
           <Search size={18} />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={directStoreId ? `Buscar em ${merchant.companyName}` : "Buscar lojas ou produtos"}
+            placeholder="Buscar lojas ou produtos"
           />
         </label>
 
-        {!directStoreId ? <div className="topbar-actions">
+        <div className="topbar-actions">
           <button
             className={view === "catalog" ? "nav-action active" : "nav-action"}
             onClick={() => setView("catalog")}
@@ -1497,9 +1678,10 @@ export default function Home() {
                 <LogOut size={18} />
                 <span>Sair</span>
               </button>
-            ) : null}
-          </div> : null}
+          ) : null}
+        </div>
       </header>
+        : null}
 
       {view === "catalog" ? (
         !merchants.length ? (
@@ -1522,17 +1704,12 @@ export default function Home() {
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <nav className="category-strip" aria-label="Categorias">
               {productSections.map(({ category }) => {
-                const CategoryIcon =
-                  categoryIcons[category as keyof typeof categoryIcons] ??
-                  ClipboardList;
-
                 return (
                   <button
                     key={category}
                     className={activeCategory === category ? "active" : ""}
                     onClick={() => scrollToCategory(category)}
                   >
-                    <CategoryIcon size={17} />
                     <span>{category}</span>
                   </button>
                 );
@@ -1623,6 +1800,7 @@ export default function Home() {
             cartIsFromActiveStore={cartIsFromActiveStore}
             checkout={checkout}
             fulfillment={fulfillment}
+            orderMode={cartMerchant?.orderMode ?? merchant.orderMode ?? "whatsapp"}
             isCartOpen={isCartOpen}
             totals={totals}
             checkoutError={checkoutError}
@@ -1636,11 +1814,23 @@ export default function Home() {
               setCheckoutError("");
             }}
             onQuantityChange={updateQuantity}
-            onSendOrder={sendWhatsappOrder}
+            onSendOrder={sendOrder}
+            submittingOrder={submittingInternalOrder}
             locatingUser={locatingUser}
             locationStatus={locationStatus}
             onUseCurrentLocation={useCurrentLocation}
           />
+          {internalOrderCode ? (
+            <div className="internal-order-success-backdrop" role="presentation">
+              <section className="internal-order-success" role="dialog" aria-modal="true" aria-labelledby="internal-order-title">
+                <CheckCircle2 size={34} />
+                <span>Comanda registrada</span>
+                <h2 id="internal-order-title">#{internalOrderCode}</h2>
+                <p>O pedido foi enviado para o painel da empresa.</p>
+                <button className="whatsapp-button" type="button" onClick={() => setInternalOrderCode("")}>Fechar</button>
+              </section>
+            </div>
+          ) : null}
           {customizingProduct ? <ProductOptionsModal product={customizingProduct} selectedOptionIds={selectedOptionIds} onToggle={(itemId, groupId) => setSelectedOptionIds((current) => { if (current.includes(itemId)) return current.filter((id) => id !== itemId); const group = customizingProduct.optionGroups?.find((item) => item.id === groupId); const withoutGroup = group?.maxSelections === 1 ? current.filter((id) => !group.items.some((item) => item.id === id)) : current; return [...withoutGroup, itemId]; })} onClose={() => setCustomizingProduct(null)} onConfirm={confirmProductOptions} /> : null}
           </div>
 
@@ -1853,13 +2043,62 @@ function CatalogImage({
   return <div className={`${variant} catalog-image-placeholder`} role="img" aria-label={`${alt} sem imagem`}><Icon size={variant === "merchant-cover" ? 54 : 28} /></div>;
 }
 
+function merchantMapUrl(merchant: Merchant) {
+  if (merchant.latitude === null || merchant.longitude === null) return null;
+
+  const latitudeDelta = 0.006;
+  const longitudeDelta = 0.008;
+  const bbox = [
+    merchant.longitude - longitudeDelta,
+    merchant.latitude - latitudeDelta,
+    merchant.longitude + longitudeDelta,
+    merchant.latitude + latitudeDelta,
+  ].join(",");
+
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${merchant.latitude}%2C${merchant.longitude}`;
+}
+
 function MerchantHero({ merchant }: { merchant: Merchant }) {
+  const branchName = merchantBranchLabel(merchant);
+  const mapUrl = merchantMapUrl(merchant);
+
   return (
     <section className="merchant-presentation" style={{ "--merchant-color": merchant.palette } as CSSProperties}>
       <div className="merchant-hero">
         <CatalogImage src={merchant.cover} alt={merchant.companyName} variant="merchant-cover" icon="store" />
       </div>
-      {merchant.coverNote ? <div className="merchant-cover-description"><p>{merchant.coverNote}</p></div> : null}
+      <div className="merchant-info-card">
+        <span className={merchant.companyProfileImage ? "merchant-profile company-profile" : "merchant-profile"}>
+          {merchant.companyProfileImage ? (
+            <img src={merchant.companyProfileImage} alt={`Logo de ${merchant.companyName}`} />
+          ) : (
+            <Store size={30} />
+          )}
+        </span>
+        <div className="merchant-info-content">
+          <div className="merchant-info-heading">
+            <div>
+              <h1>{merchant.companyName}</h1>
+              {branchName ? <p className="merchant-branch-name">{branchName}</p> : null}
+            </div>
+          </div>
+          <div className="merchant-location-map">
+            {mapUrl ? (
+              <iframe
+                src={mapUrl}
+                title={`Mapa da localização de ${merchant.companyName} com marcador da filial`}
+                loading="lazy"
+              />
+            ) : (
+              <div className="merchant-location-empty">
+                <MapPin size={20} />
+                <span>Mapa da filial ainda não configurado</span>
+              </div>
+            )}
+          </div>
+          {merchant.coverNote ? <p className="merchant-cover-note">{merchant.coverNote}</p> : null}
+        </div>
+      </div>
     </section>
   );
 }
@@ -1871,6 +2110,7 @@ function CartPanel({
   checkout,
   checkoutError,
   fulfillment,
+  orderMode,
   isCartOpen,
   totals,
   onCheckoutChange,
@@ -1878,6 +2118,7 @@ function CartPanel({
   onFulfillmentChange,
   onQuantityChange,
   onSendOrder,
+  submittingOrder,
   locatingUser,
   locationStatus,
   onUseCurrentLocation,
@@ -1888,6 +2129,7 @@ function CartPanel({
   checkout: Checkout;
   checkoutError: string;
   fulfillment: FulfillmentMode;
+  orderMode: OrderMode;
   isCartOpen: boolean;
   totals: OrderTotals;
   onCheckoutChange: (checkout: Checkout) => void;
@@ -1895,10 +2137,12 @@ function CartPanel({
   onFulfillmentChange: (mode: FulfillmentMode) => void;
   onQuantityChange: (productId: string, nextQuantity: number) => void;
   onSendOrder: () => void;
+  submittingOrder: boolean;
   locatingUser: boolean;
   locationStatus: string;
   onUseCurrentLocation: () => void;
 }) {
+  const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
   const disabled = cart.length === 0;
   const cartBranchName = merchantBranchLabel(cartMerchant);
   const deliveryFeeLabel = fulfillment === "delivery" && totals.deliveryFeePending
@@ -1907,17 +2151,28 @@ function CartPanel({
       : "A combinar"
     : formatPrice(totals.delivery);
 
+  function goToCheckout() {
+    setShowCheckoutDetails(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById("cart-checkout")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function closeCart() {
+    setShowCheckoutDetails(false);
+    onClose();
+  }
+
   return (
     <>
-    <button className={isCartOpen ? "cart-backdrop open" : "cart-backdrop"} type="button" aria-label="Fechar carrinho" onClick={onClose} />
+    <button className={isCartOpen ? "cart-backdrop open" : "cart-backdrop"} type="button" aria-label="Fechar carrinho" onClick={closeCart} />
     <aside className={isCartOpen ? "cart-panel open" : "cart-panel"} aria-label="Carrinho e finalização do pedido">
       <div className="cart-header">
         <div>
-          <span>Carrinho</span>
           <strong>{cartMerchant.companyName}</strong>
           {cartBranchName ? <small>{cartBranchName}</small> : null}
         </div>
-        <button className="icon-button mobile-only" onClick={onClose}>
+        <button className="icon-button mobile-only" onClick={closeCart}>
           <X size={20} />
         </button>
       </div>
@@ -1929,10 +2184,10 @@ function CartPanel({
         </div>
       ) : null}
 
+      <div className="cart-section-heading"><div><strong>Produtos</strong><small>Revise os itens antes de continuar.</small></div><span>{cart.length} {cart.length === 1 ? "item" : "itens"}</span></div>
       <div className="cart-items">
         {cart.length === 0 ? (
           <div className="empty-cart">
-            <ShoppingCart size={30} />
             <strong>Seu carrinho esta vazio</strong>
             <span>Escolha os produtos para montar a comanda.</span>
           </div>
@@ -1942,11 +2197,23 @@ function CartPanel({
               <CatalogImage src={item.product.image} alt={item.product.name} variant="cart-item-image" />
               <div>
                 <strong>{item.product.name}</strong>
-                <span>
+                <span className="cart-item-price">
                   {formatPrice(item.product.price + item.selectedOptions.reduce((sum, option) => sum + option.priceDelta, 0))}
                   {item.product.unit ? ` / ${item.product.unit}` : ""}
                 </span>
-                {item.selectedOptions.length ? <small className="cart-item-options">{item.selectedOptions.map((option) => option.itemName).join(", ")}</small> : null}
+                {item.selectedOptions.length ? (
+                  <div className="cart-item-options" aria-label="Adicionais selecionados">
+                    <span className="cart-item-options-label">Adicionais</span>
+                    <ul>
+                      {item.selectedOptions.map((option) => (
+                        <li key={`${option.groupId}-${option.itemId}`}>
+                          <span>{option.groupName ? `${option.groupName}: ` : ""}{option.itemName}</span>
+                          <strong>{formatOptionDelta(option.priceDelta)}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
               <div className="cart-stepper">
                 <button
@@ -1972,7 +2239,8 @@ function CartPanel({
         )}
       </div>
 
-      <div className="checkout-block">
+      <div className={showCheckoutDetails ? "cart-section-heading delivery-section-heading expanded" : "cart-section-heading delivery-section-heading"}><div><strong>{orderMode === "internal" ? "Detalhes da comanda" : "Detalhes da entrega"}</strong><small>{showCheckoutDetails ? "Confira os dados antes de enviar." : "Clique em Continuar para preencher os dados."}</small></div></div>
+      {showCheckoutDetails ? <div className="checkout-block" id="cart-checkout">
         <div className="segmented-control">
           <button
             className={fulfillment === "delivery" ? "active" : ""}
@@ -2002,6 +2270,19 @@ function CartPanel({
             aria-invalid={Boolean(checkoutError && checkout.name.trim().length < 2)}
           />
         </label>
+
+        {orderMode === "internal" ? (
+          <label>
+            <ClipboardList size={16} />
+            <input
+              value={checkout.serviceLocation}
+              onChange={(event) =>
+                onCheckoutChange({ ...checkout, serviceLocation: event.target.value })
+              }
+              placeholder="Mesa ou identificação (opcional)"
+            />
+          </label>
+        ) : null}
 
         {fulfillment === "delivery" ? (
           <button className="checkout-location-button" type="button" onClick={onUseCurrentLocation} disabled={locatingUser}>
@@ -2115,7 +2396,7 @@ function CartPanel({
             {checkoutError}
           </p>
         ) : null}
-      </div>
+      </div> : null}
       </div>
 
       <div className="cart-footer">
@@ -2131,14 +2412,10 @@ function CartPanel({
         </span>
       </div>
 
-      <button
-        className="whatsapp-button"
-        disabled={disabled}
-        onClick={onSendOrder}
-      >
-        <MessageCircle size={19} />
-        Enviar comanda
-      </button>
+          <button className="whatsapp-button" disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? onSendOrder : goToCheckout}>
+            {showCheckoutDetails ? orderMode === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
+            {showCheckoutDetails ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Continuar"}
+          </button>
       </div>
     </aside>
     </>

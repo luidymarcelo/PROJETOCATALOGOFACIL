@@ -26,6 +26,8 @@ create type order_status as enum (
   'draft',
   'sent_whatsapp',
   'accepted',
+  'preparing',
+  'ready',
   'cancelled',
   'completed'
 );
@@ -74,6 +76,19 @@ create table public.tenant_parameters (
   is_public boolean not null default false,
   updated_at timestamptz not null default now(),
   primary key (tenant_id, parameter_key)
+);
+
+create table public.measurement_units (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  code text not null check (code ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$'),
+  name text not null check (char_length(trim(name)) between 1 and 80),
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (tenant_id, code),
+  unique (tenant_id, name)
 );
 
 create table public.store_parameters (
@@ -148,10 +163,20 @@ create table public.orders (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references public.stores(id) on delete cascade,
   status order_status not null default 'draft',
+  order_code text not null default ('CF-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))),
+  order_channel text not null default 'whatsapp' check (order_channel in ('whatsapp', 'internal')),
+  fulfillment_mode text not null default 'delivery' check (fulfillment_mode in ('delivery', 'pickup')),
   customer_name text,
   customer_phone text,
   delivery_address text,
+  customer_reference text,
+  service_location text,
+  customer_latitude numeric(9, 6) check (customer_latitude is null or customer_latitude between -90 and 90),
+  customer_longitude numeric(9, 6) check (customer_longitude is null or customer_longitude between -180 and 180),
   payment_method text,
+  change_for numeric(12, 2),
+  payment_status text not null default 'pending' check (payment_status in ('pending', 'paid', 'refunded')),
+  billing_status text not null default 'pending' check (billing_status in ('pending', 'billed', 'cancelled')),
   notes text,
   subtotal numeric(12, 2) not null default 0,
   delivery_fee numeric(12, 2) not null default 0,
@@ -167,15 +192,19 @@ create table public.order_items (
   product_name text not null,
   unit_price numeric(12, 2) not null,
   quantity numeric(12, 3) not null,
-  total numeric(12, 2) not null
+  total numeric(12, 2) not null,
+  selected_options jsonb not null default '[]'::jsonb
 );
 
 create index products_store_active_idx on public.products (store_id, is_active);
 create index categories_store_order_idx on public.categories (store_id, sort_order);
 create index tenant_parameters_key_idx on public.tenant_parameters (parameter_key);
+create index measurement_units_tenant_order_idx on public.measurement_units (tenant_id, sort_order, name);
 create index store_parameters_key_idx on public.store_parameters (parameter_key);
 create index sync_jobs_source_status_idx on public.sync_jobs (integration_source_id, status);
 create index orders_store_created_idx on public.orders (store_id, created_at desc);
+create unique index orders_store_order_code_idx on public.orders (store_id, order_code);
+create index orders_store_channel_created_idx on public.orders (store_id, order_channel, created_at desc);
 create index product_images_product_order_idx on public.product_images (product_id, sort_order);
 
 create or replace function public.get_public_catalog_companies()

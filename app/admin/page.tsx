@@ -5,6 +5,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronRight,
+  ClipboardList,
   Download,
   ExternalLink,
   FileSpreadsheet,
@@ -118,8 +119,24 @@ type CatalogImportOptionRow = {
 type CatalogImportAdditionGroup = {
   name: string;
   required: boolean;
+  max: number;
   isActive: boolean;
   sortOrder: number;
+};
+
+type MeasurementUnit = {
+  id: string;
+  tenant_id: string;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
+type CatalogImportMeasurementUnit = {
+  code: string;
+  name: string;
+  sortOrder: number | null;
 };
 
 type CatalogEditorMode = "product" | "category";
@@ -128,9 +145,12 @@ type FreightParameterMode = "inherit" | "enabled" | "disabled";
 type DeliveryFeeType = "fixed" | "per_km";
 type BranchDeliveryFeeTypeMode = "inherit" | DeliveryFeeType;
 type StockControlMode = "inherit" | "enabled" | "disabled";
+type AdditionsMode = "inherit" | "enabled" | "disabled";
 type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type ProductImageLimitMode = "inherit" | number;
+type OrderMode = "whatsapp" | "internal";
+type BranchOrderMode = "inherit" | OrderMode;
 type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "additions" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
 type ParameterScope = "company" | "branch";
@@ -150,6 +170,8 @@ const DELIVERY_FEE_TYPE_PARAMETER_KEY = "delivery_fee_type";
 const CATALOG_LAYOUT_PARAMETER_KEY = "catalog_layout";
 const PRODUCT_IMAGE_LIMIT_PARAMETER_KEY = "product_image_limit";
 const STOCK_CONTROL_PARAMETER_KEY = "control_stock";
+const ADDITIONS_PARAMETER_KEY = "enable_additions";
+const ORDER_MODE_PARAMETER_KEY = "order_mode";
 const PRODUCT_IMAGE_LIMIT_MIN = 1;
 const PRODUCT_IMAGE_LIMIT_MAX = 10;
 const COVER_NOTE_MAX_LENGTH = 160;
@@ -180,6 +202,7 @@ const REQUIRED_IMPORT_HEADERS = ["Categoria", "Produto", "Preço"] as const;
 const PRODUCT_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
 const EXCEL_CATEGORY_TABLE_NAME = "CatalogCategories";
 const EXCEL_ADDITION_GROUP_TABLE_NAME = "CatalogAdditionGroups";
+const EXCEL_MEASUREMENT_UNIT_TABLE_NAME = "CatalogMeasurementUnits";
 
 type WorksheetWithRangeValidation = Worksheet & {
   dataValidations: {
@@ -206,8 +229,9 @@ function formatAdminProductUpdatedAt(value: string | null) {
   return Number.isNaN(date.getTime()) ? null : adminProductUpdatedAtFormatter.format(date);
 }
 const CATEGORY_IMPORT_HEADERS = ["Categoria", "Ordem"] as const;
-const ADDITION_GROUP_HEADERS = ["Grupo", "Obrigat\u00f3rio", "Status", "Ordem"] as const;
-const ADDITION_IMPORT_HEADERS = ["Grupo", "Produto", "M\u00e1ximo", "Adicional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
+const MEASUREMENT_UNIT_IMPORT_HEADERS = ["Código", "Nome"] as const;
+const ADDITION_GROUP_HEADERS = ["Grupo", "Obrigat\u00f3rio", "M\u00e1ximo", "Status", "Ordem"] as const;
+const ADDITION_IMPORT_HEADERS = ["Grupo", "Produto", "Adicional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
 const LEGACY_OPTION_IMPORT_HEADERS = ["Grupo", "Produto", "Obrigat\u00f3rio", "M\u00e1ximo", "Opcional", "Acr\u00e9scimo", "Status", "Ordem"] as const;
 const OPTION_IMPORT_HEADERS = ADDITION_IMPORT_HEADERS;
 const OPTION_STATUS_OPTIONS = ["Ativo", "Desativado"] as const;
@@ -428,7 +452,14 @@ function AdminPage() {
   const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
   const [additionGroupName, setAdditionGroupName] = useState("");
   const [additionGroupRequired, setAdditionGroupRequired] = useState(false);
+  const [additionGroupMax, setAdditionGroupMax] = useState("1");
   const [savingAdditionGroup, setSavingAdditionGroup] = useState(false);
+  const [measurementUnits, setMeasurementUnits] = useState<MeasurementUnit[]>([]);
+  const [measurementUnitCode, setMeasurementUnitCode] = useState("");
+  const [measurementUnitName, setMeasurementUnitName] = useState("");
+  const [measurementUnitQuery, setMeasurementUnitQuery] = useState("");
+  const [savingMeasurementUnit, setSavingMeasurementUnit] = useState(false);
+  const [deletingMeasurementUnitId, setDeletingMeasurementUnitId] = useState("");
   const [parameterScope, setParameterScope] = useState<ParameterScope>("company");
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
@@ -468,7 +499,12 @@ function AdminPage() {
   const [activeProductImageLimit, setActiveProductImageLimit] = useState(1);
   const [companyControlsStock, setCompanyControlsStock] = useState(true);
   const [branchStockControlModes, setBranchStockControlModes] = useState<Record<string, StockControlMode>>({});
+  const [companyEnablesAdditions, setCompanyEnablesAdditions] = useState(false);
+  const [branchAdditionsModes, setBranchAdditionsModes] = useState<Record<string, AdditionsMode>>({});
+  const [companyOrderMode, setCompanyOrderMode] = useState<OrderMode>("whatsapp");
+  const [branchOrderModes, setBranchOrderModes] = useState<Record<string, BranchOrderMode>>({});
   const [activeControlsStock, setActiveControlsStock] = useState(true);
+  const [activeEnablesAdditions, setActiveEnablesAdditions] = useState(false);
   const [savingParameters, setSavingParameters] = useState(false);
   const [showDeleteCompany, setShowDeleteCompany] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -702,6 +738,13 @@ function AdminPage() {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const isCatalogWorkspace = isCompanyPortal || adminSection === "catalog";
+    if (!isCatalogWorkspace || !tenant?.id) return;
+    const branchTenantId = branches.find((branch) => branch.id === activeBranchId)?.tenant_id ?? tenant.id;
+    void refreshMeasurementUnits(branchTenantId);
+  }, [activeBranchId, adminSection, branches, isCompanyPortal, tenant?.id]);
+
   async function refreshBranchCatalog(branchId: string) {
     if (!supabase || !branchId) {
       setCategories([]);
@@ -773,11 +816,12 @@ function AdminPage() {
     if (!supabase || !branchId) {
       setActiveProductImageLimit(1);
       setActiveControlsStock(true);
+      setActiveEnablesAdditions(false);
       return;
     }
     const { data: branch } = await supabase.from("stores").select("tenant_id").eq("id", branchId).maybeSingle();
     if (!branch?.tenant_id) return;
-    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY];
+    const parameterKeys = [PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY];
     const [tenantParameterResult, storeParameterResult] = await Promise.all([
       supabase.from("tenant_parameters").select("parameter_key, parameter_value").eq("tenant_id", branch.tenant_id).in("parameter_key", parameterKeys),
       supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branchId).in("parameter_key", parameterKeys),
@@ -791,6 +835,10 @@ function AdminPage() {
     setActiveControlsStock(parameterBoolean(
       storeParameters.get(STOCK_CONTROL_PARAMETER_KEY) ?? tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY),
       true,
+    ));
+    setActiveEnablesAdditions(parameterBoolean(
+      storeParameters.get(ADDITIONS_PARAMETER_KEY) ?? tenantParameters.get(ADDITIONS_PARAMETER_KEY),
+      false,
     ));
   }
 
@@ -1164,8 +1212,13 @@ function AdminPage() {
     event.preventDefault();
     if (!supabase || !activeBranchId || savingAdditionGroup) return;
     const name = additionGroupName.trim();
+    const max = Number(additionGroupMax);
     if (!name) {
       setMessage("Informe o nome do grupo de adicionais.");
+      return;
+    }
+    if (!Number.isInteger(max) || max < 1) {
+      setMessage("Informe a quantidade máxima de adicionais que o cliente pode escolher no grupo.");
       return;
     }
     setSavingAdditionGroup(true);
@@ -1175,13 +1228,14 @@ function AdminPage() {
         store_id: activeBranchId,
         name,
         min_selections: additionGroupRequired ? 1 : 0,
-        max_selections: 1,
+        max_selections: max,
         sort_order: optionGroups.length,
         is_active: true,
       });
       if (error) throw error;
       setAdditionGroupName("");
       setAdditionGroupRequired(false);
+      setAdditionGroupMax("1");
       await refreshBranchCatalog(activeBranchId);
       setMessage(`Grupo de adicionais ${name} criado.`);
     } catch (error) {
@@ -1189,6 +1243,90 @@ function AdminPage() {
     } finally {
       setSavingAdditionGroup(false);
     }
+  }
+
+  async function refreshMeasurementUnits(tenantId: string) {
+    if (!supabase || !tenantId) {
+      setMeasurementUnits([]);
+      return;
+    }
+    const { data, error } = await supabase
+      .from("measurement_units")
+      .select("id, tenant_id, code, name, sort_order, is_active")
+      .eq("tenant_id", tenantId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+    if (error) {
+      if (/measurement_units|relation|schema cache/i.test(error.message)) {
+        setMessage("Execute a migration 016_measurement_units.sql no SQL Editor do Supabase para habilitar as unidades de medida.");
+      } else {
+        setMessage(error.message);
+      }
+      return;
+    }
+    setMeasurementUnits((data ?? []) as MeasurementUnit[]);
+  }
+
+  async function createMeasurementUnit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !tenant?.id || savingMeasurementUnit) return;
+    const code = measurementUnitCode.trim().toLowerCase();
+    const name = measurementUnitName.trim();
+    if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(code)) {
+      setMessage("Informe um código com até 20 caracteres, usando apenas letras, números, ponto, hífen ou sublinhado.");
+      return;
+    }
+    if (!name) {
+      setMessage("Informe o nome da unidade de medida.");
+      return;
+    }
+    if (measurementUnits.some((unit) => unit.code === code || normalizeText(unit.name) === normalizeText(name))) {
+      setMessage("Já existe uma unidade com esse código ou nome.");
+      return;
+    }
+    setSavingMeasurementUnit(true);
+    setMessage("");
+    try {
+      const { data, error } = await supabase
+        .from("measurement_units")
+        .insert({
+          tenant_id: tenant.id,
+          code,
+          name,
+          sort_order: measurementUnits.length,
+          is_active: true,
+        })
+        .select("id, tenant_id, code, name, sort_order, is_active")
+        .single();
+      if (error) throw error;
+      setMeasurementUnits((current) => [...current, data as MeasurementUnit]);
+      setMeasurementUnitCode("");
+      setMeasurementUnitName("");
+      setMessage(`Unidade ${name} cadastrada.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Não foi possível cadastrar a unidade de medida.");
+    } finally {
+      setSavingMeasurementUnit(false);
+    }
+  }
+
+  async function deleteMeasurementUnit(unit: MeasurementUnit) {
+    if (!supabase || !tenant?.id || deletingMeasurementUnitId) return;
+    if (!window.confirm(`Excluir a unidade de medida "${unit.name}"?`)) return;
+    setDeletingMeasurementUnitId(unit.id);
+    const { error } = await supabase
+      .from("measurement_units")
+      .delete()
+      .eq("id", unit.id)
+      .eq("tenant_id", tenant.id);
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setMeasurementUnits((current) => current.filter((item) => item.id !== unit.id));
+      setMessage(`Unidade ${unit.name} excluída.`);
+    }
+    setDeletingMeasurementUnitId("");
   }
 
   async function deleteOptionGroup(group: ProductOptionGroup) {
@@ -1254,7 +1392,11 @@ function AdminPage() {
     setCompanyProductImageLimit(1);
     setBranchProductImageLimits({});
     setCompanyControlsStock(true);
+    setCompanyEnablesAdditions(false);
+    setCompanyOrderMode("whatsapp");
+    setActiveEnablesAdditions(false);
     setBranchStockControlModes({});
+    setBranchOrderModes({});
     setBranchDeliveryFees(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       Number(branch.delivery_fee ?? 0).toFixed(2).replace(".", ","),
@@ -1271,7 +1413,7 @@ function AdminPage() {
       ? supabase
           .from("store_parameters")
           .select("store_id, parameter_key, parameter_value")
-          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY])
+          .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY])
           .in("store_id", selectedBranches.map((branch) => branch.id))
       : Promise.resolve({ data: [], error: null });
     const [settingsResult, tenantParameterResult, branchParameterResult] = await Promise.all([
@@ -1282,7 +1424,7 @@ function AdminPage() {
         .from("tenant_parameters")
         .select("parameter_key, parameter_value")
         .eq("tenant_id", tenantId)
-        .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY]),
+        .in("parameter_key", [FREIGHT_PARAMETER_KEY, DELIVERY_FEE_TYPE_PARAMETER_KEY, CATALOG_LAYOUT_PARAMETER_KEY, PRODUCT_IMAGE_LIMIT_PARAMETER_KEY, STOCK_CONTROL_PARAMETER_KEY, ADDITIONS_PARAMETER_KEY, ORDER_MODE_PARAMETER_KEY]),
       branchParameterRequest,
     ]);
     setLoadingSettings(false);
@@ -1304,6 +1446,8 @@ function AdminPage() {
     setCompanyCatalogLayout(catalogLayoutValue(tenantParameters.get(CATALOG_LAYOUT_PARAMETER_KEY)));
     setCompanyProductImageLimit(productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1));
     setCompanyControlsStock(parameterBoolean(tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY), true));
+    setCompanyEnablesAdditions(parameterBoolean(tenantParameters.get(ADDITIONS_PARAMETER_KEY), false));
+    setCompanyOrderMode(tenantParameters.get(ORDER_MODE_PARAMETER_KEY) === "internal" ? "internal" : "whatsapp");
     const freightParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
@@ -1329,6 +1473,16 @@ function AdminPage() {
         .filter((row) => row.parameter_key === STOCK_CONTROL_PARAMETER_KEY)
         .map((row) => [row.store_id, parameterBoolean(row.parameter_value, true)]),
     );
+    const additionsParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === ADDITIONS_PARAMETER_KEY)
+        .map((row) => [row.store_id, parameterBoolean(row.parameter_value, false)]),
+    );
+    const orderModeParameterByStore = new Map(
+      (branchParameterResult.data ?? [])
+        .filter((row) => row.parameter_key === ORDER_MODE_PARAMETER_KEY)
+        .map((row) => [row.store_id, row.parameter_value === "internal" ? "internal" : "whatsapp"] as const),
+    );
     setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
       freightParameterByStore.has(branch.id)
@@ -1352,6 +1506,16 @@ function AdminPage() {
       stockControlParameterByStore.has(branch.id)
         ? stockControlParameterByStore.get(branch.id) ? "enabled" : "disabled"
         : "inherit",
+    ])));
+    setBranchAdditionsModes(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      additionsParameterByStore.has(branch.id)
+        ? additionsParameterByStore.get(branch.id) ? "enabled" : "disabled"
+        : "inherit",
+    ])));
+    setBranchOrderModes(Object.fromEntries(selectedBranches.map((branch) => [
+      branch.id,
+      orderModeParameterByStore.get(branch.id) ?? "inherit",
     ])));
   }
 
@@ -1397,6 +1561,20 @@ function AdminPage() {
         is_public: true,
         updated_at: updatedAt,
       },
+      {
+        tenant_id: tenant.id,
+        parameter_key: ADDITIONS_PARAMETER_KEY,
+        parameter_value: companyEnablesAdditions,
+        is_public: true,
+        updated_at: updatedAt,
+      },
+      {
+        tenant_id: tenant.id,
+        parameter_key: ORDER_MODE_PARAMETER_KEY,
+        parameter_value: companyOrderMode,
+        is_public: true,
+        updated_at: updatedAt,
+      },
     ], { onConflict: "tenant_id,parameter_key" });
 
     if (tenantParameterError) {
@@ -1430,6 +1608,8 @@ function AdminPage() {
     const layoutMode = branchCatalogLayouts[branch.id] ?? "inherit";
     const imageLimitMode = branchProductImageLimits[branch.id] ?? "inherit";
     const stockControlMode = branchStockControlModes[branch.id] ?? "inherit";
+    const additionsMode = branchAdditionsModes[branch.id] ?? "inherit";
+    const orderMode = branchOrderModes[branch.id] ?? "inherit";
     const freightParameterRequest = freightMode === "inherit"
       ? await supabase
           .from("store_parameters")
@@ -1495,8 +1675,34 @@ function AdminPage() {
           is_public: true,
           updated_at: new Date().toISOString(),
         }, { onConflict: "store_id,parameter_key" });
+    const additionsParameterRequest = additionsMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", ADDITIONS_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: ADDITIONS_PARAMETER_KEY,
+          parameter_value: additionsMode === "enabled",
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
+    const orderModeParameterRequest = orderMode === "inherit"
+      ? await supabase
+          .from("store_parameters")
+          .delete()
+          .eq("store_id", branch.id)
+          .eq("parameter_key", ORDER_MODE_PARAMETER_KEY)
+      : await supabase.from("store_parameters").upsert({
+          store_id: branch.id,
+          parameter_key: ORDER_MODE_PARAMETER_KEY,
+          parameter_value: orderMode,
+          is_public: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "store_id,parameter_key" });
 
-    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error;
+    const parameterError = freightParameterRequest.error ?? deliveryFeeTypeParameterRequest.error ?? layoutParameterRequest.error ?? imageLimitParameterRequest.error ?? stockControlParameterRequest.error ?? additionsParameterRequest.error ?? orderModeParameterRequest.error;
     if (parameterError) {
       setSavingParameters(false);
       setMessage(parameterError.message);
@@ -1984,7 +2190,8 @@ function AdminPage() {
     try {
       const controlsStock = await resolveBranchControlsStock(activeBranchId);
       setActiveControlsStock(controlsStock);
-      const [categoryResult, productResult] = await Promise.all([
+      const catalogTenantId = activeBranch?.tenant_id ?? tenant?.id ?? "";
+      const [categoryResult, productResult, measurementUnitResult] = await Promise.all([
         supabase
           .from("categories")
           .select("id, name, sort_order")
@@ -1996,12 +2203,23 @@ function AdminPage() {
           .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active")
           .eq("store_id", activeBranchId)
           .order("name", { ascending: true }),
+        supabase
+          .from("measurement_units")
+          .select("id, tenant_id, code, name, sort_order, is_active")
+          .eq("tenant_id", catalogTenantId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("name", { ascending: true }),
       ]);
       if (categoryResult.error) throw categoryResult.error;
       if (productResult.error) throw productResult.error;
+      const measurementUnitsUnavailable = Boolean(measurementUnitResult.error && /measurement_units|relation|schema cache/i.test(measurementUnitResult.error.message));
+      if (measurementUnitResult.error && !measurementUnitsUnavailable) throw measurementUnitResult.error;
       const exportCategories = (categoryResult.data ?? []) as Category[];
       const exportProducts = (productResult.data ?? []) as Product[];
+      const exportMeasurementUnits = measurementUnitsUnavailable ? [] : (measurementUnitResult.data ?? []) as MeasurementUnit[];
       setCategories(exportCategories);
+      if (!measurementUnitsUnavailable) setMeasurementUnits(exportMeasurementUnits);
 
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
@@ -2106,6 +2324,40 @@ function AdminPage() {
         error: 'Cadastre a categoria na aba "Categorias" e escolha-a na lista.',
       });
 
+      const measurementUnitsSheet = workbook.addWorksheet("Unidades", { views: [{ state: "frozen", ySplit: 1 }] });
+      measurementUnitsSheet.addTable({
+        name: EXCEL_MEASUREMENT_UNIT_TABLE_NAME,
+        ref: "A1",
+        headerRow: true,
+        totalsRow: false,
+        style: { theme: "TableStyleMedium4", showRowStripes: true },
+        columns: MEASUREMENT_UNIT_IMPORT_HEADERS.map((name) => ({ name, filterButton: true })),
+        rows: exportMeasurementUnits.length
+          ? exportMeasurementUnits.map((unit) => [unit.code, unit.name])
+          : [["", ""]],
+      });
+      measurementUnitsSheet.columns = [{ width: 20 }, { width: 34 }];
+      measurementUnitsSheet.getColumn(1).numFmt = "@";
+      measurementUnitsSheet.getRow(1).height = 25;
+      measurementUnitsSheet.getRow(1).eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } };
+        cell.alignment = { vertical: "middle" };
+      });
+      const unitColumnNumber = exportHeaders.indexOf("Unidade") + 1;
+      const unitColumnLetter = productsSheet.getColumn(unitColumnNumber).letter;
+      addExcelRangeValidation(productsSheet, `${unitColumnLetter}2:${unitColumnLetter}${productValidationLastRow}`, {
+        type: "list",
+        allowBlank: true,
+        formulae: [`INDIRECT("${EXCEL_MEASUREMENT_UNIT_TABLE_NAME}[Nome]")`],
+        showInputMessage: true,
+        promptTitle: "Unidade de medida",
+        prompt: 'Cadastre as unidades na aba "Unidades" e selecione uma opção.',
+        showErrorMessage: true,
+        errorTitle: "Unidade inválida",
+        error: 'Escolha uma unidade existente na aba "Unidades".',
+      });
+
       const additionGroupsSheet = workbook.addWorksheet("Grupos de adicionais", { views: [{ state: "frozen", ySplit: 1 }] });
       additionGroupsSheet.addRow(ADDITION_GROUP_HEADERS);
       additionGroupsSheet.addTable({
@@ -2115,35 +2367,34 @@ function AdminPage() {
         totalsRow: false,
         style: { theme: "TableStyleMedium4", showRowStripes: true },
         columns: ADDITION_GROUP_HEADERS.map((name) => ({ name, filterButton: true })),
-        rows: optionGroups.length ? optionGroups.map((group) => [group.name, group.min_selections > 0 ? "Sim" : "Não", group.is_active ? "Ativo" : "Desativado", group.sort_order]) : [["", "", "", ""]],
+        rows: optionGroups.length ? optionGroups.map((group) => [group.name, group.min_selections > 0 ? "Sim" : "Não", group.max_selections, group.is_active ? "Ativo" : "Desativado", group.sort_order]) : [["", "", "", "", ""]],
       });
-      additionGroupsSheet.columns = [{ width: 34 }, { width: 16 }, { width: 16 }, { width: 12 }];
+      additionGroupsSheet.columns = [{ width: 34 }, { width: 16 }, { width: 12 }, { width: 16 }, { width: 12 }];
       additionGroupsSheet.getRow(1).height = 25;
       additionGroupsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
       addExcelRangeValidation(additionGroupsSheet, `B2:B${Math.max(1001, additionGroupsSheet.rowCount + 200)}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$B$1:$B$2"] });
-      addExcelRangeValidation(additionGroupsSheet, `C2:C${Math.max(1001, additionGroupsSheet.rowCount + 200)}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"] });
+      addExcelRangeValidation(additionGroupsSheet, `C2:C${Math.max(1001, additionGroupsSheet.rowCount + 200)}`, { type: "whole", operator: "greaterThanOrEqual", allowBlank: false, formulae: ["1"], showErrorMessage: true, errorTitle: "Máximo inválido", error: "Informe um número maior ou igual a 1." });
+      addExcelRangeValidation(additionGroupsSheet, `D2:D${Math.max(1001, additionGroupsSheet.rowCount + 200)}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"] });
 
       const optionsSheet = workbook.addWorksheet("Adicionais", { views: [{ state: "frozen", ySplit: 1 }] });
       optionsSheet.addRow(ADDITION_IMPORT_HEADERS);
       const optionRows = optionGroups.flatMap((group) => (group.product_option_groups ?? []).flatMap((link) => (group.option_group_items ?? []).map((item) => [
         group.name,
         exportProducts.find((product) => product.id === link.product_id)?.name ?? "",
-        group.max_selections,
         item.name,
         Number(item.price_delta),
         item.is_active ? "Ativo" : "Desativado",
         item.sort_order,
       ])));
       optionsSheet.addRows(optionRows);
-      optionsSheet.columns = [{ width: 26 }, { width: 34 }, { width: 16 }, { width: 12 }, { width: 28 }, { width: 15 }, { width: 16 }, { width: 12 }];
+      optionsSheet.columns = [{ width: 26 }, { width: 34 }, { width: 28 }, { width: 15 }, { width: 16 }, { width: 12 }];
       optionsSheet.getRow(1).height = 25;
       optionsSheet.getRow(1).eachCell((cell) => { cell.font = { bold: true, color: { argb: "FFFFFFFF" } }; cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF176B52" } }; });
-      optionsSheet.getColumn(6).numFmt = 'R$ #,##0.00';
+      optionsSheet.getColumn(ADDITION_IMPORT_HEADERS.indexOf("Acréscimo") + 1).numFmt = 'R$ #,##0.00';
       const optionValidationLastRow = Math.max(1001, optionsSheet.rowCount + 200);
       addExcelRangeValidation(optionsSheet, `A2:A${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("${EXCEL_ADDITION_GROUP_TABLE_NAME}[Grupo]")`], showInputMessage: true, promptTitle: "Grupo de adicionais", prompt: 'Cadastre os grupos na aba "Grupos de adicionais" e selecione uma opção.', showErrorMessage: true, errorTitle: "Grupo inválido", error: 'Escolha um grupo existente na aba "Grupos de adicionais".' });
       addExcelRangeValidation(optionsSheet, `B2:B${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: [`INDIRECT("'Produtos'!$B$2:$B$5000")`], showInputMessage: true, promptTitle: "Produto do grupo", prompt: "Escolha um produto da aba Produtos.", showErrorMessage: true, errorTitle: "Produto inválido", error: "Escolha um produto existente na aba Produtos." });
-      addExcelRangeValidation(optionsSheet, `C2:C${optionValidationLastRow}`, { type: "whole", operator: "greaterThanOrEqual", allowBlank: false, formulae: ["0"], showErrorMessage: true, errorTitle: "Máximo inválido", error: "Informe um número maior ou igual a zero." });
-      addExcelRangeValidation(optionsSheet, `F2:F${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
+      addExcelRangeValidation(optionsSheet, `E2:E${optionValidationLastRow}`, { type: "list", allowBlank: false, formulae: ["'Listas'!$A$1:$A$2"], showErrorMessage: true, errorTitle: "Status inválido", error: "Escolha Ativo ou Desativado." });
       listsSheet.getCell(1, 2).value = "Sim";
       listsSheet.getCell(2, 2).value = "Não";
 
@@ -2153,8 +2404,9 @@ function AdminPage() {
         ["Campo", "Preenchimento"],
         ["Produtos", "A aba Produtos já contém o catálogo atual. Você pode editar as linhas ou acrescentar produtos."],
         ["Categorias", "Cadastre e organize as categorias nesta aba antes de vinculá-las aos produtos."],
-        ["Grupos de adicionais", "Crie os grupos nesta aba e marque se o cliente deve ser obrigado a escolher um adicional."],
-        ["Adicionais", "Vincule um produto a um grupo e informe cada adicional, seu acréscimo e status."],
+        ["Unidades", "Cadastre o código de integração e o nome da unidade. Na aba Produtos, selecione o nome na coluna Unidade."],
+        ["Grupos de adicionais", "Crie os grupos nesta aba, marque se a escolha é obrigatória e informe o máximo de adicionais que o cliente pode escolher naquele grupo."],
+        ["Adicionais", "Vincule um produto a um grupo e informe cada adicional, seu acréscimo e status. O máximo é definido somente na aba Grupos de adicionais."],
         ["Categoria", "Na aba Produtos, escolha uma opção do combo alimentado pela aba Categorias."],
         ["Produto", "Obrigatório. Nome exibido no catálogo."],
         ["Descrição", "Opcional."],
@@ -2164,7 +2416,7 @@ function AdminPage() {
         ["Fotos", "Envie as fotos pelo botão de imagem de cada produto no Portal da empresa."],
         ["Selo", "Opcional. Exemplo: Mais vendido."],
         ["Código/SKU", "Não altere os códigos já exportados. Em produtos novos, informe um código próprio para permitir futuras atualizações."],
-        ["Importação", "As abas Produtos e Categorias são importadas. Não altere os nomes das abas nem os títulos das colunas."],
+        ["Importação", "As abas Produtos, Categorias, Unidades, Grupos de adicionais e Adicionais são importadas. Não altere os nomes das abas nem os títulos das colunas."],
       ];
       if (controlsStock) instructionRows.splice(8, 0, ["Estoque", "Opcional. Aceita números inteiros ou decimais."]);
       instructionsSheet.addRows(instructionRows);
@@ -2199,11 +2451,12 @@ function AdminPage() {
 
       productsSheet.orderNo = 1;
       optionsSheet.orderNo = 2;
-      categoriesSheet.orderNo = 3;
-      additionGroupsSheet.orderNo = 4;
-      listsSheet.orderNo = 5;
-      instructionsSheet.orderNo = 6;
-      exampleSheet.orderNo = 7;
+      measurementUnitsSheet.orderNo = 3;
+      categoriesSheet.orderNo = 4;
+      additionGroupsSheet.orderNo = 5;
+      listsSheet.orderNo = 6;
+      instructionsSheet.orderNo = 7;
+      exampleSheet.orderNo = 8;
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer as BlobPart], {
@@ -2217,7 +2470,7 @@ function AdminPage() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setMessage(`${exportProducts.length} produto(s) e ${exportCategories.length} categoria(s) exportados para o Excel.`);
+      setMessage(`${exportProducts.length} produto(s), ${exportCategories.length} categoria(s) e ${exportMeasurementUnits.length} unidade(s) exportados para o Excel.`);
     } catch (error) {
       setMessage(error instanceof Error ? `Não foi possível exportar o catálogo: ${error.message}` : "Não foi possível exportar o catálogo para o Excel.");
     } finally {
@@ -2251,8 +2504,12 @@ function AdminPage() {
       if (!sheet) throw new Error('A planilha precisa ter uma aba chamada "Produtos".');
       const categoriesSheet = workbook.getWorksheet("Categorias");
       if (!categoriesSheet) throw new Error('A planilha precisa ter uma aba chamada "Categorias".');
+      const measurementUnitsSheet = workbook.getWorksheet("Unidades");
       const importedCategories: CatalogImportCategory[] = [];
       const importedCategoryKeys = new Set<string>();
+      const importedMeasurementUnits: CatalogImportMeasurementUnit[] = [];
+      const importedMeasurementUnitCodes = new Set<string>();
+      const importedMeasurementUnitNames = new Set<string>();
       const importedAdditionGroups: CatalogImportAdditionGroup[] = [];
       const importedOptionRows: CatalogImportOptionRow[] = [];
       const validationErrors: string[] = [];
@@ -2283,6 +2540,30 @@ function AdminPage() {
         }
       }
 
+      if (measurementUnitsSheet) {
+        const unitHeaderColumns = new Map<string, number>();
+        measurementUnitsSheet.getRow(1).eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+          const header = normalizeText(excelValueToText(cell.value));
+          if (header) unitHeaderColumns.set(header, columnNumber);
+        });
+        const codeColumn = unitHeaderColumns.get(normalizeText("Código"));
+        const nameColumn = unitHeaderColumns.get(normalizeText("Nome"));
+        if (!codeColumn || !nameColumn) throw new Error('A aba "Unidades" precisa ter as colunas "Código" e "Nome".');
+
+        for (let rowNumber = 2; rowNumber <= measurementUnitsSheet.rowCount; rowNumber += 1) {
+          const code = excelValueToText(measurementUnitsSheet.getRow(rowNumber).getCell(codeColumn).value).toLowerCase();
+          const name = excelValueToText(measurementUnitsSheet.getRow(rowNumber).getCell(nameColumn).value);
+          if (!code && !name) continue;
+          if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(code)) validationErrors.push(`aba Unidades linha ${rowNumber}: código inválido`);
+          if (!name) validationErrors.push(`aba Unidades linha ${rowNumber}: nome obrigatório`);
+          if (importedMeasurementUnitCodes.has(code)) validationErrors.push(`aba Unidades linha ${rowNumber}: código repetido (${code})`);
+          if (importedMeasurementUnitNames.has(normalizeText(name))) validationErrors.push(`aba Unidades linha ${rowNumber}: nome repetido (${name})`);
+          importedMeasurementUnitCodes.add(code);
+          importedMeasurementUnitNames.add(normalizeText(name));
+          importedMeasurementUnits.push({ code, name, sortOrder: importedMeasurementUnits.length });
+        }
+      }
+
       const additionGroupsSheet = workbook.getWorksheet("Grupos de adicionais");
       if (additionGroupsSheet) {
         const groupColumns = new Map<string, number>();
@@ -2298,11 +2579,13 @@ function AdminPage() {
           const name = excelValueToText(groupColumn(rowNumber, "Grupo"));
           if (!name) continue;
           const required = normalizeText(excelValueToText(groupColumn(rowNumber, "Obrigatório")));
+          const max = parseBrazilianNumber(groupColumn(rowNumber, "Máximo"));
           const status = productStatusValue(groupColumn(rowNumber, "Status"));
           const sortOrder = parseBrazilianNumber(groupColumn(rowNumber, "Ordem"));
           if (required !== "sim" && required !== "nao") validationErrors.push(`aba Grupos de adicionais linha ${rowNumber}: Obrigatório deve ser Sim ou Não`);
+          if (!Number.isInteger(max) || max < 1) validationErrors.push(`aba Grupos de adicionais linha ${rowNumber}: Máximo deve ser maior ou igual a 1`);
           if (status === null) validationErrors.push(`aba Grupos de adicionais linha ${rowNumber}: status inválido`);
-          importedAdditionGroups.push({ name, required: required === "sim", isActive: status ?? true, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 });
+          importedAdditionGroups.push({ name, required: required === "sim", max: Number.isInteger(max) && max >= 1 ? max : 1, isActive: status ?? true, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 });
         }
       }
 
@@ -2321,6 +2604,7 @@ function AdminPage() {
         const missingOptionHeaders = requiredOptionHeaders.filter((header) => !optionHeaderColumns.has(normalizeText(header)));
         if (missingOptionHeaders.length && optionsSheet.name === "Adicionais") throw new Error(`A aba "Adicionais" precisa das colunas: ${missingOptionHeaders.join(", ")}.`);
         const requiredByGroup = new Map(importedAdditionGroups.map((item) => [normalizeText(item.name), item.required]));
+        const maxByGroup = new Map(importedAdditionGroups.map((item) => [normalizeText(item.name), item.max]));
         for (let rowNumber = 2; rowNumber <= optionsSheet.rowCount; rowNumber += 1) {
           const group = excelValueToText(optionColumn(rowNumber, "Grupo"));
           const product = excelValueToText(optionColumn(rowNumber, "Produto"));
@@ -2329,16 +2613,18 @@ function AdminPage() {
           const legacyRequired = normalizeText(excelValueToText(optionColumn(rowNumber, "Obrigatório")));
           const groupRequired = requiredByGroup.get(normalizeText(group));
           const required = groupRequired === undefined ? legacyRequired : groupRequired ? "sim" : "nao";
-          const max = parseBrazilianNumber(optionColumn(rowNumber, "Máximo"));
+          const max = optionsSheet.name === "Adicionais"
+            ? maxByGroup.get(normalizeText(group)) ?? Number.NaN
+            : parseBrazilianNumber(optionColumn(rowNumber, "Máximo"));
           const priceDelta = parseBrazilianNumber(optionColumn(rowNumber, "Acréscimo"));
           const status = productStatusValue(optionColumn(rowNumber, "Status"));
           const sortOrder = parseBrazilianNumber(optionColumn(rowNumber, "Ordem"));
-          if (!group || !product || !option) validationErrors.push(`aba Opcionais linha ${rowNumber}: Grupo, Produto e Opcional são obrigatórios`);
+          if (!group || !product || !option) validationErrors.push(`aba ${optionsSheet.name} linha ${rowNumber}: Grupo, Produto e Adicional são obrigatórios`);
           if (optionsSheet.name === "Adicionais" && groupRequired === undefined) validationErrors.push(`aba Adicionais linha ${rowNumber}: o grupo "${group}" não foi cadastrado na aba Grupos de adicionais`);
           if (optionsSheet.name === "Opcionais" && required !== "sim" && required !== "nao") validationErrors.push(`aba Opcionais linha ${rowNumber}: Obrigatório deve ser Sim ou Não`);
-          if (!Number.isInteger(max) || max < 1) validationErrors.push(`aba Opcionais linha ${rowNumber}: Máximo inválido`);
-          if (!Number.isFinite(priceDelta)) validationErrors.push(`aba Opcionais linha ${rowNumber}: acréscimo inválido`);
-          if (status === null) validationErrors.push(`aba Opcionais linha ${rowNumber}: status inválido`);
+          if (!Number.isInteger(max) || max < 1) validationErrors.push(`aba ${optionsSheet.name} linha ${rowNumber}: máximo inválido`);
+          if (!Number.isFinite(priceDelta)) validationErrors.push(`aba ${optionsSheet.name} linha ${rowNumber}: acréscimo inválido`);
+          if (status === null) validationErrors.push(`aba ${optionsSheet.name} linha ${rowNumber}: status inválido`);
           importedOptionRows.push({ rowNumber, group, product, required: required === "sim", max, option, priceDelta, isActive: status ?? true, sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0 });
         }
       }
@@ -2400,7 +2686,7 @@ function AdminPage() {
         });
       }
 
-      if (!importedRows.length && !importedCategories.length && !importedAdditionGroups.length && !importedOptionRows.length) {
+      if (!importedRows.length && !importedCategories.length && !importedMeasurementUnits.length && !importedAdditionGroups.length && !importedOptionRows.length) {
         throw new Error("A planilha não possui produtos nem categorias preenchidos.");
       }
       if (validationErrors.length) {
@@ -2452,6 +2738,23 @@ function AdminPage() {
       if (categoriesToReactivate.length) {
         const { error: reactivateError } = await supabase.from("categories").update({ is_active: true }).in("id", categoriesToReactivate);
         if (reactivateError) throw reactivateError;
+      }
+
+      if (importedMeasurementUnits.length) {
+        const unitTenantId = activeBranch?.tenant_id ?? tenant?.id;
+        if (!unitTenantId) throw new Error("Não foi possível identificar a empresa das unidades de medida.");
+        const { error: measurementUnitError } = await supabase.from("measurement_units").upsert(
+          importedMeasurementUnits.map((unit) => ({
+            tenant_id: unitTenantId,
+            code: unit.code,
+            name: unit.name,
+            sort_order: unit.sortOrder ?? 0,
+            is_active: true,
+          })),
+          { onConflict: "tenant_id,code" },
+        );
+        if (measurementUnitError) throw measurementUnitError;
+        await refreshMeasurementUnits(unitTenantId);
       }
 
       const currentCategoryNameById = new Map(categories.map((category) => [category.id, category.name]));
@@ -2510,7 +2813,7 @@ function AdminPage() {
           store_id: branchId,
           name: group.name,
           min_selections: group.required ? 1 : 0,
-          max_selections: 1,
+          max_selections: group.max,
           sort_order: group.sortOrder,
           is_active: group.isActive,
         }, { onConflict: "store_id,name" });
@@ -2524,10 +2827,19 @@ function AdminPage() {
         const unknownProducts = [...new Set(importedOptionRows.map((row) => row.product).filter((name) => !productByName.has(normalizeText(name))))];
         if (unknownProducts.length) throw new Error(`Produto(s) não encontrado(s) na aba Opcionais: ${unknownProducts.slice(0, 4).join(", ")}.`);
         const groupedOptions = new Map<string, CatalogImportOptionRow[]>();
+        const groupConfigByName = new Map(importedAdditionGroups.map((group) => [normalizeText(group.name), group]));
         for (const row of importedOptionRows) groupedOptions.set(normalizeText(row.group), [...(groupedOptions.get(normalizeText(row.group)) ?? []), row]);
         for (const rows of groupedOptions.values()) {
           const first = rows[0];
-          const { data: group, error: groupError } = await supabase.from("option_groups").upsert({ store_id: branchId, name: first.group, min_selections: first.required ? 1 : 0, max_selections: Math.max(1, first.max), sort_order: first.sortOrder, is_active: true }, { onConflict: "store_id,name" }).select("id").single();
+          const groupConfig = groupConfigByName.get(normalizeText(first.group));
+          const { data: group, error: groupError } = await supabase.from("option_groups").upsert({
+            store_id: branchId,
+            name: first.group,
+            min_selections: (groupConfig?.required ?? first.required) ? 1 : 0,
+            max_selections: Math.max(1, groupConfig?.max ?? first.max),
+            sort_order: groupConfig?.sortOrder ?? first.sortOrder,
+            is_active: groupConfig?.isActive ?? true,
+          }, { onConflict: "store_id,name" }).select("id").single();
           if (groupError || !group) throw groupError ?? new Error("Não foi possível sincronizar o grupo de opcionais.");
           await supabase.from("option_group_items").delete().eq("group_id", group.id);
           await supabase.from("product_option_groups").delete().eq("group_id", group.id);
@@ -2540,7 +2852,7 @@ function AdminPage() {
       }
 
       await refreshBranchCatalog(branchId);
-      setMessage(`${importedRows.length} produto(s), ${requestedCategories.size} categoria(s) e ${new Set([...importedAdditionGroups.map((group) => group.name), ...importedOptionRows.map((row) => row.group)]).size} grupo(s) de adicionais sincronizados em ${activeBranch?.name ?? "a filial"}.`);
+      setMessage(`${importedRows.length} produto(s), ${requestedCategories.size} categoria(s), ${importedMeasurementUnits.length} unidade(s) e ${new Set([...importedAdditionGroups.map((group) => group.name), ...importedOptionRows.map((row) => row.group)]).size} grupo(s) de adicionais sincronizados em ${activeBranch?.name ?? "a filial"}.`);
     } catch (error) {
       setMessage(readableCatalogError(error));
     } finally {
@@ -2792,6 +3104,7 @@ function AdminPage() {
   }, [products]);
   const visibleCategories = useMemo(() => categories.filter((category) => normalizeText(category.name).includes(normalizeText(categoryQuery))), [categories, categoryQuery]);
   const visibleAdditionGroups = useMemo(() => optionGroups.filter((group) => normalizeText(group.name).includes(normalizeText(additionGroupQuery))), [optionGroups, additionGroupQuery]);
+  const visibleMeasurementUnits = useMemo(() => measurementUnits.filter((unit) => normalizeText(`${unit.code} ${unit.name}`).includes(normalizeText(measurementUnitQuery))), [measurementUnits, measurementUnitQuery]);
   const visibleProducts = useMemo(() => products.filter((product) => normalizeText(product.name).includes(normalizeText(productQuery))), [products, productQuery]);
   const editingProductImages = editingProduct?.product_images ?? [];
   const productEditorImageCount = editingProductImages.length + productImageFiles.length;
@@ -2856,7 +3169,7 @@ function AdminPage() {
               <div className="company-settings-actions"><button className="admin-secondary" type="button" onClick={() => { setAdminSection("catalog"); setShowBranchForm(true); }}><Plus size={16} /> Nova filial</button><button className="admin-secondary" type="button" onClick={() => openAdminCatalog(tenant.id)}><Package size={16} /> Abrir catálogo</button></div>
             </header>
             <div className="company-settings-layout">
-              <CompanySettingsNav section={companySettingsSection} onChange={(section) => { setCompanySettingsSection(section); if (section === "parameters") setParameterScope("company"); }} />
+              <CompanySettingsNav isCompanyPortal={isCompanyPortal} section={companySettingsSection} onChange={(section) => { setCompanySettingsSection(section); if (section === "parameters") setParameterScope("company"); }} />
               <div className="company-settings-content">
                 {companySettingsSection === "overview" ? (
                   <div className="settings-overview">
@@ -2881,18 +3194,34 @@ function AdminPage() {
                   </div>
                 ) : null}
                 {companySettingsSection === "additions" ? (
-                  <section className="admin-form-panel company-settings-panel additions-settings-panel">
-                    <div className="branch-form-heading"><div><span>Estrutura do catálogo</span><h2>Grupos de adicionais</h2><p>Crie os grupos que organizam os adicionais. Depois, vincule os itens aos produtos pela aba Adicionais da planilha.</p></div><Plus size={21} /></div>
-                    <form className="inline-form additions-group-form" onSubmit={createAdditionGroup}>
-                      <label>Nome do grupo<input value={additionGroupName} onChange={(event) => setAdditionGroupName(event.target.value)} placeholder="Ex.: Tamanho, acompanhamentos ou complementos" required /></label>
-                      <label className="checkbox-field"><input type="checkbox" checked={additionGroupRequired} onChange={(event) => setAdditionGroupRequired(event.target.checked)} /><span>Obrigatório para o cliente</span></label>
-                      <button className="admin-primary" type="submit" disabled={savingAdditionGroup}><Plus size={16} /> {savingAdditionGroup ? "Salvando..." : "Adicionar grupo"}</button>
-                    </form>
-                    <div className="admin-list additions-group-list">
-                      {optionGroups.map((group) => <div className="admin-list-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is) cadastrado(s)</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>)}
-                      {!optionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais cadastrado para esta filial.</p> : null}
-                    </div>
-                  </section>
+                  <div className="settings-additions-grid">
+                    <section className="admin-form-panel company-settings-panel additions-settings-panel">
+                      <div className="branch-form-heading"><div><span>Estrutura do catálogo</span><h2>Grupos de adicionais</h2><p>Crie os grupos que organizam os adicionais. Depois, vincule os itens aos produtos pela aba Adicionais da planilha.</p></div><Plus size={21} /></div>
+                      <form className="inline-form additions-group-form" onSubmit={createAdditionGroup}>
+                        <label>Nome do grupo<input value={additionGroupName} onChange={(event) => setAdditionGroupName(event.target.value)} placeholder="Ex.: Tamanho, acompanhamentos ou complementos" required /></label>
+                        <label>Máximo<input type="number" min="1" value={additionGroupMax} onChange={(event) => setAdditionGroupMax(event.target.value)} required /></label>
+                        <label className="checkbox-field"><input type="checkbox" checked={additionGroupRequired} onChange={(event) => setAdditionGroupRequired(event.target.checked)} /><span>Obrigatório para o cliente</span></label>
+                        <button className="admin-primary" type="submit" disabled={savingAdditionGroup}><Plus size={16} /> {savingAdditionGroup ? "Salvando..." : "Adicionar grupo"}</button>
+                      </form>
+                      <div className="admin-list additions-group-list">
+                        {optionGroups.map((group) => <div className="admin-list-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · até {group.max_selections} · {group.option_group_items?.length ?? 0} adicional(is) cadastrado(s)</small></div><button className="category-delete-button" type="button" title="Excluir grupo" aria-label={`Excluir grupo ${group.name}`} disabled={Boolean(deletingOptionGroupId)} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>)}
+                        {!optionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais cadastrado para esta filial.</p> : null}
+                      </div>
+                    </section>
+                    <section className="admin-form-panel company-settings-panel measurement-units-settings-panel">
+                      <div className="branch-form-heading"><div><span>Referência do catálogo</span><h2>Unidades de medida</h2><p>Cadastre o código usado em integrações e o nome exibido nos produtos e na planilha.</p></div><Package size={21} /></div>
+                      <form className="inline-form measurement-unit-form" onSubmit={createMeasurementUnit}>
+                        <label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toLowerCase())} placeholder="Ex.: un, kg, cx" maxLength={20} required /></label>
+                        <label>Nome da unidade<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma, Caixa" maxLength={80} required /></label>
+                        <button className="admin-primary" type="submit" disabled={savingMeasurementUnit}><Plus size={16} /> {savingMeasurementUnit ? "Salvando..." : "Adicionar unidade"}</button>
+                      </form>
+                      <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
+                      <div className="admin-list catalog-scroll-list measurement-unit-list">
+                        {visibleMeasurementUnits.map((unit) => <div className="admin-list-row measurement-unit-row" key={unit.id}><div><strong>{unit.code}</strong><small>{unit.name}</small></div><button className="category-delete-button" type="button" title="Excluir unidade" aria-label={`Excluir unidade ${unit.name}`} disabled={Boolean(deletingMeasurementUnitId)} onClick={() => deleteMeasurementUnit(unit)}><Trash2 size={17} /></button></div>)}
+                        {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
+                      </div>
+                    </section>
+                  </div>
                 ) : null}
                 {companySettingsSection === "identity" ? (
                   <form className="admin-form-panel company-settings-panel company-identity-panel" onSubmit={saveCompanyIdentity}>
@@ -2934,6 +3263,10 @@ function AdminPage() {
                     branchProductImageLimits={branchProductImageLimits}
                     companyControlsStock={companyControlsStock}
                     branchStockControlModes={branchStockControlModes}
+                    companyEnablesAdditions={companyEnablesAdditions}
+                    branchAdditionsModes={branchAdditionsModes}
+                    companyOrderMode={companyOrderMode}
+                    branchOrderModes={branchOrderModes}
                     loading={loadingSettings}
                     saving={savingParameters}
                     onScopeChange={setParameterScope}
@@ -2949,6 +3282,10 @@ function AdminPage() {
                     onBranchProductImageLimitChange={(branchId, mode) => setBranchProductImageLimits((current) => ({ ...current, [branchId]: mode }))}
                     onCompanyControlsStockChange={setCompanyControlsStock}
                     onBranchStockControlModeChange={(branchId, mode) => setBranchStockControlModes((current) => ({ ...current, [branchId]: mode }))}
+                    onCompanyEnablesAdditionsChange={setCompanyEnablesAdditions}
+                    onBranchAdditionsModeChange={(branchId, mode) => setBranchAdditionsModes((current) => ({ ...current, [branchId]: mode }))}
+                    onCompanyOrderModeChange={setCompanyOrderMode}
+                    onBranchOrderModeChange={(branchId, mode) => setBranchOrderModes((current) => ({ ...current, [branchId]: mode }))}
                     onSaveCompany={saveCompanyParameters}
                     onSaveBranch={saveBranchParameters}
                   />
@@ -2967,7 +3304,7 @@ function AdminPage() {
           </section>
         ) : (
           <>
-            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
+            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<a className="admin-secondary" href="/pedidos"><ClipboardList size={16} /> Pedidos</a><button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
             {!isCompanyPortal && showBranchForm ? (
               <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}>
                 <div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div>
@@ -3018,7 +3355,7 @@ function AdminPage() {
               <div className="catalog-management-actions"><button className={catalogEditorMode ? "admin-secondary" : "admin-primary"} type="button" onClick={() => catalogEditorMode ? closeCatalogEditor() : openNewProductEditor()}>
                 {catalogEditorMode ? <X size={16} /> : <Plus size={16} />}
                 {catalogEditorMode ? "Fechar cadastro" : "Adicionar ao catálogo"}
-              </button><button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button></div>
+              </button>{activeEnablesAdditions ? <button className={showOptionGroupForm ? "admin-secondary" : "admin-primary"} type="button" onClick={() => { setShowOptionGroupForm((current) => !current); resetOptionGroupEditor(); }}><SlidersHorizontal size={16} /> {showOptionGroupForm ? "Fechar adicionais" : "Novo grupo de adicionais"}</button> : null}</div>
             </section>
             {showOptionGroupForm ? (
               <div className="catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowOptionGroupForm(false); }}>
@@ -3075,10 +3412,23 @@ function AdminPage() {
                   return <div className="admin-list-row category-admin-row" key={category.id}><div className="category-admin-info"><span>{category.name}</span><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
                  })}{!visibleCategories.length ? <p className="admin-muted">Nenhuma categoria encontrada.</p> : null}</div>
                </section>
-               <section className="admin-form-panel addition-groups-overview-panel">
+               {activeEnablesAdditions ? <section className="admin-form-panel addition-groups-overview-panel">
                   <div className="catalog-panel-heading"><h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2><button className="icon-button" type="button" title="Adicionar grupo de adicionais" aria-label="Adicionar grupo de adicionais" onClick={() => { setShowOptionGroupForm(true); resetOptionGroupEditor(); }}><Plus size={18} /></button></div>
                   <label className="catalog-panel-search"><Search size={16} /><input value={additionGroupQuery} onChange={(event) => setAdditionGroupQuery(event.target.value)} placeholder="Pesquisar grupo" /></label>
                  <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
+               </section> : null}
+               <section className="admin-form-panel measurement-units-overview-panel">
+                 <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2></div>
+                 <form className="measurement-unit-overview-form" onSubmit={createMeasurementUnit}>
+                   <label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toLowerCase())} placeholder="Ex.: un, kg, cx" maxLength={20} required /></label>
+                   <label>Nome<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma" maxLength={80} required /></label>
+                   <button className="icon-button" type="submit" title="Adicionar unidade" aria-label="Adicionar unidade" disabled={savingMeasurementUnit}><Plus size={18} /></button>
+                 </form>
+                 <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
+                 <div className="admin-list catalog-scroll-list measurement-unit-list">
+                   {visibleMeasurementUnits.map((unit) => <div className="admin-list-row measurement-unit-row" key={unit.id}><div><strong>{unit.code}</strong><small>{unit.name}</small></div><button className="category-delete-button" type="button" title="Excluir unidade" aria-label={`Excluir unidade ${unit.name}`} disabled={Boolean(deletingMeasurementUnitId)} onClick={() => deleteMeasurementUnit(unit)}><Trash2 size={17} /></button></div>)}
+                   {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
+                 </div>
                </section>
                <section className="admin-form-panel products-overview-panel">
                  <div className="catalog-panel-heading"><h2>Produtos da filial <span className="count-badge">{products.length}</span></h2><button className="icon-button" type="button" title="Adicionar produto" aria-label="Adicionar produto" onClick={openNewProductEditor}><Plus size={18} /></button></div>
@@ -3152,12 +3502,12 @@ function PlatformAdminSidebar({
   );
 }
 
-function CompanySettingsNav({ section, onChange }: { section: CompanySettingsSection; onChange: (section: CompanySettingsSection) => void }) {
+function CompanySettingsNav({ isCompanyPortal, section, onChange }: { isCompanyPortal: boolean; section: CompanySettingsSection; onChange: (section: CompanySettingsSection) => void }) {
   const options: Array<{ id: CompanySettingsSection; label: string; icon: typeof Settings }> = [
     { id: "overview", label: "Resumo", icon: LayoutDashboard },
     { id: "identity", label: "Identidade", icon: Palette },
     { id: "access", label: "Acesso", icon: KeyRound },
-    { id: "additions", label: "Adicionais", icon: Plus },
+    ...(isCompanyPortal ? [{ id: "additions" as const, label: "Adicionais", icon: Plus }] : []),
     { id: "parameters", label: "Parâmetros", icon: SlidersHorizontal },
     { id: "danger", label: "Exclusão", icon: TriangleAlert },
   ];
@@ -3382,6 +3732,10 @@ function ParameterWorkspace({
   branchProductImageLimits,
   companyControlsStock,
   branchStockControlModes,
+  companyEnablesAdditions,
+  branchAdditionsModes,
+  companyOrderMode,
+  branchOrderModes,
   loading,
   saving,
   onScopeChange,
@@ -3397,6 +3751,10 @@ function ParameterWorkspace({
   onBranchProductImageLimitChange,
   onCompanyControlsStockChange,
   onBranchStockControlModeChange,
+  onCompanyEnablesAdditionsChange,
+  onBranchAdditionsModeChange,
+  onCompanyOrderModeChange,
+  onBranchOrderModeChange,
   onSaveCompany,
   onSaveBranch,
 }: {
@@ -3415,6 +3773,10 @@ function ParameterWorkspace({
   branchProductImageLimits: Record<string, ProductImageLimitMode>;
   companyControlsStock: boolean;
   branchStockControlModes: Record<string, StockControlMode>;
+  companyEnablesAdditions: boolean;
+  branchAdditionsModes: Record<string, AdditionsMode>;
+  companyOrderMode: OrderMode;
+  branchOrderModes: Record<string, BranchOrderMode>;
   loading: boolean;
   saving: boolean;
   onScopeChange: (scope: ParameterScope) => void;
@@ -3430,6 +3792,10 @@ function ParameterWorkspace({
   onBranchProductImageLimitChange: (branchId: string, mode: ProductImageLimitMode) => void;
   onCompanyControlsStockChange: (enabled: boolean) => void;
   onBranchStockControlModeChange: (branchId: string, mode: StockControlMode) => void;
+  onCompanyEnablesAdditionsChange: (enabled: boolean) => void;
+  onBranchAdditionsModeChange: (branchId: string, mode: AdditionsMode) => void;
+  onCompanyOrderModeChange: (mode: OrderMode) => void;
+  onBranchOrderModeChange: (branchId: string, mode: BranchOrderMode) => void;
   onSaveCompany: (event: FormEvent<HTMLFormElement>) => void;
   onSaveBranch: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -3444,10 +3810,16 @@ function ParameterWorkspace({
   const activeImageLimit = activeImageLimitMode === "inherit" ? companyProductImageLimit : activeImageLimitMode;
   const activeStockControlMode = activeBranch ? branchStockControlModes[activeBranch.id] ?? "inherit" : "inherit";
   const activeStockControl = activeStockControlMode === "inherit" ? companyControlsStock : activeStockControlMode === "enabled";
+  const activeAdditionsMode = activeBranch ? branchAdditionsModes[activeBranch.id] ?? "inherit" : "inherit";
+  const activeAdditions = activeAdditionsMode === "inherit" ? companyEnablesAdditions : activeAdditionsMode === "enabled";
+  const activeOrderMode = activeBranch ? branchOrderModes[activeBranch.id] ?? "inherit" : "inherit";
+  const activeOrderModeValue = activeOrderMode === "inherit" ? companyOrderMode : activeOrderMode;
   const inheritedBranchCount = branches.filter((branch) => (branchModes[branch.id] ?? "inherit") === "inherit").length;
   const inheritedLayoutBranchCount = branches.filter((branch) => (branchCatalogLayouts[branch.id] ?? "inherit") === "inherit").length;
   const inheritedImageLimitBranchCount = branches.filter((branch) => (branchProductImageLimits[branch.id] ?? "inherit") === "inherit").length;
   const inheritedStockControlBranchCount = branches.filter((branch) => (branchStockControlModes[branch.id] ?? "inherit") === "inherit").length;
+  const inheritedAdditionsBranchCount = branches.filter((branch) => (branchAdditionsModes[branch.id] ?? "inherit") === "inherit").length;
+  const inheritedOrderModeBranchCount = branches.filter((branch) => (branchOrderModes[branch.id] ?? "inherit") === "inherit").length;
   const scopeName = scope === "company" ? tenant.name : activeBranch?.name ?? "Filial";
 
   return (
@@ -3462,7 +3834,7 @@ function ParameterWorkspace({
       <div className="parameter-editor">
         {loading ? <section className="admin-form-panel"><p className="admin-muted">Carregando parâmetros...</p></section> : (
           <section className="parameter-list-panel">
-            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>4 parâmetros</span></header>
+            <header className="parameter-list-heading"><div><strong>Parâmetros disponíveis</strong><small>{scope === "company" ? `Padrão de ${tenant.name}` : `Configurações de ${activeBranch?.name ?? "filial"}`}</small></div><span>6 parâmetros</span></header>
             {scope === "company" ? (
               <>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
@@ -3479,6 +3851,32 @@ function ParameterWorkspace({
                     </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedBranchCount} {inheritedBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedBranchCount > 0 ? `${branches.length - inheritedBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
                     <footer className="parameter-form-footer"><span>Afeta somente filiais configuradas para herdar.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon"><Plus size={19} /></span><span className="parameter-item-name"><strong>Adicionais</strong><small>Produtos - Padrão da empresa</small></span><strong className={companyEnablesAdditions ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{companyEnablesAdditions ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <ParameterToggle checked={companyEnablesAdditions} title="Permitir adicionais nos produtos" description="Quando desativado, os adicionais não aparecem no catálogo do cliente." onChange={onCompanyEnablesAdditionsChange} />
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedAdditionsBranchCount} {inheritedAdditionsBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedAdditionsBranchCount > 0 ? `${branches.length - inheritedAdditionsBranchCount} com configuração própria.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Controla a disponibilidade dos grupos de adicionais.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveCompany}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · Padrão da empresa</small></span><strong className="parameter-value-badge">{companyOrderMode === "internal" ? "Comanda" : "WhatsApp"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Como os pedidos serão enviados</legend>
+                      <div className="parameter-mode-options parameter-layout-options two">
+                        <label className={companyOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="company-order-mode" value="whatsapp" checked={companyOrderMode === "whatsapp"} onChange={() => onCompanyOrderModeChange("whatsapp")} /><MessageSquareText size={18} /><span><strong>WhatsApp</strong><small>Envia a comanda para a loja</small></span></label>
+                        <label className={companyOrderMode === "internal" ? "selected" : ""}><input type="radio" name="company-order-mode" value="internal" checked={companyOrderMode === "internal"} onChange={() => onCompanyOrderModeChange("internal")} /><ClipboardList size={18} /><span><strong>Comanda interna</strong><small>Envia para o painel de pedidos</small></span></label>
+                      </div>
+                    </fieldset>
+                    <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedOrderModeBranchCount} {inheritedOrderModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedOrderModeBranchCount > 0 ? `${branches.length - inheritedOrderModeBranchCount} com modo próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
+                    <footer className="parameter-form-footer"><span>Define o destino dos novos pedidos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>
@@ -3559,6 +3957,38 @@ function ParameterWorkspace({
                       </div>
                     </fieldset>
                     <footer className="parameter-form-footer"><span>Afeta o cadastro e o Excel de {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon"><Plus size={19} /></span><span className="parameter-item-name"><strong>Adicionais</strong><small>Produtos - {activeAdditionsMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className={activeAdditions ? "parameter-state-badge active" : "parameter-state-badge inactive"}>{activeAdditions ? "Ativo" : "Desativado"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Comportamento nesta filial</legend>
+                      <div className="parameter-mode-options">
+                        <label className={activeAdditionsMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-additions-mode" value="inherit" checked={activeAdditionsMode === "inherit"} onChange={() => onBranchAdditionsModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue a empresa</small></span></label>
+                        <label className={activeAdditionsMode === "enabled" ? "selected" : ""}><input type="radio" name="branch-additions-mode" value="enabled" checked={activeAdditionsMode === "enabled"} onChange={() => onBranchAdditionsModeChange(activeBranch.id, "enabled")} /><Plus size={17} /><span><strong>Ativar</strong><small>Usar adicionais</small></span></label>
+                        <label className={activeAdditionsMode === "disabled" ? "selected" : ""}><input type="radio" name="branch-additions-mode" value="disabled" checked={activeAdditionsMode === "disabled"} onChange={() => onBranchAdditionsModeChange(activeBranch.id, "disabled")} /><X size={17} /><span><strong>Desativar</strong><small>Ocultar adicionais</small></span></label>
+                      </div>
+                    </fieldset>
+                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                  </div>
+                </details>
+              </form>
+              <form className="parameter-compact-form" onSubmit={onSaveBranch}>
+                <details className="parameter-compact-item">
+                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · {activeOrderMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{activeOrderModeValue === "internal" ? "Comanda" : "WhatsApp"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <div className="parameter-compact-body branch">
+                    <fieldset className="parameter-mode-fieldset">
+                      <legend>Destino nesta filial</legend>
+                      <div className="parameter-mode-options">
+                        <label className={activeOrderMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="inherit" checked={activeOrderMode === "inherit"} onChange={() => onBranchOrderModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue {tenant.name}</small></span></label>
+                        <label className={activeOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="whatsapp" checked={activeOrderMode === "whatsapp"} onChange={() => onBranchOrderModeChange(activeBranch.id, "whatsapp")} /><MessageSquareText size={17} /><span><strong>WhatsApp</strong><small>Enviar para a loja</small></span></label>
+                        <label className={activeOrderMode === "internal" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="internal" checked={activeOrderMode === "internal"} onChange={() => onBranchOrderModeChange(activeBranch.id, "internal")} /><ClipboardList size={17} /><span><strong>Comanda</strong><small>Usar painel de pedidos</small></span></label>
+                      </div>
+                    </fieldset>
+                    <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>

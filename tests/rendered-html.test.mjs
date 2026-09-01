@@ -42,10 +42,11 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/pedidos/page.tsx", projectRoot), "utf8"),
     readFile(new URL("supabase/functions/create-store-user/index.ts", projectRoot), "utf8"),
     readFile(new URL("supabase/005_company_workspace.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/006_catalog_images.sql", projectRoot), "utf8"),
@@ -58,6 +59,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/013_company_branch_management.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/014_branch_cover_notes.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/015_product_option_groups.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/017_internal_orders.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -103,24 +105,25 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /className="product-updated-at"/);
   assert.doesNotMatch(page, /useState<StoreId>\("bella-massa"\)/);
   assert.doesNotMatch(page, /: loadedMerchants\[0\]\.id/);
-  assert.match(page, /direct-store-topbar/);
+  assert.doesNotMatch(page, /direct-store-topbar/);
   assert.doesNotMatch(page, /function compactMerchantLocation/);
   assert.doesNotMatch(page, /merchantBranchLabel\(merchant\) \?\? merchant\.segment/);
   assert.doesNotMatch(page, /<span>\{store\.segment\}<\/span>/);
-  assert.match(page, /merchant\.coverNote \? <div className="merchant-cover-description"><p>\{merchant\.coverNote\}<\/p><\/div>/);
+  assert.match(page, /className="merchant-info-card"/);
+  assert.match(page, /className="merchant-cover-note"/);
   assert.doesNotMatch(page, /coverNotePositionValue/);
   assert.match(page, /directStoreId \? "direct-store-page"/);
   assert.match(page, /commerce-grid direct-store/);
-  assert.match(page, /!directStoreId \? <button className="location-pill"/);
+  assert.match(page, /<button className="location-pill" type="button"/);
   assert.match(pageStyles, /\.store-discovery/);
   assert.match(pageStyles, /\.discovery-store-grid/);
   assert.match(pageStyles, /\.discovery-branch-name/);
   assert.match(pageStyles, /\.direct-store-page/);
   assert.match(pageStyles, /\.merchant-hero \{[\s\S]*?width: 100%;[\s\S]*?border-radius: 0;/);
-  assert.match(pageStyles, /\.merchant-cover-description/);
-  assert.doesNotMatch(pageStyles, /\.merchant-cover-note/);
-  assert.match(pageStyles, /\.topbar\.direct-store-topbar \{\s*position: relative;/);
-  assert.doesNotMatch(pageStyles, /\.merchant-info/);
+  assert.doesNotMatch(pageStyles, /\.merchant-cover-description/);
+  assert.match(pageStyles, /\.merchant-cover-note/);
+  assert.doesNotMatch(pageStyles, /\.topbar\.direct-store-topbar\s*\{[\s\S]*?position: sticky !important;/);
+  assert.match(pageStyles, /\.merchant-info-card/);
   assert.match(pageStyles, /\.category-strip \{\s*position: static;/);
   assert.match(layout, /export const viewport/);
   assert.match(layout, /width: "device-width"/);
@@ -180,7 +183,21 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Valor por km/);
   assert.match(adminPage, /branch-delivery-fee-type/);
   assert.match(adminPage, /Controle de estoque/);
-  assert.match(adminPage, />4 parâmetros</);
+  assert.match(adminPage, />6 parâmetros</);
+  assert.match(adminPage, /ORDER_MODE_PARAMETER_KEY = "order_mode"/);
+  assert.match(adminPage, /Modo de pedidos/);
+  assert.match(adminPage, /Comanda interna/);
+  assert.match(adminPage, /branchOrderModes/);
+  assert.match(page, /create_internal_order/);
+  assert.match(page, /orderMode/);
+  assert.match(page, /Mesa ou identificação/);
+  assert.match(ordersPage, /Pedidos e comandas/);
+  assert.match(ordersPage, /payment_status/);
+  assert.match(ordersPage, /billing_status/);
+  assert.match(internalOrdersSql, /create or replace function public\.create_internal_order/);
+  assert.match(internalOrdersSql, /order_channel/);
+  assert.match(internalOrdersSql, /payment_status/);
+  assert.match(internalOrdersSql, /billing_status/);
   assert.match(adminPage, /branch-stock-control-mode/);
   assert.match(adminPage, /Layout do catálogo/);
   assert.match(adminPage, /Foto acima do nome do produto/);
@@ -273,6 +290,12 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /category-delete-button/);
   assert.match(adminPage, /workbook\.addWorksheet\("Categorias"/);
   assert.match(adminPage, /name: EXCEL_CATEGORY_TABLE_NAME/);
+  assert.match(adminPage, /workbook\.addWorksheet\("Unidades"/);
+  assert.match(adminPage, /EXCEL_MEASUREMENT_UNIT_TABLE_NAME/);
+  assert.match(adminPage, /async function createMeasurementUnit/);
+  assert.match(adminPage, /measurement_units/);
+  assert.match(adminPage, /Código<input/);
+  assert.match(adminPage, /Nome da unidade<input/);
   assert.match(adminPage, /function addExcelRangeValidation/);
   assert.match(adminPage, /dataValidations\.add\(address, validation\)/);
   assert.match(adminPage, /INDIRECT\("\$\{EXCEL_CATEGORY_TABLE_NAME\}\[Categoria\]\"\)/);
@@ -292,7 +315,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /Novo grupo de adicionais/);
   assert.match(adminPage, /Grupos de adicionais/);
   assert.match(adminPage, /ADDITION_GROUP_HEADERS/);
+  assert.match(adminPage, /ADDITION_GROUP_HEADERS = \["Grupo", "Obrigat\\u00f3rio", "M\\u00e1ximo", "Status", "Ordem"\]/);
+  assert.match(adminPage, /ADDITION_IMPORT_HEADERS = \["Grupo", "Produto", "Adicional", "Acr\\u00e9scimo", "Status", "Ordem"\]/);
   assert.match(adminPage, /workbook\.getWorksheet\("Adicionais"\)/);
+  assert.match(adminPage, /max_selections: group\.max/);
+  assert.doesNotMatch(adminPage, /ADDITION_IMPORT_HEADERS = \["Grupo", "Produto", "M\\u00e1ximo"/);
   assert.match(adminPage, /companySettingsSection === "additions"/);
   assert.match(adminPage, /createOptionGroup/);
   assert.match(adminPage, /async function resolveBranchControlsStock/);
@@ -308,12 +335,16 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /formulae: \["'Listas'!\$A\$1:\$A\$2"\]/);
   assert.match(adminPage, /is_active: row\.isActive/);
   assert.match(adminPage, /status inválido; use Ativo ou Desativado/);
-  assert.match(adminPage, /const \[categoryResult, productResult\] = await Promise\.all/);
+  assert.match(adminPage, /const \[categoryResult, productResult, measurementUnitResult\] = await Promise\.all/);
   const downloadCatalogSource = adminPage.slice(
     adminPage.indexOf("async function downloadCatalogTemplate"),
     adminPage.indexOf("async function importCatalog"),
   );
-  assert.doesNotMatch(downloadCatalogSource, /\.from\("products"\)[\s\S]*?\.eq\("is_active", true\)/);
+  const exportedProductQuery = downloadCatalogSource.slice(
+    downloadCatalogSource.indexOf('.from("products")'),
+    downloadCatalogSource.indexOf('.from("measurement_units")'),
+  );
+  assert.doesNotMatch(exportedProductQuery, /\.eq\("is_active", true\)/);
   assert.match(adminPage, /external_id: `CAT-\$\{productId\}`/);
   assert.doesNotMatch(adminPage, /skuText\.toUpperCase/);
   assert.match(adminPage, /Código\/SKU/);
@@ -423,6 +454,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(schema, /create table public\.integration_sources/);
   assert.match(schema, /create table public\.sync_jobs/);
   assert.match(schema, /create table public\.orders/);
+  assert.match(schema, /create table public\.measurement_units/);
+  const measurementUnitsSql = await readFile(new URL("supabase/016_measurement_units.sql", projectRoot), "utf8");
+  assert.match(measurementUnitsSql, /create table if not exists public\.measurement_units/);
+  assert.match(measurementUnitsSql, /unique \(tenant_id, code\)/);
+  assert.match(measurementUnitsSql, /members can manage measurement units/);
   assert.match(viteConfig, /catalog-page\.js/);
   assert.match(viteConfig, /chunkFileNames: stableEntryName/);
   assert.match(viteConfig, /cssCodeSplit: false/);
