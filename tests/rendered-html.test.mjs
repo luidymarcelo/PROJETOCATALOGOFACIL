@@ -305,6 +305,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /function readableMeasurementUnitError/);
   assert.match(adminPage, /Execute a migration 016_measurement_units\.sql/);
   assert.match(adminPage, /isMeasurementUnitsUnavailable\(error\)/);
+  assert.match(adminPage, /async function refreshMeasurementUnitUsage/);
+  assert.match(adminPage, /measurementUnitUsageReady/);
+  assert.match(adminPage, /produtos vinculados/);
+  assert.match(adminPage, /disabled=\{!canDelete \|\| Boolean\(deletingMeasurementUnitId\)\}/);
+  assert.match(adminPage, /<label>Unidade<select/);
   assert.match(adminPage, /measurementUnitCode\.trim\(\)\.toUpperCase\(\)/);
   assert.match(adminPage, /setMeasurementUnitCode\(event\.target\.value\.toUpperCase\(\)\)/);
   assert.match(adminPage, /unit\.code\.toUpperCase\(\)/);
@@ -477,6 +482,13 @@ test("keeps the growth surfaces present", async () => {
   const uppercaseMeasurementUnitsSql = await readFile(new URL("supabase/018_uppercase_measurement_unit_codes.sql", projectRoot), "utf8");
   assert.match(uppercaseMeasurementUnitsSql, /set code = upper\(trim\(code\)\)/);
   assert.match(uppercaseMeasurementUnitsSql, /add constraint measurement_units_code_check/);
+  const protectedMeasurementUnitsSql = await readFile(new URL("supabase/019_protect_linked_measurement_units.sql", projectRoot), "utf8");
+  assert.match(protectedMeasurementUnitsSql, /prevent_linked_measurement_unit_delete/);
+  assert.match(protectedMeasurementUnitsSql, /from public\.tenants t/);
+  assert.match(protectedMeasurementUnitsSql, /join public\.stores s on s\.id = p\.store_id/);
+  assert.match(protectedMeasurementUnitsSql, /s\.tenant_id = old\.tenant_id/);
+  assert.match(protectedMeasurementUnitsSql, /before delete on public\.measurement_units/);
+  assert.match(protectedMeasurementUnitsSql, /errcode = '23503'/);
   assert.match(viteConfig, /catalog-page\.js/);
   assert.match(viteConfig, /chunkFileNames: stableEntryName/);
   assert.match(viteConfig, /cssCodeSplit: false/);

@@ -326,6 +326,9 @@ function readableMeasurementUnitError(error: unknown) {
   if (/42501|row-level security/i.test(message)) {
     return "Este acesso não tem permissão para alterar as unidades de medida desta empresa.";
   }
+  if (/23503|vinculada a produtos|linked measurement unit/i.test(message)) {
+    return "Esta unidade está vinculada a produtos e não pode ser excluída.";
+  }
   return message || "Não foi possível cadastrar a unidade de medida.";
 }
 
@@ -485,6 +488,8 @@ function AdminPage() {
   const [showMeasurementUnitForm, setShowMeasurementUnitForm] = useState(false);
   const [savingMeasurementUnit, setSavingMeasurementUnit] = useState(false);
   const [deletingMeasurementUnitId, setDeletingMeasurementUnitId] = useState("");
+  const [measurementUnitUsage, setMeasurementUnitUsage] = useState<Record<string, number>>({});
+  const [measurementUnitUsageReady, setMeasurementUnitUsageReady] = useState(false);
   const [parameterScope, setParameterScope] = useState<ParameterScope>("company");
   const [activeBranchId, setActiveBranchId] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
@@ -605,12 +610,13 @@ function AdminPage() {
   }
 
   function editProduct(product: Product) {
+    const registeredUnit = measurementUnits.find((unit) => [unit.code, unit.name].some((alias) => normalizeText(alias) === normalizeText(product.unit ?? "")));
     setEditingProductId(product.id);
     setProductForm({
       name: product.name,
       description: product.description ?? "",
       price: Number(product.price).toFixed(2).replace(".", ","),
-      unit: product.unit ?? "",
+      unit: registeredUnit?.name ?? product.unit ?? "",
       stock: product.stock_quantity === null ? "" : String(product.stock_quantity).replace(".", ","),
       badge: product.badge ?? "",
       categoryId: product.category_id ?? "",
@@ -782,6 +788,11 @@ function AdminPage() {
     const branchTenantId = branches.find((branch) => branch.id === activeBranchId)?.tenant_id ?? tenant.id;
     void refreshMeasurementUnits(branchTenantId);
   }, [activeBranchId, adminSection, branches, isCompanyPortal, tenant?.id]);
+
+  useEffect(() => {
+    if (!tenant?.id) return;
+    void refreshMeasurementUnitUsage(tenant.id, measurementUnits);
+  }, [branches, measurementUnits, products, tenant?.id]);
 
   async function refreshBranchCatalog(branchId: string) {
     if (!supabase || !branchId) {
@@ -1287,8 +1298,11 @@ function AdminPage() {
   async function refreshMeasurementUnits(tenantId: string) {
     if (!supabase || !tenantId) {
       setMeasurementUnits([]);
+      setMeasurementUnitUsage({});
+      setMeasurementUnitUsageReady(false);
       return;
     }
+    setMeasurementUnitUsageReady(false);
     const { data, error } = await supabase
       .from("measurement_units")
       .select("id, tenant_id, code, name, sort_order, is_active")
@@ -1297,10 +1311,72 @@ function AdminPage() {
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
     if (error) {
+      setMeasurementUnits([]);
       setMessage(readableMeasurementUnitError(error));
       return;
     }
     setMeasurementUnits(((data ?? []) as MeasurementUnit[]).map((unit) => ({ ...unit, code: unit.code.toUpperCase() })));
+  }
+
+  async function refreshMeasurementUnitUsage(tenantId: string, units: MeasurementUnit[]) {
+    if (!supabase || !tenantId) {
+      setMeasurementUnitUsage({});
+      setMeasurementUnitUsageReady(false);
+      return;
+    }
+    if (!units.length) {
+      setMeasurementUnitUsage({});
+      setMeasurementUnitUsageReady(true);
+      return;
+    }
+
+    setMeasurementUnitUsageReady(false);
+    try {
+      const { data: tenantStores, error: storesError } = await supabase
+        .from("stores")
+        .select("id")
+        .eq("tenant_id", tenantId);
+      if (storesError) throw storesError;
+
+      const storeIds = (tenantStores ?? []).map((store) => store.id);
+      const productUnits: string[] = [];
+      for (const storeIdChunk of chunkRows(storeIds, 100)) {
+        let offset = 0;
+        while (true) {
+          const { data: unitRows, error: unitRowsError } = await supabase
+            .from("products")
+            .select("unit")
+            .in("store_id", storeIdChunk)
+            .not("unit", "is", null)
+            .range(offset, offset + 999);
+          if (unitRowsError) throw unitRowsError;
+          const rows = unitRows ?? [];
+          productUnits.push(...rows.map((row) => row.unit).filter((value): value is string => Boolean(value)));
+          if (rows.length < 1000) break;
+          offset += 1000;
+        }
+      }
+
+      const unitIdsByAlias = new Map<string, Set<string>>();
+      for (const unit of units) {
+        for (const alias of [unit.code, unit.name]) {
+          const normalizedAlias = normalizeText(alias);
+          const linkedUnitIds = unitIdsByAlias.get(normalizedAlias) ?? new Set<string>();
+          linkedUnitIds.add(unit.id);
+          unitIdsByAlias.set(normalizedAlias, linkedUnitIds);
+        }
+      }
+
+      const usage = Object.fromEntries(units.map((unit) => [unit.id, 0])) as Record<string, number>;
+      for (const productUnit of productUnits) {
+        for (const unitId of unitIdsByAlias.get(normalizeText(productUnit)) ?? []) usage[unitId] += 1;
+      }
+      setMeasurementUnitUsage(usage);
+      setMeasurementUnitUsageReady(true);
+    } catch (error) {
+      setMeasurementUnitUsage({});
+      setMessage(`Não foi possível verificar os produtos vinculados às unidades. ${supabaseErrorMessage(error)}`.trim());
+    }
   }
 
   async function createMeasurementUnit(event: FormEvent<HTMLFormElement>) {
@@ -1350,6 +1426,15 @@ function AdminPage() {
 
   async function deleteMeasurementUnit(unit: MeasurementUnit) {
     if (!supabase || !tenant?.id || deletingMeasurementUnitId) return;
+    if (!measurementUnitUsageReady) {
+      setMessage("Aguarde a verificação dos produtos vinculados antes de excluir a unidade.");
+      return;
+    }
+    const linkedProductCount = measurementUnitUsage[unit.id] ?? 0;
+    if (linkedProductCount > 0) {
+      setMessage(`Não é possível excluir a unidade ${unit.name}: existem ${linkedProductCount} produto(s) vinculado(s).`);
+      return;
+    }
     if (!window.confirm(`Excluir a unidade de medida "${unit.name}"?`)) return;
     setDeletingMeasurementUnitId(unit.id);
     const { error } = await supabase
@@ -1361,6 +1446,11 @@ function AdminPage() {
       setMessage(readableMeasurementUnitError(error));
     } else {
       setMeasurementUnits((current) => current.filter((item) => item.id !== unit.id));
+      setMeasurementUnitUsage((current) => {
+        const next = { ...current };
+        delete next[unit.id];
+        return next;
+      });
       setMessage(`Unidade ${unit.name} excluída.`);
     }
     setDeletingMeasurementUnitId("");
@@ -3145,6 +3235,34 @@ function AdminPage() {
   const visibleProducts = useMemo(() => products.filter((product) => normalizeText(product.name).includes(normalizeText(productQuery))), [products, productQuery]);
   const editingProductImages = editingProduct?.product_images ?? [];
   const productEditorImageCount = editingProductImages.length + productImageFiles.length;
+  const productUnitIsRegistered = !productForm.unit || measurementUnits.some((unit) => normalizeText(unit.name) === normalizeText(productForm.unit));
+
+  function renderMeasurementUnitRow(unit: MeasurementUnit) {
+    const linkedProductCount = measurementUnitUsage[unit.id] ?? 0;
+    const canDelete = measurementUnitUsageReady && linkedProductCount === 0;
+    const usageLabel = !measurementUnitUsageReady
+      ? "Verificando vínculos..."
+      : linkedProductCount === 1
+        ? "1 produto vinculado"
+        : linkedProductCount > 1
+          ? `${linkedProductCount} produtos vinculados`
+          : "Nenhum produto vinculado";
+    return (
+      <div className="admin-list-row measurement-unit-row" key={unit.id}>
+        <div><strong>{unit.code}</strong><small>{unit.name}</small><small>{usageLabel}</small></div>
+        <button
+          className="category-delete-button"
+          type="button"
+          title={canDelete ? "Excluir unidade" : measurementUnitUsageReady ? "Remova ou altere os produtos vinculados antes de excluir" : "Aguarde a verificação dos vínculos"}
+          aria-label={canDelete ? `Excluir unidade ${unit.name}` : `Não é possível excluir ${unit.name}: ${usageLabel.toLowerCase()}`}
+          disabled={!canDelete || Boolean(deletingMeasurementUnitId)}
+          onClick={() => deleteMeasurementUnit(unit)}
+        >
+          <Trash2 size={17} />
+        </button>
+      </div>
+    );
+  }
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
   if (accessDenied) return <AdminDenied />;
@@ -3249,7 +3367,7 @@ function AdminPage() {
                       <div className="branch-form-heading"><div><span>Referência do catálogo</span><h2>Unidades de medida</h2><p>Cadastre o código usado em integrações e o nome exibido nos produtos e na planilha.</p></div><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={19} /></button></div>
                       <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
                       <div className="admin-list catalog-scroll-list measurement-unit-list">
-                        {visibleMeasurementUnits.map((unit) => <div className="admin-list-row measurement-unit-row" key={unit.id}><div><strong>{unit.code}</strong><small>{unit.name}</small></div><button className="category-delete-button" type="button" title="Excluir unidade" aria-label={`Excluir unidade ${unit.name}`} disabled={Boolean(deletingMeasurementUnitId)} onClick={() => deleteMeasurementUnit(unit)}><Trash2 size={17} /></button></div>)}
+                        {visibleMeasurementUnits.map(renderMeasurementUnitRow)}
                         {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
                       </div>
                     </section>
@@ -3415,7 +3533,7 @@ function AdminPage() {
                 <form className="admin-product-form" onSubmit={createProduct}>
                   <label>Nome<input value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} required /></label>
                   <label>Descrição<textarea value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} /></label>
-                  <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: formatMoneyInput(event.target.value) })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<input value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })} placeholder="unidade, caixa, kg" /></label></div>
+                  <div className="admin-form-grid"><label>Preço<input value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: formatMoneyInput(event.target.value) })} placeholder="0,00" inputMode="decimal" required /></label><label>Unidade<select value={productForm.unit} onChange={(event) => setProductForm({ ...productForm, unit: event.target.value })}><option value="">Sem unidade</option>{!productUnitIsRegistered ? <option value={productForm.unit}>{productForm.unit} (não cadastrada)</option> : null}{measurementUnits.map((unit) => <option key={unit.id} value={unit.name}>{unit.code} · {unit.name}</option>)}</select></label></div>
                   <div className={activeControlsStock ? "admin-form-grid" : "admin-form-grid single"}>{activeControlsStock ? <label>Estoque<input value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} inputMode="decimal" /></label> : null}<label>Categoria<select value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })}><option value="">Sem categoria</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
                   <div className="product-gallery-editor">
                     <div className="product-gallery-editor-heading"><div><strong>Fotos do produto</strong><small>{productEditorImageCount} de {activeProductImageLimit} foto(s) utilizadas</small></div><button className="admin-secondary" type="button" onClick={() => productImageInputRef.current?.click()} disabled={savingProduct || productEditorImageCount >= activeProductImageLimit}><ImagePlus size={16} /> Adicionar fotos</button></div>
@@ -3453,7 +3571,7 @@ function AdminPage() {
                  <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={18} /></button></div>
                  <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
                  <div className="admin-list catalog-scroll-list measurement-unit-list">
-                   {visibleMeasurementUnits.map((unit) => <div className="admin-list-row measurement-unit-row" key={unit.id}><div><strong>{unit.code}</strong><small>{unit.name}</small></div><button className="category-delete-button" type="button" title="Excluir unidade" aria-label={`Excluir unidade ${unit.name}`} disabled={Boolean(deletingMeasurementUnitId)} onClick={() => deleteMeasurementUnit(unit)}><Trash2 size={17} /></button></div>)}
+                    {visibleMeasurementUnits.map(renderMeasurementUnitRow)}
                    {!visibleMeasurementUnits.length ? <p className="admin-muted">Nenhuma unidade de medida encontrada.</p> : null}
                  </div>
                </section>

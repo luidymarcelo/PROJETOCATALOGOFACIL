@@ -222,6 +222,36 @@ create trigger normalize_measurement_unit_code
   before insert or update of code on public.measurement_units
   for each row execute function public.normalize_measurement_unit_code();
 
+create or replace function public.prevent_linked_measurement_unit_delete()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if exists (
+    select 1
+    from public.tenants t
+    where t.id = old.tenant_id
+  ) and exists (
+    select 1
+    from public.products p
+    join public.stores s on s.id = p.store_id
+    where s.tenant_id = old.tenant_id
+      and p.unit is not null
+      and lower(trim(p.unit)) in (lower(trim(old.code)), lower(trim(old.name)))
+  ) then
+    raise exception 'A unidade de medida "%" está vinculada a produtos e não pode ser excluída.', old.name
+      using errcode = '23503';
+  end if;
+
+  return old;
+end;
+$$;
+
+create trigger prevent_linked_measurement_unit_delete
+  before delete on public.measurement_units
+  for each row execute function public.prevent_linked_measurement_unit_delete();
+
 create or replace function public.get_public_catalog_companies()
 returns table (
   tenant_id uuid,
