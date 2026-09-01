@@ -297,6 +297,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(adminPage, /function readableMeasurementUnitError/);
   assert.match(adminPage, /Execute a migration 016_measurement_units\.sql/);
   assert.match(adminPage, /isMeasurementUnitsUnavailable\(error\)/);
+  assert.match(adminPage, /measurementUnitCode\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(adminPage, /setMeasurementUnitCode\(event\.target\.value\.toUpperCase\(\)\)/);
+  assert.match(adminPage, /unit\.code\.toUpperCase\(\)/);
   assert.match(adminPage, /Código<input/);
   assert.match(adminPage, /Nome da unidade<input/);
   assert.match(adminPage, /function addExcelRangeValidation/);
@@ -462,6 +465,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(measurementUnitsSql, /create table if not exists public\.measurement_units/);
   assert.match(measurementUnitsSql, /unique \(tenant_id, code\)/);
   assert.match(measurementUnitsSql, /members can manage measurement units/);
+  assert.match(measurementUnitsSql, /normalize_measurement_unit_code/);
+  const uppercaseMeasurementUnitsSql = await readFile(new URL("supabase/018_uppercase_measurement_unit_codes.sql", projectRoot), "utf8");
+  assert.match(uppercaseMeasurementUnitsSql, /set code = upper\(trim\(code\)\)/);
+  assert.match(uppercaseMeasurementUnitsSql, /add constraint measurement_units_code_check/);
   assert.match(viteConfig, /catalog-page\.js/);
   assert.match(viteConfig, /chunkFileNames: stableEntryName/);
   assert.match(viteConfig, /cssCodeSplit: false/);

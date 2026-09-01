@@ -1300,15 +1300,15 @@ function AdminPage() {
       setMessage(readableMeasurementUnitError(error));
       return;
     }
-    setMeasurementUnits((data ?? []) as MeasurementUnit[]);
+    setMeasurementUnits(((data ?? []) as MeasurementUnit[]).map((unit) => ({ ...unit, code: unit.code.toUpperCase() })));
   }
 
   async function createMeasurementUnit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || !tenant?.id || savingMeasurementUnit) return;
-    const code = measurementUnitCode.trim().toLowerCase();
+    const code = measurementUnitCode.trim().toUpperCase();
     const name = measurementUnitName.trim();
-    if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(code)) {
+    if (!/^[A-Z0-9][A-Z0-9._-]{0,19}$/.test(code)) {
       setMessage("Informe um código com até 20 caracteres, usando apenas letras, números, ponto, hífen ou sublinhado.");
       return;
     }
@@ -1316,7 +1316,7 @@ function AdminPage() {
       setMessage("Informe o nome da unidade de medida.");
       return;
     }
-    if (measurementUnits.some((unit) => unit.code === code || normalizeText(unit.name) === normalizeText(name))) {
+    if (measurementUnits.some((unit) => unit.code.toUpperCase() === code || normalizeText(unit.name) === normalizeText(name))) {
       setMessage("Já existe uma unidade com esse código ou nome.");
       return;
     }
@@ -1331,11 +1331,12 @@ function AdminPage() {
           name,
           sort_order: measurementUnits.length,
           is_active: true,
-        })
+      })
         .select("id, tenant_id, code, name, sort_order, is_active")
         .single();
       if (error) throw error;
-      setMeasurementUnits((current) => [...current, data as MeasurementUnit]);
+      const createdUnit = data as MeasurementUnit;
+      setMeasurementUnits((current) => [...current, { ...createdUnit, code: createdUnit.code.toUpperCase() }]);
       setMeasurementUnitCode("");
       setMeasurementUnitName("");
       setShowMeasurementUnitForm(false);
@@ -2255,7 +2256,7 @@ function AdminPage() {
       const exportProducts = (productResult.data ?? []) as Product[];
       const exportMeasurementUnits = measurementUnitsUnavailable ? [] : (measurementUnitResult.data ?? []) as MeasurementUnit[];
       setCategories(exportCategories);
-      if (!measurementUnitsUnavailable) setMeasurementUnits(exportMeasurementUnits);
+      if (!measurementUnitsUnavailable) setMeasurementUnits(exportMeasurementUnits.map((unit) => ({ ...unit, code: unit.code.toUpperCase() })));
 
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
@@ -2369,7 +2370,7 @@ function AdminPage() {
         style: { theme: "TableStyleMedium4", showRowStripes: true },
         columns: MEASUREMENT_UNIT_IMPORT_HEADERS.map((name) => ({ name, filterButton: true })),
         rows: exportMeasurementUnits.length
-          ? exportMeasurementUnits.map((unit) => [unit.code, unit.name])
+          ? exportMeasurementUnits.map((unit) => [unit.code.toUpperCase(), unit.name])
           : [["", ""]],
       });
       measurementUnitsSheet.columns = [{ width: 20 }, { width: 34 }];
@@ -2587,10 +2588,10 @@ function AdminPage() {
         if (!codeColumn || !nameColumn) throw new Error('A aba "Unidades" precisa ter as colunas "Código" e "Nome".');
 
         for (let rowNumber = 2; rowNumber <= measurementUnitsSheet.rowCount; rowNumber += 1) {
-          const code = excelValueToText(measurementUnitsSheet.getRow(rowNumber).getCell(codeColumn).value).toLowerCase();
+          const code = excelValueToText(measurementUnitsSheet.getRow(rowNumber).getCell(codeColumn).value).toUpperCase();
           const name = excelValueToText(measurementUnitsSheet.getRow(rowNumber).getCell(nameColumn).value);
           if (!code && !name) continue;
-          if (!/^[a-z0-9][a-z0-9._-]{0,19}$/.test(code)) validationErrors.push(`aba Unidades linha ${rowNumber}: código inválido`);
+          if (!/^[A-Z0-9][A-Z0-9._-]{0,19}$/.test(code)) validationErrors.push(`aba Unidades linha ${rowNumber}: código inválido`);
           if (!name) validationErrors.push(`aba Unidades linha ${rowNumber}: nome obrigatório`);
           if (importedMeasurementUnitCodes.has(code)) validationErrors.push(`aba Unidades linha ${rowNumber}: código repetido (${code})`);
           if (importedMeasurementUnitNames.has(normalizeText(name))) validationErrors.push(`aba Unidades linha ${rowNumber}: nome repetido (${name})`);
@@ -3503,7 +3504,7 @@ function AdminPage() {
             <section className="admin-form-panel catalog-editor-panel catalog-modal measurement-unit-editor-panel" role="dialog" aria-modal="true" aria-labelledby="measurement-unit-editor-title">
               <div className="branch-form-heading"><div><span>Cadastro estruturado</span><h2 id="measurement-unit-editor-title">Nova unidade de medida</h2></div><button className="icon-button" type="button" title="Fechar" aria-label="Fechar unidade de medida" onClick={closeMeasurementUnitEditor}><X size={18} /></button></div>
               <form className="admin-product-form" onSubmit={createMeasurementUnit}>
-                <div className="admin-form-grid"><label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toLowerCase())} placeholder="Ex.: un, kg, cx" maxLength={20} required /></label><label>Nome da unidade<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma, Caixa" maxLength={80} required /></label></div>
+                <div className="admin-form-grid"><label>Código<input value={measurementUnitCode} onChange={(event) => setMeasurementUnitCode(event.target.value.toUpperCase())} placeholder="Ex.: UN, KG, CX" maxLength={20} autoCapitalize="characters" required /></label><label>Nome da unidade<input value={measurementUnitName} onChange={(event) => setMeasurementUnitName(event.target.value)} placeholder="Ex.: Unidade, Quilograma, Caixa" maxLength={80} required /></label></div>
                 <p className="admin-muted">O código será usado nos produtos, nas integrações e na aba Unidades da planilha.</p>
                 <div className="admin-form-actions"><button className="admin-secondary" type="button" onClick={closeMeasurementUnitEditor}>Cancelar</button><button className="admin-primary" type="submit" disabled={savingMeasurementUnit}><Save size={16} /> {savingMeasurementUnit ? "Salvando..." : "Salvar unidade"}</button></div>
               </form>
