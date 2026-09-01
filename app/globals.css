@@ -2597,17 +2597,31 @@ img {
   color: var(--muted);
 }
 
-.category-admin-info {
+.catalog-entity-info {
   display: grid;
+  flex: 1 1 auto;
   gap: 3px;
   min-width: 0;
+  padding: 2px 0;
 }
 
-.category-admin-info span {
+.catalog-entity-info > strong {
   overflow: hidden;
-  font-weight: 800;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.catalog-entity-info > small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.35;
 }
 
 .category-delete-button {
@@ -4341,6 +4355,34 @@ img {
   flex: 0 0 36px;
 }
 
+.catalog-structure-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.catalog-structure-panel .catalog-panel-heading {
+  min-height: 36px;
+}
+
+.catalog-structure-panel .catalog-panel-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.catalog-structure-panel .catalog-panel-search {
+  margin: 0;
+}
+
+.catalog-structure-panel .catalog-scroll-list {
+  margin-top: 0;
+}
+
 .catalog-panel-search {
   display: flex;
   gap: 8px;
@@ -4436,22 +4478,6 @@ img {
 
 .catalog-overview > section {
   min-width: 0;
-}
-
-.measurement-unit-row > div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.measurement-unit-row strong {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.82rem;
-  letter-spacing: 0.02em;
-}
-
-.measurement-unit-row small {
-  color: var(--muted);
 }
 
 .measurement-unit-list {

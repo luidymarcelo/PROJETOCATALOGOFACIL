@@ -3261,7 +3261,7 @@ function AdminPage() {
           : "Nenhum produto vinculado";
     return (
       <div className="admin-list-row measurement-unit-row" key={unit.id}>
-        <div><strong>{unit.code}</strong><small>{unit.name}</small><small>{usageLabel}</small></div>
+        <div className="catalog-entity-info"><strong>{unit.code}</strong><small>{unit.name}</small><small>{usageLabel}</small></div>
         <button
           className="category-delete-button"
           type="button"
@@ -3565,21 +3565,21 @@ function AdminPage() {
               </div>
             ) : null}
             <div className="admin-columns catalog-overview">
-              <section className="admin-form-panel">
+              <section className="admin-form-panel catalog-structure-panel category-overview-panel">
                  <div className="catalog-panel-heading"><h2>Categorias <span className="count-badge">{categories.length}</span></h2><button className="icon-button" type="button" title="Adicionar categoria" aria-label="Adicionar categoria" onClick={openCategoryEditor}><Plus size={18} /></button></div>
                  <label className="catalog-panel-search"><Search size={16} /><input value={categoryQuery} onChange={(event) => setCategoryQuery(event.target.value)} placeholder="Pesquisar categoria" /></label>
                  <div className="admin-list catalog-scroll-list">{visibleCategories.map((category) => {
                   const linkedProductCount = productCountByCategoryId.get(category.id) ?? 0;
                   const canDelete = linkedProductCount === 0;
-                  return <div className="admin-list-row category-admin-row" key={category.id}><div className="category-admin-info"><span>{category.name}</span><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
+                   return <div className="admin-list-row category-admin-row" key={category.id}><div className="catalog-entity-info"><strong>{category.name}</strong><small>{linkedProductCount} produto(s)</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingCategoryId)} title={canDelete ? "Excluir categoria" : "Remova ou desvincule os produtos antes de excluir"} aria-label={canDelete ? `Excluir categoria ${category.name}` : `Não é possível excluir ${category.name}: existem produtos vinculados`} onClick={() => deleteCategory(category)}><Trash2 size={17} /></button></div>;
                  })}{!visibleCategories.length ? <p className="admin-muted">Nenhuma categoria encontrada.</p> : null}</div>
                </section>
-               {activeEnablesAdditions ? <section className="admin-form-panel addition-groups-overview-panel">
+               {activeEnablesAdditions ? <section className="admin-form-panel catalog-structure-panel addition-groups-overview-panel">
                   <div className="catalog-panel-heading"><h2>Grupos de adicionais <span className="count-badge">{optionGroups.length}</span></h2><button className="icon-button" type="button" title="Adicionar grupo de adicionais" aria-label="Adicionar grupo de adicionais" onClick={() => { setShowOptionGroupForm(true); resetOptionGroupEditor(); }}><Plus size={18} /></button></div>
                   <label className="catalog-panel-search"><Search size={16} /><input value={additionGroupQuery} onChange={(event) => setAdditionGroupQuery(event.target.value)} placeholder="Pesquisar grupo" /></label>
-                 <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
+                 <div className="admin-list catalog-scroll-list">{visibleAdditionGroups.map((group) => { const linkedProductCount = (group.product_option_groups ?? []).length; const canDelete = linkedProductCount === 0; return <div className="admin-list-row option-group-row" key={group.id}><div className="catalog-entity-info"><strong>{group.name}</strong><small>{group.min_selections > 0 ? "Obrigatório" : "Opcional"} · {group.option_group_items?.length ?? 0} adicional(is)</small><small>{linkedProductCount ? `${linkedProductCount} produto(s) vinculado(s)` : "Nenhum produto vinculado"}</small></div><button className="category-delete-button" type="button" disabled={!canDelete || Boolean(deletingOptionGroupId)} title={canDelete ? "Excluir grupo" : "Remova os produtos vinculados antes de excluir"} aria-label={canDelete ? `Excluir grupo ${group.name}` : `Não é possível excluir ${group.name}: existem produtos vinculados`} onClick={() => deleteOptionGroup(group)}><Trash2 size={17} /></button></div>; })}{!visibleAdditionGroups.length ? <p className="admin-muted">Nenhum grupo de adicionais encontrado.</p> : null}</div>
                </section> : null}
-               <section className="admin-form-panel measurement-units-overview-panel">
+               <section className="admin-form-panel catalog-structure-panel measurement-units-overview-panel">
                  <div className="catalog-panel-heading"><h2>Unidades de medida <span className="count-badge">{measurementUnits.length}</span></h2><button className="icon-button" type="button" title="Adicionar unidade" aria-label="Adicionar unidade" onClick={openMeasurementUnitEditor}><Plus size={18} /></button></div>
                  <label className="catalog-panel-search"><Search size={16} /><input value={measurementUnitQuery} onChange={(event) => setMeasurementUnitQuery(event.target.value)} placeholder="Pesquisar unidade" /></label>
                  <div className="admin-list catalog-scroll-list measurement-unit-list">

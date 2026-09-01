@@ -216,6 +216,11 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /selectedOrderChannel/);
   assert.doesNotMatch(page, /className="order-channel-selector"/);
   assert.match(pageStyles, /\.branch-order-links/);
+  assert.match(adminPage, /className="admin-form-panel catalog-structure-panel category-overview-panel"/);
+  assert.match(adminPage, /className="catalog-entity-info"/);
+  assert.match(pageStyles, /\.catalog-structure-panel \.catalog-panel-heading h2/);
+  assert.match(pageStyles, /\.catalog-entity-info > strong/);
+  assert.doesNotMatch(pageStyles, /\.measurement-unit-row strong\s*\{[^}]*ui-monospace/s);
   assert.match(page, /Mesa ou identificação/);
   assert.match(ordersPage, /Pedidos e comandas/);
   assert.match(ordersPage, /payment_status/);
