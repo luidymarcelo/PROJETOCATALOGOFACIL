@@ -237,7 +237,7 @@ export default function InternalOrdersPage() {
               </div>
               <footer className="order-card-actions"><label><span>Andamento</span><select value={order.status} disabled={savingOrderId === order.id} onChange={(event) => void updateOrder(order.id, { status: event.target.value as OrderStatus })}>{STATUS_OPTIONS.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select></label><label><span>Pagamento</span><select value={order.payment_status} disabled={savingOrderId === order.id} onChange={(event) => void updateOrder(order.id, { payment_status: event.target.value as PaymentStatus })}><option value="pending">Pendente</option><option value="paid">Pago</option><option value="refunded">Estornado</option></select></label><label><span>Faturamento</span><select value={order.billing_status} disabled={savingOrderId === order.id} onChange={(event) => void updateOrder(order.id, { billing_status: event.target.value as BillingStatus })}><option value="pending">A faturar</option><option value="billed">Faturado</option><option value="cancelled">Cancelado</option></select></label></footer>
             </article>
-          )) : <div className="orders-empty"><ClipboardList size={28} /><h2>Nenhuma comanda encontrada</h2><p>Quando o modo Comanda interna estiver ativo, os pedidos desta filial aparecerão aqui.</p></div>}
+          )) : <div className="orders-empty"><ClipboardList size={28} /><h2>Nenhuma comanda encontrada</h2><p>Quando o modo Comanda interna ou Ambos estiver ativo, os pedidos enviados ao painel aparecerão aqui.</p></div>}
         </section>
       </section>
     </main>

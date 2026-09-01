@@ -1277,6 +1277,23 @@ img {
   border-top: 1px solid var(--line);
 }
 
+.order-channel-selector {
+  display: grid;
+  gap: 7px;
+  padding-bottom: 2px;
+}
+
+.order-channel-selector > span,
+.order-channel-selector > small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.order-channel-selector > small {
+  line-height: 1.4;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -6103,6 +6120,10 @@ img {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.parameter-mode-options.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .parameter-mode-options label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -6254,6 +6275,10 @@ img {
 
   .parameter-mode-options {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .parameter-mode-options.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .parameter-mode-options label {

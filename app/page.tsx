@@ -40,7 +40,8 @@ type StoreId = string;
 type ViewMode = "catalog" | "admin";
 type FulfillmentMode = "delivery" | "pickup";
 type DeliveryFeeType = "fixed" | "per_km";
-type OrderMode = "whatsapp" | "internal";
+type OrderChannel = "whatsapp" | "internal";
+type OrderMode = OrderChannel | "both";
 
 type Product = {
   id: string;
@@ -158,7 +159,7 @@ function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizonta
 }
 
 function orderModeValue(value: unknown, fallback: OrderMode = "whatsapp"): OrderMode {
-  return value === "internal" || value === "whatsapp" ? value : fallback;
+  return value === "internal" || value === "whatsapp" || value === "both" ? value : fallback;
 }
 
 function requestCurrentPosition(options: PositionOptions) {
@@ -1583,9 +1584,12 @@ export default function Home() {
     setIsCartOpen(false);
   }
 
-  function sendOrder() {
+  function sendOrder(requestedChannel: OrderChannel) {
     const targetMerchant = cartMerchant ?? merchant;
-    if (targetMerchant.orderMode === "internal") {
+    const channel = targetMerchant.orderMode === "both"
+      ? requestedChannel
+      : targetMerchant.orderMode ?? "whatsapp";
+    if (channel === "internal") {
       void sendInternalOrder();
       return;
     }
@@ -1641,7 +1645,7 @@ export default function Home() {
           <span className="brand-mark"><Store size={20} /></span>
           <span>
             <strong>Catalogo Facil</strong>
-            <small>Pedidos por WhatsApp</small>
+            <small>Catálogos e pedidos</small>
           </span>
         </button>
 
@@ -2145,15 +2149,17 @@ function CartPanel({
   onClose: () => void;
   onFulfillmentChange: (mode: FulfillmentMode) => void;
   onQuantityChange: (productId: string, nextQuantity: number) => void;
-  onSendOrder: () => void;
+  onSendOrder: (channel: OrderChannel) => void;
   submittingOrder: boolean;
   locatingUser: boolean;
   locationStatus: string;
   onUseCurrentLocation: () => void;
 }) {
   const [showCheckoutDetails, setShowCheckoutDetails] = useState(false);
+  const [selectedOrderChannel, setSelectedOrderChannel] = useState<OrderChannel>("whatsapp");
   const disabled = cart.length === 0;
   const cartBranchName = merchantBranchLabel(cartMerchant);
+  const activeOrderChannel = orderMode === "both" ? selectedOrderChannel : orderMode;
   const deliveryFeeLabel = fulfillment === "delivery" && totals.deliveryFeePending
     ? cartMerchant.calculatesDeliveryFee && cartMerchant.deliveryFeeType === "per_km"
       ? "Aguardando localização"
@@ -2248,8 +2254,18 @@ function CartPanel({
         )}
       </div>
 
-      <div className={showCheckoutDetails ? "cart-section-heading delivery-section-heading expanded" : "cart-section-heading delivery-section-heading"}><div><strong>{orderMode === "internal" ? "Detalhes da comanda" : "Detalhes da entrega"}</strong><small>{showCheckoutDetails ? "Confira os dados antes de enviar." : "Clique em Continuar para preencher os dados."}</small></div></div>
+      <div className={showCheckoutDetails ? "cart-section-heading delivery-section-heading expanded" : "cart-section-heading delivery-section-heading"}><div><strong>{activeOrderChannel === "internal" ? "Detalhes da comanda" : "Detalhes da entrega"}</strong><small>{showCheckoutDetails ? "Confira os dados antes de enviar." : "Clique em Continuar para preencher os dados."}</small></div></div>
       {showCheckoutDetails ? <div className="checkout-block" id="cart-checkout">
+        {orderMode === "both" ? (
+          <div className="order-channel-selector">
+            <span>Enviar pedido por</span>
+            <div className="segmented-control" role="group" aria-label="Escolher destino do pedido">
+              <button type="button" className={selectedOrderChannel === "whatsapp" ? "active" : ""} aria-pressed={selectedOrderChannel === "whatsapp"} onClick={() => setSelectedOrderChannel("whatsapp")}><MessageCircle size={16} /> WhatsApp</button>
+              <button type="button" className={selectedOrderChannel === "internal" ? "active" : ""} aria-pressed={selectedOrderChannel === "internal"} onClick={() => setSelectedOrderChannel("internal")}><ClipboardList size={16} /> Comanda</button>
+            </div>
+            <small>{activeOrderChannel === "internal" ? "O pedido será registrado no painel da filial." : "A comanda será aberta no WhatsApp da filial."}</small>
+          </div>
+        ) : null}
         <div className="segmented-control">
           <button
             className={fulfillment === "delivery" ? "active" : ""}
@@ -2280,7 +2296,7 @@ function CartPanel({
           />
         </label>
 
-        {orderMode === "internal" ? (
+        {activeOrderChannel === "internal" ? (
           <label>
             <ClipboardList size={16} />
             <input
@@ -2421,9 +2437,9 @@ function CartPanel({
         </span>
       </div>
 
-          <button className="whatsapp-button" disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? onSendOrder : goToCheckout}>
-            {showCheckoutDetails ? orderMode === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
-            {showCheckoutDetails ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Continuar"}
+          <button className="whatsapp-button" disabled={disabled || submittingOrder} onClick={showCheckoutDetails ? () => onSendOrder(activeOrderChannel) : goToCheckout}>
+            {showCheckoutDetails ? activeOrderChannel === "internal" ? <ClipboardList size={19} /> : <MessageCircle size={19} /> : <ChevronRight size={19} />}
+            {showCheckoutDetails ? activeOrderChannel === "internal" ? submittingOrder ? "Registrando..." : "Enviar comanda" : "Enviar pelo WhatsApp" : "Continuar"}
           </button>
       </div>
     </aside>

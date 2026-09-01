@@ -149,7 +149,7 @@ type AdditionsMode = "inherit" | "enabled" | "disabled";
 type CatalogLayout = "horizontal" | "showcase";
 type BranchCatalogLayoutMode = "inherit" | CatalogLayout;
 type ProductImageLimitMode = "inherit" | number;
-type OrderMode = "whatsapp" | "internal";
+type OrderMode = "whatsapp" | "internal" | "both";
 type BranchOrderMode = "inherit" | OrderMode;
 type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "additions" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
@@ -441,6 +441,16 @@ function deliveryFeeTypeValue(value: unknown, fallback: DeliveryFeeType = "fixed
 
 function catalogLayoutValue(value: unknown, fallback: CatalogLayout = "horizontal"): CatalogLayout {
   return value === "horizontal" || value === "showcase" ? value : fallback;
+}
+
+function orderModeValue(value: unknown, fallback: OrderMode = "whatsapp"): OrderMode {
+  return value === "whatsapp" || value === "internal" || value === "both" ? value : fallback;
+}
+
+function orderModeLabel(mode: OrderMode) {
+  if (mode === "internal") return "Comanda";
+  if (mode === "both") return "Ambos";
+  return "WhatsApp";
 }
 
 function productImageLimitValue(value: unknown, fallback = 1) {
@@ -1574,7 +1584,7 @@ function AdminPage() {
     setCompanyProductImageLimit(productImageLimitValue(tenantParameters.get(PRODUCT_IMAGE_LIMIT_PARAMETER_KEY), 1));
     setCompanyControlsStock(parameterBoolean(tenantParameters.get(STOCK_CONTROL_PARAMETER_KEY), true));
     setCompanyEnablesAdditions(parameterBoolean(tenantParameters.get(ADDITIONS_PARAMETER_KEY), false));
-    setCompanyOrderMode(tenantParameters.get(ORDER_MODE_PARAMETER_KEY) === "internal" ? "internal" : "whatsapp");
+    setCompanyOrderMode(orderModeValue(tenantParameters.get(ORDER_MODE_PARAMETER_KEY)));
     const freightParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === FREIGHT_PARAMETER_KEY)
@@ -1608,7 +1618,7 @@ function AdminPage() {
     const orderModeParameterByStore = new Map(
       (branchParameterResult.data ?? [])
         .filter((row) => row.parameter_key === ORDER_MODE_PARAMETER_KEY)
-        .map((row) => [row.store_id, row.parameter_value === "internal" ? "internal" : "whatsapp"] as const),
+        .map((row) => [row.store_id, orderModeValue(row.parameter_value)] as const),
     );
     setBranchFreightModes(Object.fromEntries(selectedBranches.map((branch) => [
       branch.id,
@@ -4023,17 +4033,18 @@ function ParameterWorkspace({
               </form>
               <form className="parameter-compact-form" onSubmit={onSaveCompany}>
                 <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · Padrão da empresa</small></span><strong className="parameter-value-badge">{companyOrderMode === "internal" ? "Comanda" : "WhatsApp"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · Padrão da empresa</small></span><strong className="parameter-value-badge">{orderModeLabel(companyOrderMode)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
                   <div className="parameter-compact-body">
                     <fieldset className="parameter-mode-fieldset">
                       <legend>Como os pedidos serão enviados</legend>
-                      <div className="parameter-mode-options parameter-layout-options two">
+                      <div className="parameter-mode-options parameter-layout-options">
                         <label className={companyOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="company-order-mode" value="whatsapp" checked={companyOrderMode === "whatsapp"} onChange={() => onCompanyOrderModeChange("whatsapp")} /><MessageSquareText size={18} /><span><strong>WhatsApp</strong><small>Envia a comanda para a loja</small></span></label>
                         <label className={companyOrderMode === "internal" ? "selected" : ""}><input type="radio" name="company-order-mode" value="internal" checked={companyOrderMode === "internal"} onChange={() => onCompanyOrderModeChange("internal")} /><ClipboardList size={18} /><span><strong>Comanda interna</strong><small>Envia para o painel de pedidos</small></span></label>
+                        <label className={companyOrderMode === "both" ? "selected" : ""}><input type="radio" name="company-order-mode" value="both" checked={companyOrderMode === "both"} onChange={() => onCompanyOrderModeChange("both")} /><SlidersHorizontal size={18} /><span><strong>Ambos</strong><small>Escolha o destino na finalização</small></span></label>
                       </div>
                     </fieldset>
                     <div className="parameter-compact-meta"><Building2 size={17} /><span><strong>{inheritedOrderModeBranchCount} {inheritedOrderModeBranchCount === 1 ? "filial segue" : "filiais seguem"} este padrão</strong><small>{branches.length - inheritedOrderModeBranchCount > 0 ? `${branches.length - inheritedOrderModeBranchCount} com modo próprio.` : "Nenhuma filial possui exceção."}</small></span></div>
-                    <footer className="parameter-form-footer"><span>Define o destino dos novos pedidos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
+                    <footer className="parameter-form-footer"><span>Define os destinos disponíveis para novos pedidos.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
                   </div>
                 </details>
               </form>
@@ -4135,14 +4146,15 @@ function ParameterWorkspace({
               </form>
               <form className="parameter-compact-form" onSubmit={onSaveBranch}>
                 <details className="parameter-compact-item">
-                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · {activeOrderMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{activeOrderModeValue === "internal" ? "Comanda" : "WhatsApp"}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
+                  <summary><span className="parameter-item-icon orders"><ClipboardList size={19} /></span><span className="parameter-item-name"><strong>Modo de pedidos</strong><small>Operação · {activeOrderMode === "inherit" ? `Herdando ${tenant.name}` : "Configuração própria"}</small></span><strong className="parameter-value-badge">{orderModeLabel(activeOrderModeValue)}</strong><ChevronRight className="parameter-item-arrow" size={18} /></summary>
                   <div className="parameter-compact-body branch">
                     <fieldset className="parameter-mode-fieldset">
                       <legend>Destino nesta filial</legend>
-                      <div className="parameter-mode-options">
+                      <div className="parameter-mode-options four">
                         <label className={activeOrderMode === "inherit" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="inherit" checked={activeOrderMode === "inherit"} onChange={() => onBranchOrderModeChange(activeBranch.id, "inherit")} /><Building2 size={17} /><span><strong>Herdar</strong><small>Segue {tenant.name}</small></span></label>
                         <label className={activeOrderMode === "whatsapp" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="whatsapp" checked={activeOrderMode === "whatsapp"} onChange={() => onBranchOrderModeChange(activeBranch.id, "whatsapp")} /><MessageSquareText size={17} /><span><strong>WhatsApp</strong><small>Enviar para a loja</small></span></label>
                         <label className={activeOrderMode === "internal" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="internal" checked={activeOrderMode === "internal"} onChange={() => onBranchOrderModeChange(activeBranch.id, "internal")} /><ClipboardList size={17} /><span><strong>Comanda</strong><small>Usar painel de pedidos</small></span></label>
+                        <label className={activeOrderMode === "both" ? "selected" : ""}><input type="radio" name="branch-order-mode" value="both" checked={activeOrderMode === "both"} onChange={() => onBranchOrderModeChange(activeBranch.id, "both")} /><SlidersHorizontal size={17} /><span><strong>Ambos</strong><small>Escolher ao finalizar</small></span></label>
                       </div>
                     </fieldset>
                     <footer className="parameter-form-footer"><span>Afeta somente {activeBranch.name}.</span><button className="admin-primary" type="submit" disabled={saving}><Save size={16} /> {saving ? "Salvando..." : "Salvar"}</button></footer>
