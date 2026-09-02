@@ -27,6 +27,14 @@ Deno.serve(async (request) => {
       return await getCompanyWorkspace(adminClient, caller.user.id);
     }
 
+    if (body.action === "list-company-users") {
+      return await listCompanyUsers(adminClient, caller.user.id, String(body.tenant_id ?? ""));
+    }
+
+    if (body.action === "save-company-user") {
+      return await saveCompanyUser(adminClient, caller.user.id, body);
+    }
+
     const { data: platformAdmin } = await adminClient.from("platform_admins").select("user_id").eq("user_id", caller.user.id).maybeSingle();
     if (!platformAdmin) throw new Error("Somente o administrador da plataforma pode gerenciar empresas.");
 
@@ -60,6 +68,7 @@ Deno.serve(async (request) => {
     const latitude = Number(company.latitude);
     const longitude = Number(company.longitude);
     const coverNote = String(company.cover_note ?? "").trim();
+    const branchCnpj = normalizeCnpj(company.branch_cnpj);
     const allowedCoverNotePositions = new Set([
       "top-left", "top-center", "top-right",
       "center-left", "center", "center-right",
@@ -70,9 +79,9 @@ Deno.serve(async (request) => {
       : "top-right";
     const validLocation = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
       && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
-    if (!companyName || !companySlug || !branchName || !branchSlug || !whatsappPhone || !address || !validLocation) {
+    if (!companyName || !companySlug || !branchName || !branchSlug || !whatsappPhone || !address || !validLocation || !isValidCnpj(branchCnpj)) {
       if (managedUser.wasCreated) await adminClient.auth.admin.deleteUser(managedUser.id);
-      throw new Error("Preencha todos os dados e uma localização válida para a primeira filial.");
+      throw new Error("Preencha todos os dados, um CNPJ válido e a localização da primeira filial.");
     }
     if (coverNote.length > 160) throw new Error("A observação da capa deve ter no máximo 160 caracteres.");
 
@@ -90,6 +99,14 @@ Deno.serve(async (request) => {
       if (ownerError) throw ownerError;
       const { error: companyUserError } = await adminClient.from("tenant_members").insert({ tenant_id: tenant.id, user_id: managedUser.id, role: "manager" });
       if (companyUserError) throw companyUserError;
+      const { error: companyAccessError } = await adminClient.from("company_users").insert({
+        tenant_id: tenant.id,
+        user_id: managedUser.id,
+        role: "owner",
+        is_active: true,
+        created_by: caller.user.id,
+      });
+      if (companyAccessError) throw companyAccessError;
       const { error: parameterError } = await adminClient.from("tenant_parameters").insert({
         tenant_id: tenant.id,
         parameter_key: "calculate_delivery_fee",
@@ -102,6 +119,7 @@ Deno.serve(async (request) => {
         tenant_id: tenant.id,
         name: branchName,
         slug: branchSlug,
+        cnpj: branchCnpj,
         segment: "retail",
         whatsapp_phone: whatsappPhone,
         address,
@@ -110,7 +128,7 @@ Deno.serve(async (request) => {
         cover_note: coverNote || null,
         cover_note_position: coverNotePosition,
         is_active: true,
-      }).select("id, name, slug, tenant_id, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, delivery_fee").single();
+      }).select("id, name, slug, cnpj, tenant_id, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, delivery_fee").single();
       if (branchError || !branch) throw branchError ?? new Error("Não foi possível criar a filial.");
 
       const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
@@ -133,62 +151,175 @@ Deno.serve(async (request) => {
 
 async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) {
   const { data: memberships, error: membershipError } = await adminClient
-    .from("tenant_members")
+    .from("company_users")
     .select("tenant_id")
     .eq("user_id", userId)
-    .in("role", ["manager", "staff"])
+    .eq("role", "owner")
+    .eq("is_active", true)
     .order("created_at", { ascending: true })
     .limit(1);
   if (membershipError) throw membershipError;
 
-  let tenantId = memberships?.[0]?.tenant_id as string | undefined;
+  const tenantId = memberships?.[0]?.tenant_id as string | undefined;
 
   if (!tenantId) {
-    const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(userId);
-    if (authUserError) throw authUserError;
-    tenantId = authUser.user?.app_metadata?.company_tenant_id as string | undefined;
+    return json({ error: "Este login não possui acesso de proprietário.", code: "company_owner_access_not_found" });
   }
-
-  if (!tenantId) {
-    const { data: storeMemberships, error: storeMembershipError } = await adminClient
-      .from("store_members")
-      .select("store_id")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: true })
-      .limit(1);
-    if (storeMembershipError) throw storeMembershipError;
-
-    const legacyStoreId = storeMemberships?.[0]?.store_id as string | undefined;
-    if (legacyStoreId) {
-      const { data: legacyStore, error: legacyStoreError } = await adminClient
-        .from("stores")
-        .select("tenant_id")
-        .eq("id", legacyStoreId)
-        .single();
-      if (legacyStoreError) throw legacyStoreError;
-      tenantId = legacyStore?.tenant_id as string | undefined;
-    }
-  }
-
-  if (!tenantId) {
-    return json({ error: "Este login não está vinculado a uma empresa.", code: "company_access_not_found" });
-  }
-
-  const { error: repairError } = await adminClient.from("tenant_members").upsert(
-    { tenant_id: tenantId, user_id: userId, role: "manager" },
-    { onConflict: "tenant_id,user_id" },
-  );
-  if (repairError) throw repairError;
 
   const [{ data: tenant, error: tenantError }, { data: branches, error: branchError }] = await Promise.all([
     adminClient.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-    adminClient.from("stores").select("id, name, slug, tenant_id, whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
+    adminClient.from("stores").select("id, name, slug, cnpj, tenant_id, whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active").eq("tenant_id", tenantId).order("created_at", { ascending: true }),
   ]);
   if (tenantError || !tenant) throw tenantError ?? new Error("Empresa não encontrada.");
   if (branchError) throw branchError;
   if (!branches?.length) return json({ error: "Esta empresa ainda não possui filial.", code: "company_branch_not_found" });
 
-  return json({ tenant, branches });
+  return json({ tenant, branches, access: { role: "owner" } });
+}
+
+async function assertCompanyOwner(adminClient: SupabaseClient, userId: string, tenantId: string) {
+  if (!tenantId) throw new Error("Empresa não informada.");
+  const { data: owner, error } = await adminClient
+    .from("company_users")
+    .select("user_id")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .eq("role", "owner")
+    .eq("is_active", true)
+    .maybeSingle();
+  if (error) throw error;
+  if (!owner) throw new Error("Somente o proprietário pode gerenciar a equipe da empresa.");
+}
+
+async function listCompanyUsers(adminClient: SupabaseClient, callerUserId: string, tenantId: string) {
+  await assertCompanyOwner(adminClient, callerUserId, tenantId);
+  const [{ data: accessRows, error: accessError }, { data: storeRows, error: storeError }] = await Promise.all([
+    adminClient
+      .from("company_users")
+      .select("tenant_id, user_id, role, is_active, created_at, company_user_stores(store_id)")
+      .eq("tenant_id", tenantId)
+      .neq("role", "owner")
+      .order("created_at", { ascending: true }),
+    adminClient.from("stores").select("id, name").eq("tenant_id", tenantId),
+  ]);
+  if (accessError) throw accessError;
+  if (storeError) throw storeError;
+
+  const storeNames = new Map((storeRows ?? []).map((store) => [store.id, store.name]));
+  const users: Array<Record<string, unknown>> = [];
+  for (const access of accessRows ?? []) {
+    const [{ data: authUser, error: authError }, { data: profile }] = await Promise.all([
+      adminClient.auth.admin.getUserById(access.user_id),
+      adminClient.from("profiles").select("full_name, phone").eq("id", access.user_id).maybeSingle(),
+    ]);
+    if (authError || !authUser.user) continue;
+    const branchIds = (access.company_user_stores ?? []).map((link: { store_id: string }) => link.store_id);
+    users.push({
+      user_id: access.user_id,
+      name: profile?.full_name ?? authUser.user.user_metadata?.full_name ?? "",
+      phone: profile?.phone ?? "",
+      email: authUser.user.email ?? "",
+      role: access.role,
+      is_active: access.is_active,
+      branch_ids: branchIds,
+      branch_names: branchIds.map((branchId: string) => storeNames.get(branchId)).filter(Boolean),
+    });
+  }
+  return json({ users });
+}
+
+async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string, body: Record<string, unknown>) {
+  const tenantId = String(body.tenant_id ?? "");
+  const existingUserId = String(body.user_id ?? "");
+  const name = String(body.name ?? "").trim();
+  const phone = String(body.phone ?? "").replace(/\D/g, "");
+  const email = String(body.email ?? "").trim().toLowerCase();
+  const password = String(body.password ?? "");
+  const role = String(body.role ?? "");
+  const isActive = body.is_active !== false;
+  const branchIds = Array.from(new Set(Array.isArray(body.branch_ids) ? body.branch_ids.map(String).filter(Boolean) : []));
+  const allowedRoles = new Set(["branch_manager", "waiter", "cashier", "kitchen", "supervisor"]);
+
+  await assertCompanyOwner(adminClient, callerUserId, tenantId);
+  if (!name || !email || !allowedRoles.has(role) || !branchIds.length) {
+    throw new Error("Preencha nome, e-mail, função e pelo menos uma filial.");
+  }
+  if (!existingUserId && password.length < 6) throw new Error("A senha inicial deve ter pelo menos 6 caracteres.");
+  if (password && password.length < 6) throw new Error("A nova senha deve ter pelo menos 6 caracteres.");
+
+  const { data: validBranches, error: branchError } = await adminClient
+    .from("stores")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .in("id", branchIds);
+  if (branchError) throw branchError;
+  if ((validBranches ?? []).length !== branchIds.length) throw new Error("Uma das filiais selecionadas não pertence à empresa.");
+
+  let userId = existingUserId;
+  let createdAuthUser = false;
+  if (userId) {
+    const { data: existingAccess, error: accessError } = await adminClient
+      .from("company_users")
+      .select("role")
+      .eq("tenant_id", tenantId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (accessError) throw accessError;
+    if (!existingAccess || existingAccess.role === "owner") throw new Error("Usuário não encontrado ou protegido.");
+    const { data: currentUser, error: currentUserError } = await adminClient.auth.admin.getUserById(userId);
+    if (currentUserError || !currentUser.user) throw currentUserError ?? new Error("Usuário não encontrado.");
+    const { error: updateError } = await adminClient.auth.admin.updateUserById(userId, {
+      email,
+      email_confirm: true,
+      user_metadata: { ...currentUser.user.user_metadata, full_name: name },
+      app_metadata: { ...currentUser.user.app_metadata, company_tenant_id: tenantId, company_role: role },
+      ...(password ? { password } : {}),
+    });
+    if (updateError) throw updateError;
+  } else {
+    const existingAuthUser = await findAuthUserByEmail(adminClient, email);
+    if (existingAuthUser) throw new Error("Este e-mail já possui uma conta. Use outro e-mail ou edite o usuário existente.");
+    const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: name },
+      app_metadata: { company_tenant_id: tenantId, company_role: role },
+    });
+    if (createError || !created.user) throw createError ?? new Error("Não foi possível criar o usuário.");
+    userId = created.user.id;
+    createdAuthUser = true;
+  }
+
+  try {
+    const { error: profileError } = await adminClient.from("profiles").upsert({ id: userId, full_name: name, phone: phone || null, updated_at: new Date().toISOString() });
+    if (profileError) throw profileError;
+    const { error: accessError } = await adminClient.from("company_users").upsert({
+      tenant_id: tenantId,
+      user_id: userId,
+      role,
+      is_active: isActive,
+      created_by: callerUserId,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "tenant_id,user_id" });
+    if (accessError) throw accessError;
+
+    const { error: clearError } = await adminClient
+      .from("company_user_stores")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("user_id", userId);
+    if (clearError) throw clearError;
+    const { error: assignmentError } = await adminClient.from("company_user_stores").insert(
+      branchIds.map((storeId) => ({ tenant_id: tenantId, user_id: userId, store_id: storeId })),
+    );
+    if (assignmentError) throw assignmentError;
+  } catch (databaseError) {
+    if (createdAuthUser) await adminClient.auth.admin.deleteUser(userId);
+    throw databaseError;
+  }
+
+  return json({ user: { user_id: userId, name, email, phone, role, is_active: isActive, branch_ids: branchIds } });
 }
 
 async function getCompanySettings(adminClient: SupabaseClient, tenantId: string) {
@@ -298,6 +429,14 @@ async function updateCompanyAccess(adminClient: SupabaseClient, body: Record<str
   if (!userId) throw new Error("Não foi possível identificar o acesso da empresa.");
   const { error: profileError } = await adminClient.from("profiles").upsert({ id: userId, full_name: name });
   if (profileError) throw profileError;
+  const { error: ownerAccessError } = await adminClient.from("company_users").upsert({
+    tenant_id: tenantId,
+    user_id: userId,
+    role: "owner",
+    is_active: true,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "tenant_id,user_id" });
+  if (ownerAccessError) throw ownerAccessError;
   return json({ account: { user_id: userId, email, name } });
 }
 
@@ -314,18 +453,27 @@ async function deleteCompany(adminClient: SupabaseClient, tenantId: string, conf
     .in("role", ["manager", "staff"]);
   if (memberError) throw memberError;
 
+  const { data: managedCompanyUsers, error: companyUserError } = await adminClient
+    .from("company_users")
+    .select("user_id")
+    .eq("tenant_id", tenantId);
+  if (companyUserError) throw companyUserError;
+
   const usersToDelete: string[] = [];
-  for (const member of companyMembers ?? []) {
+  const candidateUsers = Array.from(new Set([
+    ...(companyMembers ?? []).map((member) => member.user_id),
+    ...(managedCompanyUsers ?? []).map((member) => member.user_id),
+  ]));
+  for (const userId of candidateUsers) {
     const [{ data: platformAdmin }, { count: otherCompanyCount }] = await Promise.all([
-      adminClient.from("platform_admins").select("user_id").eq("user_id", member.user_id).maybeSingle(),
+      adminClient.from("platform_admins").select("user_id").eq("user_id", userId).maybeSingle(),
       adminClient
-        .from("tenant_members")
+        .from("company_users")
         .select("tenant_id", { count: "exact", head: true })
-        .eq("user_id", member.user_id)
-        .in("role", ["manager", "staff"])
+        .eq("user_id", userId)
         .neq("tenant_id", tenantId),
     ]);
-    if (!platformAdmin && !otherCompanyCount) usersToDelete.push(member.user_id);
+    if (!platformAdmin && !otherCompanyCount) usersToDelete.push(userId);
   }
 
   const { error: deleteError } = await adminClient.from("tenants").delete().eq("id", tenantId);
@@ -368,4 +516,24 @@ async function ensureAuthUser(adminClient: SupabaseClient, email: string, passwo
 
 function json(payload: Record<string, unknown>) {
   return new Response(JSON.stringify(payload), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+function normalizeCnpj(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 14);
+}
+
+function isValidCnpj(value: string) {
+  if (!/^\d{14}$/.test(value) || /^(\d)\1{13}$/.test(value)) return false;
+  const calculateDigit = (length: number) => {
+    let factor = length - 7;
+    let total = 0;
+    for (let index = 0; index < length; index += 1) {
+      total += Number(value[index]) * factor;
+      factor -= 1;
+      if (factor === 1) factor = 9;
+    }
+    const remainder = total % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+  return calculateDigit(12) === Number(value[12]) && calculateDigit(13) === Number(value[13]);
 }

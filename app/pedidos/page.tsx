@@ -41,6 +41,12 @@ type InternalOrder = {
   delivery_address: string | null;
   customer_reference: string | null;
   service_location: string | null;
+  table_id: string | null;
+  table_session_id: string | null;
+  order_source: "table_device" | "staff" | "customer";
+  created_by_name: string | null;
+  created_by_role: string | null;
+  restaurant_tables?: { code?: string; name?: string | null } | null;
   payment_method: string | null;
   payment_status: PaymentStatus;
   billing_status: BillingStatus;
@@ -50,6 +56,12 @@ type InternalOrder = {
   total: number;
   created_at: string;
   order_items?: OrderItem[];
+};
+type TableSession = {
+  id: string;
+  status: "open" | "awaiting_payment" | "closed" | "cancelled";
+  opened_at: string;
+  restaurant_tables?: { code?: string; name?: string | null } | null;
 };
 
 const STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
@@ -77,12 +89,18 @@ function optionLabel(item: OrderItem) {
     .join(", ");
 }
 
+function actorRoleLabel(role: string | null) {
+  return ({ owner: "Proprietário", branch_manager: "Gerente", waiter: "Garçom", cashier: "Caixa", kitchen: "Cozinha", supervisor: "Supervisor", table_device: "Mesa" } as Record<string, string>)[role ?? ""] ?? role;
+}
+
 export default function InternalOrdersPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [accessRole, setAccessRole] = useState("");
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [orders, setOrders] = useState<InternalOrder[]>([]);
+  const [tableSessions, setTableSessions] = useState<TableSession[]>([]);
   const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -99,6 +117,7 @@ export default function InternalOrdersPage() {
       setTenant(workspace.tenant as Tenant);
       const nextBranches = workspace.branches as Branch[];
       setBranches(nextBranches);
+      setAccessRole(workspace.access?.role ?? "owner");
       setSelectedBranchId((current) => current && nextBranches.some((branch) => branch.id === current) ? current : nextBranches[0].id);
       setLoading(false);
       return;
@@ -109,30 +128,56 @@ export default function InternalOrdersPage() {
       setTenant(databaseWorkspace.tenant as Tenant);
       const nextBranches = databaseWorkspace.branches as Branch[];
       setBranches(nextBranches);
+      setAccessRole(databaseWorkspace.access?.role ?? "owner");
       setSelectedBranchId((current) => current && nextBranches.some((branch) => branch.id === current) ? current : nextBranches[0].id);
       setLoading(false);
       return;
     }
 
-    setError(databaseWorkspace?.error ?? workspace?.error ?? "Este login não está vinculado a uma empresa.");
+    const operationalCnpj = window.localStorage.getItem("catalogo-facil-operation-cnpj")
+      ?? window.localStorage.getItem("catalogo-facil-branch-cnpj")
+      ?? "";
+    if (operationalCnpj) {
+      const { data: operationalWorkspace, error: operationalError } = await supabase.rpc("get_operational_workspace", { p_cnpj: operationalCnpj });
+      if (operationalWorkspace?.tenant && operationalWorkspace?.branches?.length) {
+        setTenant(operationalWorkspace.tenant as Tenant);
+        const nextBranches = operationalWorkspace.branches as Branch[];
+        setBranches(nextBranches);
+        setAccessRole(operationalWorkspace.access?.role ?? "");
+        setSelectedBranchId(nextBranches[0].id);
+        setLoading(false);
+        return;
+      }
+      if (operationalError) setError(operationalError.message);
+    }
+    setError(databaseWorkspace?.error ?? workspace?.error ?? "Este login não está vinculado a uma empresa ou filial.");
     setLoading(false);
   }
 
   async function loadOrders(branchId = selectedBranchId) {
     if (!supabase || !branchId) return;
     setLoadingOrders(true);
-    const { data, error: orderError } = await supabase
-      .from("orders")
-      .select("id, store_id, order_code, status, order_channel, fulfillment_mode, customer_name, delivery_address, customer_reference, service_location, payment_method, payment_status, billing_status, notes, subtotal, delivery_fee, total, created_at, order_items(id, product_name, unit_price, quantity, total, selected_options)")
-      .eq("store_id", branchId)
-      .eq("order_channel", "internal")
-      .order("created_at", { ascending: false });
+    const [orderResult, sessionResult] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("id, store_id, order_code, status, order_channel, fulfillment_mode, customer_name, delivery_address, customer_reference, service_location, table_id, table_session_id, order_source, created_by_name, created_by_role, payment_method, payment_status, billing_status, notes, subtotal, delivery_fee, total, created_at, restaurant_tables(code, name), order_items(id, product_name, unit_price, quantity, total, selected_options)")
+        .eq("store_id", branchId)
+        .eq("order_channel", "internal")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("table_sessions")
+        .select("id, status, opened_at, restaurant_tables(code, name)")
+        .eq("store_id", branchId)
+        .in("status", ["open", "awaiting_payment"])
+        .order("opened_at", { ascending: true }),
+    ]);
     setLoadingOrders(false);
-    if (orderError) {
-      setError(orderError.message);
+    if (orderResult.error) {
+      setError(orderResult.error.message);
       return;
     }
-    setOrders((data ?? []) as InternalOrder[]);
+    setOrders((orderResult.data ?? []) as InternalOrder[]);
+    setTableSessions(sessionResult.error ? [] : (sessionResult.data ?? []) as TableSession[]);
   }
 
   useEffect(() => {
@@ -170,22 +215,47 @@ export default function InternalOrdersPage() {
     if (!supabase) return;
     setSavingOrderId(orderId);
     setError("");
-    const { error: updateError } = await supabase.from("orders").update(changes).eq("id", orderId);
+    const { error: updateError } = await supabase.rpc("update_internal_order", {
+      p_order_id: orderId,
+      p_status: changes.status ?? null,
+      p_payment_status: changes.payment_status ?? null,
+      p_billing_status: changes.billing_status ?? null,
+    });
     setSavingOrderId("");
     if (updateError) {
-      setError(updateError.message);
+      setError(/cannot update payment or billing/i.test(updateError.message)
+        ? "Sua função não possui permissão para alterar pagamento ou faturamento."
+        : /cannot update order status/i.test(updateError.message)
+          ? "Sua função não possui permissão para alterar o andamento."
+          : updateError.message);
       return;
     }
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...changes } : order));
   }
 
+  async function updateTableSession(sessionId: string, status: TableSession["status"]) {
+    if (!supabase) return;
+    setSavingOrderId(sessionId);
+    setError("");
+    const { error: sessionError } = await supabase.rpc("update_table_session_status", { p_session_id: sessionId, p_status: status });
+    setSavingOrderId("");
+    if (sessionError) {
+      setError(/cannot close table sessions/i.test(sessionError.message) ? "Sua função não possui permissão para fechar mesas." : sessionError.message);
+      return;
+    }
+    setTableSessions((current) => status === "closed" || status === "cancelled" ? current.filter((item) => item.id !== sessionId) : current.map((item) => item.id === sessionId ? { ...item, status } : item));
+  }
+
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
+  const canUpdateStatus = ["owner", "branch_manager", "waiter", "kitchen", "supervisor"].includes(accessRole);
+  const canUpdateFinancial = ["owner", "branch_manager", "cashier", "supervisor"].includes(accessRole);
+  const canCloseTables = ["owner", "branch_manager", "cashier", "supervisor"].includes(accessRole);
   const visibleOrders = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     return orders.filter((order) => {
       if (statusFilter !== "all" && order.status !== statusFilter) return false;
       if (!normalized) return true;
-      return [order.order_code, order.customer_name, order.service_location, order.delivery_address]
+      return [order.order_code, order.customer_name, order.service_location, order.created_by_name, order.restaurant_tables?.code, order.delivery_address]
         .filter(Boolean)
         .join(" ")
         .toLocaleLowerCase("pt-BR")
@@ -199,6 +269,10 @@ export default function InternalOrdersPage() {
     ready: orders.filter((order) => order.status === "ready").length,
     paid: orders.filter((order) => order.payment_status === "paid").length,
   };
+  const sessionTotals = new Map(tableSessions.map((tableSession) => [
+    tableSession.id,
+    orders.filter((order) => order.table_session_id === tableSession.id).reduce((sum, order) => sum + Number(order.total), 0),
+  ]));
 
   if (loading) return <main className="orders-page"><p>Carregando painel de pedidos...</p></main>;
   if (!session) return <main className="orders-page"><section className="orders-empty"><ClipboardList size={30} /><h1>Entre no portal da empresa</h1><p>Faça login para acompanhar as comandas da sua empresa.</p><a className="admin-primary" href="/acesso">Ir para acesso</a></section></main>;
@@ -207,7 +281,7 @@ export default function InternalOrdersPage() {
   return (
     <main className="orders-page">
       <header className="orders-topbar">
-        <a href="/empresa" className="admin-back"><ArrowLeft size={17} /> Portal da empresa</a>
+        <a href={accessRole === "owner" ? "/empresa" : accessRole === "branch_manager" ? "/filial" : "/operacao"} className="admin-back"><ArrowLeft size={17} /> Voltar ao portal</a>
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
       <section className="orders-page-inner">
@@ -225,17 +299,19 @@ export default function InternalOrdersPage() {
         <div className="orders-metrics"><div><ClipboardList size={18} /><span>Em aberto</span><strong>{metrics.open}</strong></div><div><Clock3 size={18} /><span>Em preparo</span><strong>{metrics.preparing}</strong></div><div><CheckCircle2 size={18} /><span>Prontos</span><strong>{metrics.ready}</strong></div><div><DollarSign size={18} /><span>Pagos</span><strong>{metrics.paid}</strong></div></div>
         {error ? <p className="orders-error" role="alert">{error}</p> : null}
 
+        {tableSessions.length ? <section className="open-table-sessions"><header><div><span>Contas em andamento</span><h2>Mesas abertas</h2></div><strong>{tableSessions.length}</strong></header><div>{tableSessions.map((tableSession) => <article key={tableSession.id}><span className="open-table-code">{tableSession.restaurant_tables?.code ?? "—"}</span><div><strong>{tableSession.restaurant_tables?.name?.trim() || `Mesa ${tableSession.restaurant_tables?.code ?? ""}`}</strong><small>Aberta em {dateLabel(tableSession.opened_at)}</small></div><b>{currency.format(sessionTotals.get(tableSession.id) ?? 0)}</b><select value={tableSession.status} disabled={savingOrderId === tableSession.id || !canCloseTables} title={canCloseTables ? "Alterar situação da mesa" : "Disponível para caixa, gerente ou supervisor"} onChange={(event) => void updateTableSession(tableSession.id, event.target.value as TableSession["status"])}><option value="open">Em atendimento</option><option value="awaiting_payment">Aguardando pagamento</option><option value="closed">Fechar mesa</option><option value="cancelled">Cancelar atendimento</option></select></article>)}</div></section> : null}
+
         <section className="orders-list" aria-live="polite">
           {loadingOrders ? <div className="orders-empty"><RefreshCw className="spinning" size={25} /><p>Atualizando pedidos...</p></div> : visibleOrders.length ? visibleOrders.map((order) => (
             <article className="order-card" key={order.id}>
               <header className="order-card-header"><div><span className="order-code">{order.order_code}</span><small>{dateLabel(order.created_at)}</small></div><span className={`order-status status-${order.status}`}>{statusLabel(order.status)}</span></header>
               <div className="order-card-main">
-                <div className="order-customer"><UserRound size={17} /><div><strong>{order.customer_name || "Cliente não informado"}</strong><span>{order.service_location ? `Mesa/identificação: ${order.service_location}` : order.fulfillment_mode === "pickup" ? "Retirada no local" : "Entrega"}</span></div></div>
+                <div className="order-customer"><UserRound size={17} /><div><strong>{order.restaurant_tables?.name?.trim() || (order.restaurant_tables?.code ? `Mesa ${order.restaurant_tables.code}` : order.customer_name || "Atendimento interno")}</strong><span>{order.created_by_name ? `Criada por ${order.created_by_name}${order.created_by_role ? ` · ${actorRoleLabel(order.created_by_role)}` : ""}` : order.order_source === "table_device" ? "Enviada pelo dispositivo da mesa" : "Responsável não identificado"}{order.customer_name ? ` · Cliente: ${order.customer_name}` : ""}</span></div></div>
                 <ul className="order-items">{(order.order_items ?? []).map((item) => <li key={item.id}><span><strong>{item.quantity}x</strong> {item.product_name}{optionLabel(item) ? <small>{optionLabel(item)}</small> : null}</span><b>{currency.format(Number(item.total))}</b></li>)}</ul>
                 <div className="order-summary"><span>Subtotal <b>{currency.format(Number(order.subtotal))}</b></span><span>Entrega <b>{Number(order.delivery_fee) ? currency.format(Number(order.delivery_fee)) : "Grátis"}</b></span><strong>Total <b>{currency.format(Number(order.total))}</b></strong></div>
                 <div className="order-details"><span><ReceiptText size={15} /> {order.billing_status === "billed" ? "Faturado" : "A faturar"}</span><span><DollarSign size={15} /> {order.payment_method || "Pagamento não informado"} · {order.payment_status === "paid" ? "Pago" : "Pendente"}</span>{order.delivery_address ? <span><Store size={15} /> {order.delivery_address}{order.customer_reference ? ` · ${order.customer_reference}` : ""}</span> : null}{order.notes ? <span>Observação: {order.notes}</span> : null}</div>
               </div>
-              <footer className="order-card-actions"><label><span>Andamento</span><select value={order.status} disabled={savingOrderId === order.id} onChange={(event) => void updateOrder(order.id, { status: event.target.value as OrderStatus })}>{STATUS_OPTIONS.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select></label><label><span>Pagamento</span><select value={order.payment_status} disabled={savingOrderId === order.id} onChange={(event) => void updateOrder(order.id, { payment_status: event.target.value as PaymentStatus })}><option value="pending">Pendente</option><option value="paid">Pago</option><option value="refunded">Estornado</option></select></label><label><span>Faturamento</span><select value={order.billing_status} disabled={savingOrderId === order.id} onChange={(event) => void updateOrder(order.id, { billing_status: event.target.value as BillingStatus })}><option value="pending">A faturar</option><option value="billed">Faturado</option><option value="cancelled">Cancelado</option></select></label></footer>
+              <footer className="order-card-actions"><label><span>Andamento</span><select value={order.status} disabled={savingOrderId === order.id || !canUpdateStatus} title={canUpdateStatus ? "Alterar andamento" : "Sua função possui acesso somente financeiro"} onChange={(event) => void updateOrder(order.id, { status: event.target.value as OrderStatus })}>{STATUS_OPTIONS.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select></label><label><span>Pagamento</span><select value={order.payment_status} disabled={savingOrderId === order.id || !canUpdateFinancial} title={canUpdateFinancial ? "Alterar pagamento" : "Disponível para caixa, gerente ou supervisor"} onChange={(event) => void updateOrder(order.id, { payment_status: event.target.value as PaymentStatus })}><option value="pending">Pendente</option><option value="paid">Pago</option><option value="refunded">Estornado</option></select></label><label><span>Faturamento</span><select value={order.billing_status} disabled={savingOrderId === order.id || !canUpdateFinancial} title={canUpdateFinancial ? "Alterar faturamento" : "Disponível para caixa, gerente ou supervisor"} onChange={(event) => void updateOrder(order.id, { billing_status: event.target.value as BillingStatus })}><option value="pending">A faturar</option><option value="billed">Faturado</option><option value="cancelled">Cancelado</option></select></label></footer>
             </article>
           )) : <div className="orders-empty"><ClipboardList size={28} /><h2>Nenhuma comanda encontrada</h2><p>Quando o modo Comanda interna ou Ambos estiver ativo, os pedidos enviados ao painel aparecerão aqui.</p></div>}
         </section>

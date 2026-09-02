@@ -229,7 +229,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /\.catalog-structure-panel \.catalog-panel-heading h2/);
   assert.match(pageStyles, /\.catalog-entity-info > strong/);
   assert.doesNotMatch(pageStyles, /\.measurement-unit-row strong\s*\{[^}]*ui-monospace/s);
-  assert.match(page, /Mesa ou identificação/);
+  assert.doesNotMatch(page, /Mesa ou identificação/);
+  assert.match(page, /type InternalOrderContext/);
+  assert.match(page, /create_internal_order_v2/);
+  assert.match(page, /internalOrderContext\.tableId/);
+  assert.match(page, /internalOrderContext\.tableToken/);
   assert.match(ordersPage, /Pedidos e comandas/);
   assert.match(ordersPage, /payment_status/);
   assert.match(ordersPage, /billing_status/);
@@ -240,9 +244,40 @@ test("keeps the growth surfaces present", async () => {
   assert.match(internalOrdersSql, /v_order_mode not in \('internal', 'both'\)/);
   const commandCatalogPage = await readFile(new URL("app/comanda/page.tsx", projectRoot), "utf8");
   assert.match(commandCatalogPage, /CatalogApplication orderChannel="internal"/);
+  assert.match(commandCatalogPage, /get_operational_workspace_by_store/);
+  assert.match(commandCatalogPage, /Sua função não possui permissão para criar comandas/);
   const bothOrderChannelsSql = await readFile(new URL("supabase/020_allow_both_order_channels.sql", projectRoot), "utf8");
   assert.match(bothOrderChannelsSql, /create or replace function public\.create_internal_order/);
   assert.match(bothOrderChannelsSql, /v_order_mode not in \('internal', 'both'\)/);
+  const [companyOperationsPage, branchPortalPage, operationPage, tablePage, branchAccessSql] = await Promise.all([
+    readFile(new URL("app/admin/company-operations.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/filial/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/operacao/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("app/mesa/page.tsx", projectRoot), "utf8"),
+    readFile(new URL("supabase/021_branch_access_tables_and_audit.sql", projectRoot), "utf8"),
+  ]);
+  assert.match(companyOperationsPage, /Controle de acesso/);
+  assert.match(companyOperationsPage, /Filiais permitidas/);
+  assert.match(companyOperationsPage, /Origem da comanda/);
+  assert.match(companyOperationsPage, /Exigir mesa aberta/);
+  assert.match(companyOperationsPage, /QRCode\.toDataURL/);
+  assert.match(branchPortalPage, /portalMode="branch"/);
+  assert.match(operationPage, /open_table_session/);
+  assert.match(operationPage, /Mesas da filial/);
+  assert.match(tablePage, /get_table_catalog_context/);
+  assert.match(tablePage, /Aguardando abertura/);
+  assert.match(branchAccessSql, /create table if not exists public\.company_users/);
+  assert.match(branchAccessSql, /create table if not exists public\.restaurant_tables/);
+  assert.match(branchAccessSql, /create table if not exists public\.table_sessions/);
+  assert.match(branchAccessSql, /create table if not exists public\.order_events/);
+  assert.match(branchAccessSql, /create or replace function public\.open_table_session/);
+  assert.match(branchAccessSql, /create or replace function public\.update_internal_order/);
+  assert.match(branchAccessSql, /create or replace function public\.create_internal_order_v2/);
+  assert.match(branchAccessSql, /this role cannot update payment or billing/);
+  assert.match(branchAccessSql, /create or replace function public\.can_manage_tenant_catalog/);
+  assert.match(branchAccessSql, /branch managers update assigned stores/);
+  assert.match(branchAccessSql, /using \(public\.can_manage_tenant_catalog\(tenant_id\)\)/);
+  assert.doesNotMatch(adminPage, /tenant_members/);
   assert.match(adminPage, /branch-stock-control-mode/);
   assert.match(adminPage, /Layout do catálogo/);
   assert.match(adminPage, /Foto acima do nome do produto/);
@@ -313,7 +348,10 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /const company = body\.company/);
   assert.match(createCompanyFunction, /get-company-workspace/);
   assert.match(createCompanyFunction, /company_tenant_id/);
-  assert.match(createCompanyFunction, /store_members/);
+  assert.match(createCompanyFunction, /company_users/);
+  assert.match(createCompanyFunction, /company_user_stores/);
+  assert.match(createCompanyFunction, /list-company-users/);
+  assert.match(createCompanyFunction, /save-company-user/);
   assert.match(createCompanyFunction, /whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active/);
   assert.match(adminPage, /get_company_workspace/);
   assert.match(adminPage, /async function createBranch/);

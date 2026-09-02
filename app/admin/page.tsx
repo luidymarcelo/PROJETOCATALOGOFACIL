@@ -40,12 +40,18 @@ import type { Session } from "@supabase/supabase-js";
 import type { DataValidation, Worksheet } from "exceljs";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
 import { supabase } from "../../lib/supabase";
+import {
+  CompanyOperations,
+  CompanyPortalNav,
+  type CompanyPortalSection,
+} from "./company-operations";
 
 type Tenant = { id: string; name: string; slug: string; is_active?: boolean; theme_color?: string; profile_image_url?: string | null };
 type Branch = {
   id: string;
   name: string;
   slug: string;
+  cnpj?: string | null;
   tenant_id: string;
   whatsapp_phone?: string | null;
   address?: string | null;
@@ -155,6 +161,13 @@ type OrderMode = "whatsapp" | "internal" | "both";
 type BranchOrderMode = "inherit" | OrderMode;
 type CompanySettingsSection = "overview" | "identity" | "access" | "parameters" | "additions" | "danger";
 type IdentityFeedback = { status: "saving" | "success" | "error"; message: string };
+type AdminCompanyIdentityRow = {
+  tenant_id: string;
+  is_active: boolean;
+  theme_color: string | null;
+  profile_image_url: string | null;
+};
+type OrderedWorksheet = Worksheet & { orderNo: number };
 type ParameterScope = "company" | "branch";
 type BranchLocationTarget = "company" | "branch" | "existing";
 type LocationIssue = { target: BranchLocationTarget; message: string };
@@ -162,10 +175,12 @@ type BranchLocationValue = { address: string; latitude: string; longitude: strin
 type OpenStreetMapPlace = { display_name?: string; lat?: string; lon?: string };
 type BranchDetailsForm = {
   name: string;
+  cnpj: string;
   phone: string;
   coverNote: string;
   isActive: boolean;
 };
+type PortalMode = "admin" | "company" | "branch";
 
 const FREIGHT_PARAMETER_KEY = "calculate_delivery_fee";
 const DELIVERY_FEE_TYPE_PARAMETER_KEY = "delivery_fee_type";
@@ -479,8 +494,10 @@ function locationErrorMessage(error: GeolocationPositionError) {
   return "Não foi possível obter a localização da filial.";
 }
 
-function AdminPage() {
-  const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
+function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
+  const isCompanyPortal = portalMode === "company";
+  const isBranchPortal = portalMode === "branch";
+  const isBusinessPortal = isCompanyPortal || isBranchPortal;
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -489,6 +506,7 @@ function AdminPage() {
   const [adminBranches, setAdminBranches] = useState<Branch[]>([]);
   const [adminSection, setAdminSection] = useState<"companies" | "new" | "catalog" | "settings">("companies");
   const [companySettingsSection, setCompanySettingsSection] = useState<CompanySettingsSection>("overview");
+  const [companyPortalSection, setCompanyPortalSection] = useState<CompanyPortalSection>("catalog");
   const [additionGroupName, setAdditionGroupName] = useState("");
   const [additionGroupRequired, setAdditionGroupRequired] = useState(false);
   const [additionGroupMax, setAdditionGroupMax] = useState("1");
@@ -508,10 +526,10 @@ function AdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [optionGroups, setOptionGroups] = useState<ProductOptionGroup[]>([]);
   const [message, setMessage] = useState("");
-  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
-  const [branchForm, setBranchForm] = useState({ name: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
+  const [companyForm, setCompanyForm] = useState({ name: "", branch: "", branchCnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
+  const [branchForm, setBranchForm] = useState({ name: "", cnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
   const [branchLocationForm, setBranchLocationForm] = useState<BranchLocationValue>({ address: "", latitude: "", longitude: "" });
-  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", phone: "", coverNote: "", isActive: true });
+  const [branchDetailsForm, setBranchDetailsForm] = useState<BranchDetailsForm>({ name: "", cnpj: "", phone: "", coverNote: "", isActive: true });
   const [locatingBranchForm, setLocatingBranchForm] = useState<BranchLocationTarget | "">("");
   const [validatingBranchAddress, setValidatingBranchAddress] = useState<BranchLocationTarget | "">("");
   const [locationIssue, setLocationIssue] = useState<LocationIssue | null>(null);
@@ -654,6 +672,24 @@ function AdminPage() {
 
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
+    if (isBranchPortal) {
+      const savedCnpj = window.localStorage.getItem("catalogo-facil-branch-cnpj") ?? "";
+      const { data: branchWorkspace, error: branchWorkspaceError } = await supabase.rpc("get_branch_workspace", { p_cnpj: savedCnpj });
+      if (branchWorkspace?.tenant && branchWorkspace?.branches?.length) {
+        const portalBranches = await hydrateBranchDetails(branchWorkspace.branches as Branch[]);
+        setTenant(branchWorkspace.tenant as Tenant);
+        setBranches(portalBranches);
+        setActiveBranchId(portalBranches[0].id);
+        setMessage("");
+        setLoading(false);
+        return;
+      }
+      setTenant(null);
+      setBranches([]);
+      setMessage(branchWorkspace?.error ?? branchWorkspaceError?.message ?? "Este login não possui acesso à filial informada.");
+      setLoading(false);
+      return;
+    }
     if (isCompanyPortal) {
       const { data: workspace } = await supabase.functions.invoke("create-store-user", {
         body: { action: "get-company-workspace" },
@@ -679,29 +715,9 @@ function AdminPage() {
         return;
       }
 
-      const { data: memberships, error: membershipError } = await supabase
-        .from("tenant_members")
-        .select("tenant_id, role")
-        .eq("user_id", userId)
-        .in("role", ["manager", "staff"])
-        .order("created_at", { ascending: true });
-      const tenantId = memberships?.[0]?.tenant_id;
-      const [{ data: portalTenant, error: tenantError }, { data: portalBranches, error: branchError }] = tenantId
-        ? await Promise.all([
-            supabase.from("tenants").select("id, name, slug").eq("id", tenantId).single(),
-            supabase.from("stores").select(BRANCH_DETAIL_SELECT).eq("tenant_id", tenantId).order("created_at", { ascending: true }),
-          ])
-        : [{ data: null, error: null }, { data: null, error: null }];
-      if (!portalTenant || !portalBranches?.length) {
-        setTenant(null);
-        setBranches([]);
-        setMessage(membershipError?.message ?? tenantError?.message ?? branchError?.message ?? databaseWorkspace?.error ?? workspace?.error ?? "Este login não está vinculado a uma empresa.");
-        setLoading(false);
-        return;
-      }
-      setTenant(portalTenant as Tenant);
-      setBranches(portalBranches as Branch[]);
-      setActiveBranchId((portalBranches as Branch[])[0].id);
+      setTenant(null);
+      setBranches([]);
+      setMessage(databaseWorkspace?.error ?? workspace?.error ?? "Este login não possui acesso de proprietário.");
       setLoading(false);
       return;
     }
@@ -724,8 +740,8 @@ function AdminPage() {
       return;
     }
 
-    const identityByTenant = new Map(
-      (identityResult.data ?? []).map((row) => [row.tenant_id, row]),
+    const identityByTenant = new Map<string, AdminCompanyIdentityRow>(
+      ((identityResult.data ?? []) as AdminCompanyIdentityRow[]).map((row) => [row.tenant_id, row]),
     );
     const nextTenants = (tenantRows ?? []).map((row) => {
       const identity = identityByTenant.get(row.id);
@@ -763,7 +779,7 @@ function AdminPage() {
     }
 
     setLoading(true);
-    if (!isCompanyPortal) {
+    if (portalMode === "admin") {
       const { data: isAdmin, error } = await supabase.rpc("is_platform_admin");
       if (error || !isAdmin) {
         setSession(null);
@@ -795,11 +811,11 @@ function AdminPage() {
   }, []);
 
   useEffect(() => {
-    const isCatalogWorkspace = isCompanyPortal || adminSection === "catalog";
+    const isCatalogWorkspace = isBusinessPortal || adminSection === "catalog";
     if (!isCatalogWorkspace || !tenant?.id) return;
     const branchTenantId = branches.find((branch) => branch.id === activeBranchId)?.tenant_id ?? tenant.id;
     void refreshMeasurementUnits(branchTenantId);
-  }, [activeBranchId, adminSection, branches, isCompanyPortal, tenant?.id]);
+  }, [activeBranchId, adminSection, branches, isBusinessPortal, tenant?.id]);
 
   useEffect(() => {
     if (!tenant?.id) return;
@@ -836,17 +852,18 @@ function AdminPage() {
         .eq("store_id", branchId)
         .order("sort_order", { ascending: true }),
     ]);
-    let productResult = initialProductResult;
-    if (productResult.error && /product_images|relationship|schema cache/i.test(productResult.error.message)) {
-      productResult = await supabase
+    let productRows = (initialProductResult.data ?? []) as Product[];
+    if (initialProductResult.error && /product_images|relationship|schema cache/i.test(initialProductResult.error.message)) {
+      const fallbackProductResult = await supabase
         .from("products")
         .select("id, external_id, name, description, price, unit, stock_quantity, image_url, badge, category_id, is_active, updated_at")
         .eq("store_id", branchId)
         .order("name", { ascending: true });
+      productRows = (fallbackProductResult.data ?? []) as Product[];
     }
     const categoryRows = categoryResult.data;
     const branchRow = branchResult.data;
-    const productRows = (productResult.data ?? []).map((product) => ({
+    const normalizedProductRows = productRows.map((product) => ({
       ...product,
       product_images: product.product_images?.length
         ? [...product.product_images].sort((left, right) => left.sort_order - right.sort_order)
@@ -866,7 +883,7 @@ function AdminPage() {
     }
     setCategories((categoryRows ?? []) as Category[]);
     setOptionGroups(branchOptionGroups);
-    setProducts((productRows ?? []).map((product) => ({ ...product, option_groups: optionGroupsByProduct.get(product.id) ?? [] })) as Product[]);
+    setProducts(normalizedProductRows.map((product) => ({ ...product, option_groups: optionGroupsByProduct.get(product.id) ?? [] })) as Product[]);
     if (branchRow) {
       setBranches((current) => current.map((branch) => branch.id === branchId ? { ...branch, cover_image_url: branchRow.cover_image_url } : branch));
       setAdminBranches((current) => current.map((branch) => branch.id === branchId ? { ...branch, cover_image_url: branchRow.cover_image_url } : branch));
@@ -967,6 +984,7 @@ function AdminPage() {
     });
     setBranchDetailsForm({
       name: selectedBranch?.name ?? "",
+      cnpj: formatCnpj(selectedBranch?.cnpj ?? ""),
       phone: formatWhatsapp(selectedBranch?.whatsapp_phone ?? ""),
       coverNote: selectedBranch?.cover_note ?? "",
       isActive: selectedBranch?.is_active ?? true,
@@ -1108,6 +1126,10 @@ function AdminPage() {
       setMessage("Use a localização atual ou valide o endereço da primeira filial.");
       return;
     }
+    if (!isValidCnpj(companyForm.branchCnpj)) {
+      setMessage("Informe um CNPJ válido para a primeira filial.");
+      return;
+    }
     const { data, error } = await supabase.functions.invoke("create-store-user", {
       body: {
         name: companyForm.userName.trim(),
@@ -1118,6 +1140,7 @@ function AdminPage() {
           slug: slugify(companyForm.name),
           branch_name: companyForm.branch.trim(),
           branch_slug: slugify(companyForm.branch),
+          branch_cnpj: companyForm.branchCnpj.replace(/\D/g, ""),
           whatsapp_phone: companyForm.phone.replace(/\D/g, ""),
           address: companyForm.address.trim(),
           latitude,
@@ -1152,7 +1175,7 @@ function AdminPage() {
     setAdminTenants((current) => [...current, tenantRow]);
     setAdminBranches((current) => [...current, branchRow]);
     setAdminSection("companies");
-    setCompanyForm({ name: "", branch: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
+    setCompanyForm({ name: "", branch: "", branchCnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "", userName: "", userEmail: "", userPassword: "" });
   }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
@@ -2077,6 +2100,10 @@ function AdminPage() {
       setMessage("Informe um WhatsApp válido para a filial.");
       return;
     }
+    if (!isValidCnpj(branchForm.cnpj)) {
+      setMessage("Informe um CNPJ válido para a filial.");
+      return;
+    }
     const latitude = validCoordinate(branchForm.latitude, -90, 90);
     const longitude = validCoordinate(branchForm.longitude, -180, 180);
     if (!branchForm.address.trim()) {
@@ -2104,6 +2131,7 @@ function AdminPage() {
         tenant_id: tenant.id,
         name: branchForm.name.trim(),
         slug: slugify(branchForm.name),
+        cnpj: branchForm.cnpj.replace(/\D/g, ""),
         segment: sourceBranch?.segment ?? "retail",
         whatsapp_phone: phone,
         address: branchForm.address.trim(),
@@ -2117,7 +2145,7 @@ function AdminPage() {
 
     setSavingBranch(false);
     if (error || !data) {
-      setMessage(error?.code === "23505" ? "Já existe uma filial com esse nome nesta empresa." : error?.message ?? "Não foi possível criar a filial.");
+      setMessage(error?.code === "23505" ? "Já existe uma filial com este nome ou CNPJ." : error?.message ?? "Não foi possível criar a filial.");
       return;
     }
 
@@ -2130,8 +2158,10 @@ function AdminPage() {
     setBranchCatalogLayouts((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchProductImageLimits((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchStockControlModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchAdditionsModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
+    setBranchOrderModes((current) => ({ ...current, [branchRow.id]: "inherit" }));
     setBranchDeliveryFees((current) => ({ ...current, [branchRow.id]: Number(branchRow.delivery_fee ?? 0).toFixed(2).replace(".", ",") }));
-    setBranchForm({ name: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
+    setBranchForm({ name: "", cnpj: "", phone: "", address: "", latitude: "", longitude: "", coverNote: "" });
     setShowBranchForm(false);
     setMessage("Nova filial criada. Ela já está disponível no Portal da empresa.");
   }
@@ -2141,6 +2171,7 @@ function AdminPage() {
     if (!supabase || !activeBranchId || savingBranchDetails) return;
     const name = branchDetailsForm.name.trim();
     const phone = branchDetailsForm.phone.replace(/\D/g, "");
+    const cnpj = branchDetailsForm.cnpj.replace(/\D/g, "");
     const address = branchLocationForm.address.trim();
     const latitude = validCoordinate(branchLocationForm.latitude, -90, 90);
     const longitude = validCoordinate(branchLocationForm.longitude, -180, 180);
@@ -2150,6 +2181,10 @@ function AdminPage() {
     }
     if (phone.length < 10) {
       setMessage("Informe um WhatsApp válido para a filial.");
+      return;
+    }
+    if (!isValidCnpj(cnpj)) {
+      setMessage("Informe um CNPJ válido para a filial.");
       return;
     }
     if (!address) {
@@ -2162,6 +2197,7 @@ function AdminPage() {
     }
     const branchUpdate: Partial<Branch> = {
       name,
+      cnpj,
       whatsapp_phone: phone,
       address,
       latitude,
@@ -2588,14 +2624,14 @@ function AdminPage() {
       exampleSheet.getColumn(statusColumnNumber).alignment = { horizontal: "center", vertical: "middle" };
       applyProductStatusValidation(exampleSheet, 100);
 
-      productsSheet.orderNo = 1;
-      optionsSheet.orderNo = 2;
-      measurementUnitsSheet.orderNo = 3;
-      categoriesSheet.orderNo = 4;
-      additionGroupsSheet.orderNo = 5;
-      listsSheet.orderNo = 6;
-      instructionsSheet.orderNo = 7;
-      exampleSheet.orderNo = 8;
+      (productsSheet as OrderedWorksheet).orderNo = 1;
+      (optionsSheet as OrderedWorksheet).orderNo = 2;
+      (measurementUnitsSheet as OrderedWorksheet).orderNo = 3;
+      (categoriesSheet as OrderedWorksheet).orderNo = 4;
+      (additionGroupsSheet as OrderedWorksheet).orderNo = 5;
+      (listsSheet as OrderedWorksheet).orderNo = 6;
+      (instructionsSheet as OrderedWorksheet).orderNo = 7;
+      (exampleSheet as OrderedWorksheet).orderNo = 8;
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer as BlobPart], {
@@ -3278,7 +3314,7 @@ function AdminPage() {
 
   if (loading) return <main className="admin-page"><p>Carregando painel...</p></main>;
   if (accessDenied) return <AdminDenied />;
-  if (!session) return <AdminLogin />;
+  if (!session) return <AdminLogin portalMode={portalMode} />;
 
   return (
     <main className="admin-page">
@@ -3286,9 +3322,9 @@ function AdminPage() {
         <a href="/" className="admin-back"><ArrowLeft size={17} /> Catálogo público</a>
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
-      <section className={isCompanyPortal ? "admin-page-inner" : "admin-page-inner admin-page-inner-platform"}>
-        <div className={isCompanyPortal ? "company-portal-workspace" : "admin-console-layout"}>
-          {!isCompanyPortal ? (
+      <section className={isBusinessPortal ? "admin-page-inner" : "admin-page-inner admin-page-inner-platform"}>
+        <div className={isBusinessPortal ? "company-portal-workspace" : "admin-console-layout"}>
+          {portalMode === "admin" ? (
             <PlatformAdminSidebar
               section={adminSection}
               companyCount={adminTenants.length}
@@ -3296,12 +3332,22 @@ function AdminPage() {
               onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); setMessage(""); }}
             />
           ) : null}
-          <div className={isCompanyPortal ? "company-portal-content" : "admin-console-content"}>
-        {isCompanyPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Gerencie as filiais e os catálogos" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Escolha uma filial para atualizar seus dados, categorias e produtos." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
+          <div className={isBusinessPortal ? "company-portal-content" : "admin-console-content"}>
+        {isBusinessPortal || adminSection === "companies" || adminSection === "new" ? <div className="admin-page-heading"><span>{isCompanyPortal ? tenant?.name ?? "Portal da empresa" : isBranchPortal ? tenant?.name ?? "Painel da filial" : "Central dos administradores"}</span><h1>{isCompanyPortal ? "Empresa e operação" : isBranchPortal ? "Gestão da filial" : adminSection === "new" ? "Nova empresa" : "Empresas"}</h1><p>{isCompanyPortal ? "Catálogo, equipe e mesas em áreas separadas." : isBranchPortal ? "Atualize o catálogo somente da filial autorizada." : adminSection === "new" ? "Crie a empresa, a primeira filial e o acesso do cliente." : "Selecione uma empresa para gerenciar."}</p></div> : null}
 
-        {!isCompanyPortal && adminSection === "companies" ? (
+        {isCompanyPortal && tenant ? <CompanyPortalNav section={companyPortalSection} onChange={(section) => { setCompanyPortalSection(section); setMessage(""); }} /> : null}
+
+        {isCompanyPortal && tenant && companyPortalSection !== "catalog" ? (
+          <CompanyOperations
+            section={companyPortalSection}
+            tenant={tenant}
+            branches={branches}
+            activeBranchId={activeBranchId}
+            onBranchChange={setActiveBranchId}
+          />
+        ) : portalMode === "admin" && adminSection === "companies" ? (
           <AdminCompanies tenants={adminTenants} branches={adminBranches} onNew={() => { setTenant(null); setBranches([]); setActiveBranchId(""); setAdminSection("new"); }} onOpenCatalog={openAdminCatalog} onOpenSettings={openCompanySettings} />
-        ) : !tenant && isCompanyPortal ? (
+        ) : !tenant && isBusinessPortal ? (
           <section className="admin-form-panel access-denied-panel"><h2>Acesso da empresa não vinculado</h2><p>O login foi aceito, mas não foi encontrado o vínculo deste e-mail com uma empresa cadastrada.</p><button className="admin-primary" onClick={() => supabase?.auth.signOut()}>Sair e entrar novamente</button></section>
         ) : adminSection === "new" || !tenant ? (
           <form className="admin-form-panel new-company-form" onSubmit={createCompany}>
@@ -3309,6 +3355,7 @@ function AdminPage() {
             <div className="admin-form-grid">
               <label>Empresa<input value={companyForm.name} onChange={(event) => setCompanyForm({ ...companyForm, name: event.target.value })} placeholder="Ex.: Material Forte" required /></label>
               <label>Primeira filial<input value={companyForm.branch} onChange={(event) => setCompanyForm({ ...companyForm, branch: event.target.value })} placeholder="Ex.: Filial Centro" required /></label>
+              <label>CNPJ da primeira filial<input value={companyForm.branchCnpj} onChange={(event) => setCompanyForm({ ...companyForm, branchCnpj: formatCnpj(event.target.value) })} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
               <label>WhatsApp<input value={companyForm.phone} onChange={(event) => setCompanyForm({ ...companyForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
               <label>Nome do responsável<input value={companyForm.userName} onChange={(event) => setCompanyForm({ ...companyForm, userName: event.target.value })} placeholder="Nome do cliente" required /></label>
               <label>E-mail de acesso<input type="email" value={companyForm.userEmail} onChange={(event) => setCompanyForm({ ...companyForm, userEmail: event.target.value })} placeholder="cliente@empresa.com" required /></label>
@@ -3329,7 +3376,7 @@ function AdminPage() {
             />
             <button className="admin-primary" type="submit"><Plus size={17} /> Criar empresa, filial e acesso</button>
           </form>
-        ) : !isCompanyPortal && adminSection === "settings" ? (
+        ) : portalMode === "admin" && adminSection === "settings" ? (
           <section className="company-settings-view">
             <header className="company-settings-header">
               <div className="company-settings-title"><button className="icon-button" type="button" title="Voltar para empresas" aria-label="Voltar para empresas" onClick={showCompanies}><ArrowLeft size={18} /></button><span className="company-settings-logo" style={{ "--company-color": companyIdentity.themeColor } as CSSProperties}>{companyProfilePreview || companyIdentity.profileImageUrl ? <img src={companyProfilePreview || companyIdentity.profileImageUrl} alt="" /> : tenant.name.trim().slice(0, 2).toUpperCase()}</span><div><span>Gerenciar empresa</span><h2>{tenant.name}</h2><p>{branches.length} {branches.length === 1 ? "filial vinculada" : "filiais vinculadas"} · {companyIdentity.isActive ? "Empresa ativa" : "Empresa inativa"}</p></div></div>
@@ -3466,12 +3513,13 @@ function AdminPage() {
           </section>
         ) : (
           <>
-            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{!isCompanyPortal ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}<a className="admin-secondary" href="/pedidos"><ClipboardList size={16} /> Pedidos</a><button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, isCompanyPortal ? undefined : tenant.id)}><RefreshCw size={16} /> Atualizar</button></div></section>
-            {!isCompanyPortal && showBranchForm ? (
+            <section className="workspace-bar"><div><span>Empresa</span><strong><Building2 size={18} /> {tenant.name}</strong></div><label>Filial<select value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label><div className="workspace-actions">{portalMode !== "branch" ? <button className="admin-primary" onClick={() => setShowBranchForm((current) => !current)}><Plus size={16} /> Nova filial</button> : null}{portalMode !== "admin" ? <a className="admin-secondary" href="/pedidos"><ClipboardList size={16} /> Pedidos</a> : null}<button className="admin-secondary" type="button" disabled={!activeBranch} onClick={() => setShowBranchDetails((current) => !current)}><Pencil size={16} /> {showBranchDetails ? "Fechar dados" : "Dados da filial"}</button><button className="admin-secondary" onClick={() => session.user.id && loadWorkspace(session.user.id, portalMode === "admin" ? tenant.id : undefined)}><RefreshCw size={16} /> Atualizar</button></div></section>
+            {portalMode !== "branch" && showBranchForm ? (
               <form className="admin-form-panel branch-create-panel" onSubmit={createBranch}>
                 <div className="branch-form-heading"><div><span>Nova filial</span><h2>Adicionar unidade à {tenant.name}</h2></div><button className="icon-button" type="button" title="Fechar" onClick={() => setShowBranchForm(false)}><X size={18} /></button></div>
                 <div className="admin-form-grid">
                   <label>Nome da filial<input value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} placeholder="Ex.: Unidade Centro" required /></label>
+                  <label>CNPJ da filial<input value={branchForm.cnpj} onChange={(event) => setBranchForm({ ...branchForm, cnpj: formatCnpj(event.target.value) })} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
                   <label>WhatsApp<input value={branchForm.phone} onChange={(event) => setBranchForm({ ...branchForm, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
                 </div>
                 <BranchCoverNoteEditor
@@ -3872,6 +3920,7 @@ function BranchDetailsEditor({
       <ParameterToggle checked={details.isActive} title="Filial ativa no catálogo público" description={details.isActive ? "A filial está disponível para receber pedidos." : "A filial fica oculta até ser reativada."} onChange={(isActive) => onDetailsChange({ ...details, isActive })} />
       <div className="admin-form-grid">
         <label>Nome da filial<input value={details.name} onChange={(event) => onDetailsChange({ ...details, name: event.target.value })} required /></label>
+        <label>CNPJ<input value={details.cnpj} onChange={(event) => onDetailsChange({ ...details, cnpj: formatCnpj(event.target.value) })} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label>
         <label>WhatsApp<input value={details.phone} onChange={(event) => onDetailsChange({ ...details, phone: formatWhatsapp(event.target.value) })} placeholder="(63) 99999-9999" inputMode="tel" required /></label>
       </div>
       <BranchCoverNoteEditor
@@ -3885,9 +3934,10 @@ function BranchDetailsEditor({
   );
 }
 
-function branchOrderPath(branchSlug: string, channel: Exclude<OrderMode, "both">) {
+function branchOrderPath(branchSlug: string, channel: Exclude<OrderMode, "both">, branchId?: string) {
   const path = channel === "internal" ? "/comanda" : "/";
-  return `${path}?loja=${encodeURIComponent(branchSlug)}`;
+  const branchContext = channel === "internal" && branchId ? `&filial=${encodeURIComponent(branchId)}` : "";
+  return `${path}?loja=${encodeURIComponent(branchSlug)}${branchContext}`;
 }
 
 function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode }) {
@@ -3895,7 +3945,7 @@ function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode })
   const channels = (["whatsapp", "internal"] as const).filter((channel) => mode === "both" || mode === channel);
 
   async function copyLink(channel: "whatsapp" | "internal") {
-    const path = branchOrderPath(branch.slug, channel);
+    const path = branchOrderPath(branch.slug, channel, branch.id);
     const url = new URL(path, window.location.origin).toString();
     try {
       await navigator.clipboard.writeText(url);
@@ -3919,7 +3969,7 @@ function BranchOrderLinks({ branch, mode }: { branch: Branch; mode: OrderMode })
       <div>
         {channels.map((channel) => {
           const isInternal = channel === "internal";
-          const path = branchOrderPath(branch.slug, channel);
+          const path = branchOrderPath(branch.slug, channel, branch.id);
           return (
             <article key={channel}>
               <span>{isInternal ? <ClipboardList size={17} /> : <MessageSquareText size={17} />}<span><strong>{isInternal ? "Equipe · Comanda interna" : "Cliente · WhatsApp"}</strong><small>{isInternal ? "/comanda" : "/?loja"}</small></span></span>
@@ -4326,8 +4376,10 @@ function AdminCompanies({
   );
 }
 
-function AdminLogin() {
-  const isCompanyPortal = typeof window !== "undefined" && window.location.pathname === "/empresa";
+function AdminLogin({ portalMode }: { portalMode: PortalMode }) {
+  const isCompanyPortal = portalMode === "company";
+  const isBranchPortal = portalMode === "branch";
+  const [cnpj, setCnpj] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -4338,11 +4390,16 @@ function AdminLogin() {
       setMessage("Supabase não configurado neste computador. Configure o arquivo .env.local e reinicie o servidor.");
       return;
     }
+    if (isBranchPortal && !isValidCnpj(cnpj)) {
+      setMessage("Informe o CNPJ válido da filial.");
+      return;
+    }
+    if (isBranchPortal) window.localStorage.setItem("catalogo-facil-branch-cnpj", cnpj.replace(/\D/g, ""));
     const result = await supabase.auth.signInWithPassword({ email, password });
     if (result.error) setMessage(result.error.message);
   }
 
-  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>{isCompanyPortal ? "Portal da empresa" : "Central dos administradores"}</span><h1>Entrar</h1><form onSubmit={submit}><label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">Entrar</button></form><a className="admin-link" href="/empresa">Entrar como empresa</a><a className="admin-link" href="/acesso">Voltar às opções de acesso</a></section></main>;
+  return <main className="admin-page"><section className="admin-login-card"><Building2 size={28} /><span>{isCompanyPortal ? "Portal da empresa" : isBranchPortal ? "Painel da filial" : "Central dos administradores"}</span><h1>Entrar</h1><form onSubmit={submit}>{isBranchPortal ? <label>CNPJ da filial<input value={cnpj} onChange={(event) => setCnpj(formatCnpj(event.target.value))} placeholder="00.000.000/0001-00" inputMode="numeric" maxLength={18} required /></label> : null}<label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label><label>Senha<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} required /></label>{message ? <p className="admin-message">{message}</p> : null}<button className="admin-primary" type="submit">Entrar</button></form>{!isCompanyPortal ? <a className="admin-link" href="/empresa">Entrar como empresa</a> : null}<a className="admin-link" href="/acesso">Voltar às opções de acesso</a></section></main>;
 }
 
 function AdminDenied() {
@@ -4356,4 +4413,30 @@ function formatWhatsapp(value: string) {
   if (digits.length <= 2) return digits.length ? `(${digits}` : "";
   if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function formatCnpj(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  return digits
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2")
+    .replace(/(\d{4})(\d)/, "$1-$2");
+}
+
+function isValidCnpj(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (!/^\d{14}$/.test(digits) || /^(\d)\1{13}$/.test(digits)) return false;
+  const digit = (length: number) => {
+    let factor = length - 7;
+    let total = 0;
+    for (let index = 0; index < length; index += 1) {
+      total += Number(digits[index]) * factor;
+      factor -= 1;
+      if (factor === 1) factor = 9;
+    }
+    const remainder = total % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+  return digit(12) === Number(digits[12]) && digit(13) === Number(digits[13]);
 }

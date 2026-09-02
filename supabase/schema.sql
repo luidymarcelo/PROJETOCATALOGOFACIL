@@ -49,6 +49,7 @@ create table public.stores (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   name text not null,
   slug text not null,
+  cnpj text unique check (cnpj is null or cnpj ~ '^[0-9]{14}$'),
   segment store_segment not null default 'retail',
   whatsapp_phone text not null,
   address text,
@@ -98,6 +99,27 @@ create table public.store_parameters (
   is_public boolean not null default false,
   updated_at timestamptz not null default now(),
   primary key (store_id, parameter_key)
+);
+
+create table public.company_users (
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('owner', 'branch_manager', 'waiter', 'cashier', 'kitchen', 'supervisor')),
+  is_active boolean not null default true,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (tenant_id, user_id)
+);
+
+create table public.company_user_stores (
+  tenant_id uuid not null,
+  user_id uuid not null,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (tenant_id, user_id, store_id),
+  foreign key (tenant_id, user_id)
+    references public.company_users(tenant_id, user_id) on delete cascade
 );
 
 create table public.categories (
@@ -159,6 +181,31 @@ create table public.sync_jobs (
   error_message text
 );
 
+create table public.restaurant_tables (
+  id uuid primary key default gen_random_uuid(),
+  store_id uuid not null references public.stores(id) on delete cascade,
+  code text not null check (char_length(trim(code)) between 1 and 30),
+  name text,
+  access_token uuid not null default gen_random_uuid() unique,
+  sort_order integer not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (store_id, code)
+);
+
+create table public.table_sessions (
+  id uuid primary key default gen_random_uuid(),
+  store_id uuid not null references public.stores(id) on delete cascade,
+  table_id uuid not null references public.restaurant_tables(id) on delete restrict,
+  status text not null default 'open' check (status in ('open', 'awaiting_payment', 'closed', 'cancelled')),
+  opened_by uuid references auth.users(id) on delete set null,
+  closed_by uuid references auth.users(id) on delete set null,
+  opened_at timestamptz not null default now(),
+  closed_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
 create table public.orders (
   id uuid primary key default gen_random_uuid(),
   store_id uuid not null references public.stores(id) on delete cascade,
@@ -171,6 +218,12 @@ create table public.orders (
   delivery_address text,
   customer_reference text,
   service_location text,
+  table_id uuid references public.restaurant_tables(id) on delete restrict,
+  table_session_id uuid references public.table_sessions(id) on delete restrict,
+  order_source text not null default 'customer' check (order_source in ('customer', 'table_device', 'staff')),
+  created_by_user_id uuid references auth.users(id) on delete set null,
+  created_by_name text,
+  created_by_role text,
   customer_latitude numeric(9, 6) check (customer_latitude is null or customer_latitude between -90 and 90),
   customer_longitude numeric(9, 6) check (customer_longitude is null or customer_longitude between -180 and 180),
   payment_method text,
@@ -196,6 +249,19 @@ create table public.order_items (
   selected_options jsonb not null default '[]'::jsonb
 );
 
+create table public.order_events (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  store_id uuid not null references public.stores(id) on delete cascade,
+  event_type text not null,
+  from_value text,
+  to_value text,
+  actor_user_id uuid references auth.users(id) on delete set null,
+  actor_name text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create index products_store_active_idx on public.products (store_id, is_active);
 create index categories_store_order_idx on public.categories (store_id, sort_order);
 create index tenant_parameters_key_idx on public.tenant_parameters (parameter_key);
@@ -206,6 +272,14 @@ create index orders_store_created_idx on public.orders (store_id, created_at des
 create unique index orders_store_order_code_idx on public.orders (store_id, order_code);
 create index orders_store_channel_created_idx on public.orders (store_id, order_channel, created_at desc);
 create index product_images_product_order_idx on public.product_images (product_id, sort_order);
+create index company_users_user_idx on public.company_users (user_id, is_active);
+create index company_user_stores_store_idx on public.company_user_stores (store_id, user_id);
+create index restaurant_tables_store_order_idx on public.restaurant_tables (store_id, sort_order, code);
+create unique index table_sessions_one_open_per_table_idx on public.table_sessions (table_id) where status in ('open', 'awaiting_payment');
+create index table_sessions_store_status_idx on public.table_sessions (store_id, status, opened_at desc);
+create index orders_table_session_created_idx on public.orders (table_session_id, created_at);
+create index orders_created_by_user_idx on public.orders (created_by_user_id, created_at desc);
+create index order_events_order_created_idx on public.order_events (order_id, created_at);
 
 create or replace function public.normalize_measurement_unit_code()
 returns trigger

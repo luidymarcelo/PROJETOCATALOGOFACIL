@@ -42,6 +42,17 @@ type FulfillmentMode = "delivery" | "pickup";
 type DeliveryFeeType = "fixed" | "per_km";
 type OrderChannel = "whatsapp" | "internal";
 type OrderMode = OrderChannel | "both";
+export type InternalOrderContext = {
+  source: "staff" | "table_device";
+  storeId: string;
+  storeSlug: string;
+  tableId?: string | null;
+  tableToken?: string | null;
+  tableLabel?: string | null;
+  actorName?: string | null;
+  actorRole?: string | null;
+  customerNameMode?: "hidden" | "optional" | "required";
+};
 
 type Product = {
   id: string;
@@ -62,6 +73,12 @@ type SelectedProductOption = { groupId: string; groupName: string; itemId: strin
 type ProductCategorySection = { category: string; products: Product[] };
 
 type CatalogLayout = "horizontal" | "showcase";
+type PublicCompanyIdentity = {
+  tenant_id: string;
+  company_name: string;
+  theme_color: string | null;
+  profile_image_url: string | null;
+};
 
 type Merchant = {
   id: StoreId;
@@ -843,7 +860,7 @@ function buildWhatsappMessage({
   ].join("\n");
 }
 
-export function CatalogApplication({ orderChannel }: { orderChannel: OrderChannel }) {
+export function CatalogApplication({ orderChannel, internalOrderContext }: { orderChannel: OrderChannel; internalOrderContext?: InternalOrderContext }) {
   const [merchants, setMerchants] = useState<Merchant[]>(
     hasSupabaseConfig ? [] : fallbackMerchants,
   );
@@ -867,8 +884,9 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
   const [directStoreId, setDirectStoreId] = useState<StoreId | null>(null);
   const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
-  const cartStorageKey = `catalogo-facil-cart-${orderChannel}`;
-  const checkoutStorageKey = `catalogo-facil-checkout-${orderChannel}`;
+  const internalContextKey = internalOrderContext ? `${internalOrderContext.source}-${internalOrderContext.tableId ?? internalOrderContext.storeId}` : "default";
+  const cartStorageKey = `catalogo-facil-cart-${orderChannel}-${internalContextKey}`;
+  const checkoutStorageKey = `catalogo-facil-checkout-${orderChannel}-${internalContextKey}`;
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
     "farmacia-vida": fallbackMerchants[1].integration.lastSync,
@@ -902,7 +920,7 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
 
     async function loadCatalog() {
       if (!supabase) return;
-      const requestedStoreId = new URLSearchParams(window.location.search).get("loja")?.trim() || null;
+      const requestedStoreId = (internalOrderContext?.storeSlug ?? new URLSearchParams(window.location.search).get("loja")?.trim()) || null;
       setDirectStoreId(requestedStoreId);
 
       const [storeResult, tenantParameterResult, storeParameterResult, companyResult, optionGroupResult] = await Promise.all([
@@ -922,7 +940,7 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
         supabase.rpc("get_public_catalog_companies"),
         supabase
           .from("option_groups")
-          .select("id, store_id, name, min_selections, max_selections, sort_order, option_group_items(id, name, price_delta, sort_order), product_option_groups(product_id, sort_order)")
+          .select("id, store_id, name, min_selections, max_selections, sort_order, option_group_items(id, name, price_delta, sort_order, is_active), product_option_groups(product_id, sort_order)")
           .eq("is_active", true)
           .order("sort_order", { ascending: true }),
       ]);
@@ -993,8 +1011,8 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
           .filter((row) => row.parameter_key === "order_mode")
           .map((row) => [row.store_id, orderModeValue(row.parameter_value)]),
       );
-      const companyNames = new Map(
-        (companyResult.data ?? []).map((row) => [row.tenant_id, {
+      const companyNames = new Map<string, { name: string; themeColor: string; profileImage: string | null }>(
+        ((companyResult.data ?? []) as PublicCompanyIdentity[]).map((row) => [row.tenant_id, {
           name: row.company_name,
           themeColor: normalizeThemeColor(row.theme_color),
           profileImage: row.profile_image_url ?? null,
@@ -1119,7 +1137,7 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [internalOrderContext?.storeSlug]);
 
   useEffect(() => {
     const savedCart = window.localStorage.getItem(cartStorageKey)
@@ -1483,8 +1501,13 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
       return null;
     }
 
-    if (checkout.name.trim().length < 2) {
-      setCheckoutError("Informe o nome de quem receberá o pedido.");
+    const customerNameMode = orderChannel === "whatsapp" ? "required" : internalOrderContext?.customerNameMode ?? "optional";
+    if (customerNameMode === "required" && checkout.name.trim().length < 2) {
+      setCheckoutError(orderChannel === "internal" ? "Informe o nome do cliente." : "Informe o nome de quem receberá o pedido.");
+      return null;
+    }
+    if (customerNameMode === "optional" && checkout.name.trim().length === 1) {
+      setCheckoutError("Informe pelo menos dois caracteres ou deixe o nome em branco.");
       return null;
     }
 
@@ -1555,13 +1578,21 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
     }
 
     setSubmittingInternalOrder(true);
-    const { data, error } = await supabase.rpc("create_internal_order", {
+    if (!internalOrderContext) {
+      setCheckoutError("A origem desta comanda não foi identificada. Entre novamente pelo link correto.");
+      setSubmittingInternalOrder(false);
+      return;
+    }
+    const { data, error } = await supabase.rpc("create_internal_order_v2", {
       p_store_id: targetMerchant.databaseId,
-      p_customer_name: checkout.name.trim(),
+      p_customer_name: checkout.name.trim() || null,
+      p_table_id: internalOrderContext.tableId ?? null,
+      p_table_token: internalOrderContext.tableToken ?? null,
+      p_order_source: internalOrderContext.source,
       p_fulfillment_mode: fulfillment,
       p_delivery_address: fulfillment === "delivery" ? checkout.address.trim() : targetMerchant.address,
       p_reference: checkout.reference.trim() || null,
-      p_service_location: checkout.serviceLocation.trim() || null,
+      p_service_location: (internalOrderContext.tableLabel ?? checkout.serviceLocation.trim()) || null,
       p_payment_method: checkout.payment,
       p_change_for: checkout.payment === "Dinheiro" ? parseMoney(checkout.changeFor) : null,
       p_notes: checkout.notes.trim() || null,
@@ -1583,7 +1614,18 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
     setSubmittingInternalOrder(false);
 
     if (error) {
-      setCheckoutError(error.message || "Não foi possível registrar a comanda.");
+      const translatedError = /select a table/i.test(error.message)
+        ? "Selecione uma mesa antes de enviar a comanda."
+        : /must be opened/i.test(error.message)
+          ? "Esta mesa precisa ser aberta por um funcionário antes de receber pedidos."
+          : /authenticated staff access/i.test(error.message)
+            ? "Sua sessão operacional expirou. Entre novamente."
+            : /product group rules|same addition/i.test(error.message)
+              ? "Revise os adicionais escolhidos e respeite os limites de cada grupo."
+              : /additions are disabled/i.test(error.message)
+                ? "Os adicionais foram desativados nesta filial. Atualize o catálogo e tente novamente."
+                : error.message;
+      setCheckoutError(translatedError || "Não foi possível registrar a comanda.");
       return;
     }
 
@@ -1827,6 +1869,7 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
             checkout={checkout}
             fulfillment={fulfillment}
             orderChannel={orderChannel}
+            internalOrderContext={internalOrderContext}
             isCartOpen={isCartOpen}
             totals={totals}
             checkoutError={checkoutError}
@@ -2160,6 +2203,7 @@ function CartPanel({
   checkoutError,
   fulfillment,
   orderChannel,
+  internalOrderContext,
   isCartOpen,
   totals,
   onCheckoutChange,
@@ -2179,6 +2223,7 @@ function CartPanel({
   checkoutError: string;
   fulfillment: FulfillmentMode;
   orderChannel: OrderChannel;
+  internalOrderContext?: InternalOrderContext;
   isCartOpen: boolean;
   totals: OrderTotals;
   onCheckoutChange: (checkout: Checkout) => void;
@@ -2227,6 +2272,12 @@ function CartPanel({
       </div>
 
       <div className="cart-scroll-area">
+      {orderChannel === "internal" && internalOrderContext ? (
+        <div className="internal-command-context">
+          <span><ClipboardList size={16} /></span>
+          <div><strong>{internalOrderContext.tableLabel || "Comanda da filial"}</strong><small>{internalOrderContext.source === "staff" ? internalOrderContext.actorName ? `Responsável: ${internalOrderContext.actorName}` : "Funcionário autenticado" : "Dispositivo vinculado à mesa"}</small></div>
+        </div>
+      ) : null}
       {!cartIsFromActiveStore ? (
         <div className="cart-warning">
           Pedido iniciado em {cartMerchant.companyName}{cartBranchName ? `, filial ${cartBranchName}` : ""}.
@@ -2309,28 +2360,17 @@ function CartPanel({
           </div>
         ) : null}
 
-        <label>
-          <User size={16} />
-          <input
-            value={checkout.name}
-            onChange={(event) =>
-              onCheckoutChange({ ...checkout, name: event.target.value })
-            }
-            placeholder="Nome"
-            autoComplete="name"
-            aria-invalid={Boolean(checkoutError && checkout.name.trim().length < 2)}
-          />
-        </label>
-
-        {orderChannel === "internal" ? (
+        {orderChannel === "whatsapp" || internalOrderContext?.customerNameMode !== "hidden" ? (
           <label>
-            <ClipboardList size={16} />
+            <User size={16} />
             <input
-              value={checkout.serviceLocation}
+              value={checkout.name}
               onChange={(event) =>
-                onCheckoutChange({ ...checkout, serviceLocation: event.target.value })
+                onCheckoutChange({ ...checkout, name: event.target.value })
               }
-              placeholder="Mesa ou identificação (opcional)"
+              placeholder={orderChannel === "internal" && internalOrderContext?.customerNameMode !== "required" ? "Nome do cliente (opcional)" : "Nome"}
+              autoComplete="name"
+              aria-invalid={Boolean(checkoutError && checkout.name.trim().length < 2)}
             />
           </label>
         ) : null}
