@@ -7848,10 +7848,22 @@ img {
 
 /* Tablet landscape catalog navigation */
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1366px) and (any-pointer: coarse) {
+  body.cart-open {
+    overflow: hidden;
+  }
+
+  .shell.direct-store-theme:has(.mobile-cart-bar) {
+    padding-bottom: 92px;
+  }
+
+  .direct-store-page .commerce-grid.direct-store {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .direct-store-page .catalog-surface {
     display: grid;
-    grid-template-columns: 176px minmax(0, 1fr);
-    gap: 24px;
+    grid-template-columns: 204px minmax(0, 1fr);
+    gap: 28px;
     align-items: start;
   }
 
@@ -7897,15 +7909,15 @@ img {
 
   .direct-store-page .category-strip button {
     width: 100%;
-    min-height: 44px;
+    min-height: 52px;
     justify-content: flex-start;
-    padding: 9px 12px;
+    padding: 11px 14px;
     border: 0;
     border-radius: 6px;
     background: transparent;
     box-shadow: none;
     color: var(--muted);
-    font-size: 0.86rem;
+    font-size: 0.92rem;
     font-weight: 500;
     line-height: 1.25;
     text-align: left;
@@ -7932,5 +7944,81 @@ img {
 
   .direct-store-page .catalog-category-section {
     scroll-margin-top: 24px;
+  }
+
+  .direct-store-page .cart-panel {
+    position: fixed;
+    inset: 24px 0 24px auto;
+    z-index: 80;
+    width: min(520px, 62vw);
+    height: auto;
+    max-height: none;
+    border-radius: 10px 0 0 10px;
+    box-shadow: -16px 0 40px rgba(18, 20, 19, 0.12);
+    transform: translateX(105%);
+    transition: transform 200ms ease;
+  }
+
+  .direct-store-page .cart-panel.open {
+    transform: translateX(0);
+  }
+
+  .direct-store-page .cart-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 75;
+    display: block;
+    border: 0;
+    background: rgba(18, 20, 19, 0.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+
+  .direct-store-page .cart-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .direct-store-page .mobile-only {
+    display: inline-grid;
+  }
+
+  .direct-store-page .mobile-cart-bar {
+    position: fixed;
+    right: auto;
+    bottom: 18px;
+    left: 50%;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: min(520px, calc(100% - 32px));
+    min-height: 58px;
+    padding: 0 20px;
+    border: 1px solid color-mix(in srgb, var(--primary) 42%, black);
+    border-radius: 8px;
+    background: var(--primary);
+    color: var(--primary-contrast, #fff);
+    box-shadow: 0 10px 28px rgba(18, 20, 19, 0.16);
+    transform: translateX(-50%);
+  }
+
+  .direct-store-page .mobile-cart-bar span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+
+  .direct-store-page .cart-total {
+    padding: 16px 18px 12px;
+  }
+
+  .direct-store-page .cart-footer .whatsapp-button {
+    width: calc(100% - 36px);
+    min-height: 56px;
+    margin: 0 18px 18px;
+    font-size: 0.95rem;
   }
 }
