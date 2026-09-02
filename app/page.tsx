@@ -1212,7 +1212,12 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
       const categoryStrip = document.querySelector<HTMLElement>(
         ".direct-store-page .catalog-surface > .category-strip",
       );
-      const activationLine = (categoryStrip?.getBoundingClientRect().bottom ?? 0) + 24;
+      const categoryStripStyles = categoryStrip ? window.getComputedStyle(categoryStrip) : null;
+      const hasVerticalCategoryNav = categoryStripStyles?.flexDirection === "column";
+      const categoryNavTop = Number.parseFloat(categoryStripStyles?.top ?? "0") || 0;
+      const activationLine = hasVerticalCategoryNav
+        ? categoryNavTop + 56
+        : (categoryStrip?.getBoundingClientRect().bottom ?? 0) + 24;
       let currentCategory = sections[0].dataset.category ?? productSections[0].category;
 
       for (const section of sections) {
@@ -1721,11 +1726,14 @@ export function CatalogApplication({ orderChannel }: { orderChannel: OrderChanne
           <div className="commerce-grid direct-store">
           <section className="catalog-surface" id="catalogo" key={merchant.id}>
             <nav className="category-strip" aria-label="Categorias">
+              <span className="category-nav-title">Categorias</span>
               {productSections.map(({ category }) => {
                 return (
                   <button
+                    type="button"
                     key={category}
                     className={activeCategory === category ? "active" : ""}
+                    aria-current={activeCategory === category ? "true" : undefined}
                     onClick={() => scrollToCategory(category)}
                   >
                     <span>{category}</span>

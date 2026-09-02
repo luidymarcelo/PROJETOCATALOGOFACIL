@@ -808,6 +808,10 @@ img {
   display: none;
 }
 
+.category-nav-title {
+  display: none;
+}
+
 .category-strip button {
   display: inline-flex;
   flex: 0 0 auto;
@@ -7839,5 +7843,94 @@ img {
   .discovery-store-card,
   .product-card {
     transition: none;
+  }
+}
+
+/* Tablet landscape catalog navigation */
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1366px) and (any-pointer: coarse) {
+  .direct-store-page .catalog-surface {
+    display: grid;
+    grid-template-columns: 176px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .direct-store-page .catalog-surface > .category-strip {
+    position: sticky;
+    top: 16px;
+    z-index: 32;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    max-height: calc(100vh - 32px);
+    margin: 0;
+    padding: 8px 14px 8px 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border: 0;
+    border-right: 1px solid var(--line);
+    background: transparent;
+    backdrop-filter: none;
+    scrollbar-color: var(--line) transparent;
+    scrollbar-width: thin;
+  }
+
+  .direct-store-page .catalog-surface > .category-strip::-webkit-scrollbar {
+    display: block;
+    width: 4px;
+  }
+
+  .direct-store-page .catalog-surface > .category-strip::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: var(--line);
+  }
+
+  .direct-store-page .category-nav-title {
+    display: block;
+    padding: 8px 12px 10px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .direct-store-page .category-strip button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: flex-start;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 500;
+    line-height: 1.25;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .direct-store-page .category-strip button:hover {
+    background: var(--surface-strong);
+    box-shadow: none;
+    color: var(--foreground);
+  }
+
+  .direct-store-page .category-strip button.active {
+    border: 0;
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    box-shadow: inset 3px 0 0 var(--primary);
+    color: var(--primary-dark);
+    font-weight: 600;
+  }
+
+  .direct-store-page .catalog-category-list {
+    min-width: 0;
+  }
+
+  .direct-store-page .catalog-category-section {
+    scroll-margin-top: 24px;
   }
 }

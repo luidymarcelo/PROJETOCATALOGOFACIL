@@ -216,6 +216,11 @@ test("keeps the growth surfaces present", async () => {
   assert.doesNotMatch(page, /selectedOrderChannel/);
   assert.doesNotMatch(page, /className="order-channel-selector"/);
   assert.match(pageStyles, /\.branch-order-links/);
+  assert.match(page, /className="category-nav-title">Categorias/);
+  assert.match(page, /hasVerticalCategoryNav/);
+  assert.match(pageStyles, /Tablet landscape catalog navigation/);
+  assert.match(pageStyles, /orientation: landscape.*any-pointer: coarse/s);
+  assert.match(pageStyles, /grid-template-columns: 176px minmax\(0, 1fr\)/);
   assert.match(adminPage, /className="admin-form-panel catalog-structure-panel category-overview-panel"/);
   assert.match(adminPage, /className="catalog-entity-info"/);
   assert.match(pageStyles, /\.catalog-structure-panel \.catalog-panel-heading h2/);
