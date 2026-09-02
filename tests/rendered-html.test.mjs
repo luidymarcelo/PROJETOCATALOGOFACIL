@@ -223,6 +223,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(pageStyles, /grid-template-columns: 204px minmax\(0, 1fr\)/);
   assert.match(pageStyles, /width: min\(520px, 62vw\)/);
   assert.match(pageStyles, /\.direct-store-page \.cart-footer \.whatsapp-button/);
+  assert.match(pageStyles, /\.direct-store-page \.category-nav-title\s*\{[^}]*min-height: 48px[^}]*border-bottom: 1px solid var\(--line\)[^}]*font-size: 0\.92rem/s);
   assert.match(adminPage, /className="admin-form-panel catalog-structure-panel category-overview-panel"/);
   assert.match(adminPage, /className="catalog-entity-info"/);
   assert.match(pageStyles, /\.catalog-structure-panel \.catalog-panel-heading h2/);
