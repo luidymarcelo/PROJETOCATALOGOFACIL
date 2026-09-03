@@ -30,10 +30,22 @@ Use somente a chave publica `anon`. Nunca coloque a `service_role` no frontend. 
 
 ## Estrutura principal
 
-- `app/page.tsx`: experiencia do catalogo, carrinho, checkout e painel interno.
+- `app/page.tsx`: experiencia do catalogo, carrinho e checkout.
+- `app/operacao/page.tsx`: mapa de mesas e entrada da equipe operacional.
+- `app/pedidos/page.tsx`: areas separadas de atendimento, cozinha e caixa.
 - `app/globals.css`: layout responsivo e identidade visual.
 - `supabase/schema.sql`: schema inicial para multiempresa, lojas, produtos, integracoes, sincronizacoes e pedidos.
 - `.env.example`: modelo das variaveis locais necessarias para conectar ao Supabase.
+
+## Fluxo de comandas
+
+Depois do schema inicial, aplique as migrations da pasta `supabase` em ordem numerica. Para a operacao atual, as ultimas migrations obrigatorias sao:
+
+1. `021_branch_access_tables_and_audit.sql`: acessos por filial, mesas e auditoria.
+2. `022_multi_role_company_users.sql`: mais de uma funcao por usuario.
+3. `023_operational_workflow.sql`: fluxo simplificado/completo, preparo e entrega por item, fechamento, pagamento e liberacao da mesa.
+
+Execute somente o conteudo SQL no SQL Editor do Supabase. A funcao `supabase/functions/create-store-user/index.ts` deve ser publicada como Edge Function separadamente.
 
 ## Integracoes previstas
 

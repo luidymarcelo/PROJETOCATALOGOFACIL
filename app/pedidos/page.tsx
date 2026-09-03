@@ -2,16 +2,17 @@
 
 import {
   ArrowLeft,
+  BellRing,
+  Check,
   CheckCircle2,
-  ClipboardList,
+  ChefHat,
   Clock3,
-  DollarSign,
+  CreditCard,
   LogOut,
-  ReceiptText,
   RefreshCw,
-  Search,
+  RotateCcw,
   Store,
-  UserRound,
+  UtensilsCrossed,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState } from "react";
@@ -19,9 +20,14 @@ import { supabase } from "../../lib/supabase";
 
 type Branch = { id: string; name: string; slug: string; tenant_id: string };
 type Tenant = { id: string; name: string };
+type OperationalRole = "owner" | "branch_manager" | "waiter" | "cashier" | "kitchen" | "supervisor";
+type OperationalView = "atendimento" | "cozinha" | "caixa";
+type OperationFlow = "simplified" | "complete";
+type ProductionReleaseMode = "whole_order" | "per_item";
 type OrderStatus = "draft" | "sent_whatsapp" | "accepted" | "preparing" | "ready" | "completed" | "cancelled";
-type PaymentStatus = "pending" | "paid" | "refunded";
-type BillingStatus = "pending" | "billed" | "cancelled";
+type ItemProductionStatus = "pending" | "preparing" | "ready" | "cancelled";
+type ItemDeliveryStatus = "pending" | "delivered" | "cancelled";
+
 type OrderItem = {
   id: string;
   product_name: string;
@@ -29,18 +35,18 @@ type OrderItem = {
   quantity: number;
   total: number;
   selected_options?: Array<{ group_name?: string; item_name?: string; price_delta?: number }>;
+  production_status: ItemProductionStatus;
+  delivery_status: ItemDeliveryStatus;
+  ready_at?: string | null;
+  delivered_at?: string | null;
 };
+
 type InternalOrder = {
   id: string;
   store_id: string;
   order_code: string;
   status: OrderStatus;
-  order_channel: string;
-  fulfillment_mode: "delivery" | "pickup";
   customer_name: string | null;
-  delivery_address: string | null;
-  customer_reference: string | null;
-  service_location: string | null;
   table_id: string | null;
   table_session_id: string | null;
   order_source: "table_device" | "staff" | "customer";
@@ -48,279 +54,352 @@ type InternalOrder = {
   created_by_role: string | null;
   restaurant_tables?: { code?: string; name?: string | null } | null;
   payment_method: string | null;
-  payment_status: PaymentStatus;
-  billing_status: BillingStatus;
+  payment_status: "pending" | "paid" | "refunded";
+  billing_status: "pending" | "billed" | "cancelled";
   notes: string | null;
-  subtotal: number;
-  delivery_fee: number;
   total: number;
   created_at: string;
-  order_items?: OrderItem[];
+  order_items: OrderItem[];
 };
+
 type TableSession = {
   id: string;
+  store_id: string;
+  table_id: string;
   status: "open" | "awaiting_payment" | "closed" | "cancelled";
+  payment_status: "pending" | "paid" | "refunded";
+  payment_method: string | null;
+  closing_requested_at: string | null;
+  payment_confirmed_at: string | null;
   opened_at: string;
   restaurant_tables?: { code?: string; name?: string | null } | null;
 };
 
-const STATUS_OPTIONS: Array<{ value: OrderStatus; label: string }> = [
-  { value: "accepted", label: "Recebido" },
-  { value: "preparing", label: "Em preparo" },
-  { value: "ready", label: "Pronto" },
-  { value: "completed", label: "Finalizado" },
-  { value: "cancelled", label: "Cancelado" },
-];
+type WorkspaceResponse = {
+  tenant?: Tenant;
+  branches?: Branch[];
+  access?: { role?: OperationalRole; roles?: OperationalRole[] };
+  operation?: { flow?: OperationFlow; production_release_mode?: ProductionReleaseMode };
+  error?: string;
+};
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const time = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const viewLabels: Record<OperationalView, string> = { atendimento: "Atendimento", cozinha: "Cozinha", caixa: "Caixa" };
+const paymentMethods = ["Pix", "Dinheiro", "Cartão de crédito", "Cartão de débito"];
 
-function statusLabel(status: OrderStatus) {
-  return STATUS_OPTIONS.find((item) => item.value === status)?.label ?? status;
+function workspaceRoles(access: WorkspaceResponse["access"]) {
+  const roles = Array.isArray(access?.roles) ? access.roles.filter(Boolean) : [];
+  return roles.length ? roles : access?.role ? [access.role] : [];
 }
 
-function dateLabel(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+function allowedViews(roles: OperationalRole[]) {
+  const elevated = roles.some((role) => ["owner", "branch_manager", "supervisor"].includes(role));
+  return ([
+    (elevated || roles.includes("waiter")) && "atendimento",
+    (elevated || roles.includes("kitchen")) && "cozinha",
+    (elevated || roles.includes("cashier")) && "caixa",
+  ].filter(Boolean) as OperationalView[]);
+}
+
+function tableLabel(value: { restaurant_tables?: { code?: string; name?: string | null } | null }) {
+  const table = value.restaurant_tables;
+  return table?.name?.trim() || (table?.code ? `Mesa ${table.code}` : "Sem mesa");
 }
 
 function optionLabel(item: OrderItem) {
   return (item.selected_options ?? [])
     .map((option) => option.item_name ? `${option.group_name ? `${option.group_name}: ` : ""}${option.item_name}` : "")
     .filter(Boolean)
-    .join(", ");
+    .join(" · ");
 }
 
-function actorRoleLabel(role: string | null) {
-  return ({ owner: "Proprietário", branch_manager: "Gerente", waiter: "Garçom", cashier: "Caixa", kitchen: "Cozinha", supervisor: "Supervisor", table_device: "Mesa" } as Record<string, string>)[role ?? ""] ?? role;
+function elapsedLabel(value: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return "agora";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}min`;
 }
 
-function workspaceAccessRoles(access: { role?: string; roles?: unknown } | null | undefined) {
-  const roles = Array.isArray(access?.roles) ? access.roles.map(String).filter(Boolean) : [];
-  return roles.length ? roles : access?.role ? [access.role] : [];
+function normalizeOrders(rows: unknown[]) {
+  return rows.map((raw) => {
+    const order = raw as InternalOrder;
+    const items = (order.order_items ?? []).map((item) => ({
+      ...item,
+      production_status: item.production_status ?? (["ready", "completed"].includes(order.status) ? "ready" : order.status === "preparing" ? "preparing" : "pending"),
+      delivery_status: item.delivery_status ?? (order.status === "completed" ? "delivered" : "pending"),
+    }));
+    return { ...order, order_items: items };
+  });
+}
+
+function workflowError(message: string) {
+  if (/run_internal_workflow_action|schema cache|production_status|payment_confirmed_at/i.test(message)) return "O fluxo operacional ainda não foi aplicado no Supabase. Execute a migration 023_operational_workflow.sql.";
+  if (/awaiting payment/i.test(message)) return "A mesa está em fechamento e não aceita novos pedidos.";
+  if (/no items are ready/i.test(message)) return "Ainda não há item liberado para entrega.";
+  if (/confirm delivery of all items/i.test(message)) return "Confirme a entrega de todos os itens antes de liberar a mesa.";
+  if (/confirm payment/i.test(message)) return "Confirme o pagamento antes de liberar a mesa.";
+  if (/request table closing/i.test(message)) return "Solicite o fechamento antes de confirmar o pagamento.";
+  if (/paid table cannot be reopened/i.test(message)) return "Esta conta já foi paga e deve ser liberada.";
+  return message;
 }
 
 export default function InternalOrdersPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [accessRoles, setAccessRoles] = useState<string[]>([]);
+  const [roles, setRoles] = useState<OperationalRole[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [view, setView] = useState<OperationalView>("atendimento");
+  const [flow, setFlow] = useState<OperationFlow>("complete");
+  const [releaseMode, setReleaseMode] = useState<ProductionReleaseMode>("whole_order");
   const [orders, setOrders] = useState<InternalOrder[]>([]);
   const [tableSessions, setTableSessions] = useState<TableSession[]>([]);
-  const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
-  const [query, setQuery] = useState("");
+  const [paymentBySession, setPaymentBySession] = useState<Record<string, string>>({});
+  const [kitchenFilter, setKitchenFilter] = useState<"active" | "ready" | "all">("active");
   const [loading, setLoading] = useState(true);
-  const [loadingOrders, setLoadingOrders] = useState(false);
-  const [savingOrderId, setSavingOrderId] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingKey, setSavingKey] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function loadWorkspace() {
     if (!supabase || !session) return;
-    const { data: workspace } = await supabase.functions.invoke("create-store-user", {
-      body: { action: "get-company-workspace" },
-    });
-    if (workspace?.tenant && workspace?.branches?.length) {
-      setTenant(workspace.tenant as Tenant);
-      const nextBranches = workspace.branches as Branch[];
-      setBranches(nextBranches);
-      setAccessRoles(workspaceAccessRoles(workspace.access ?? { role: "owner" }));
-      setSelectedBranchId((current) => current && nextBranches.some((branch) => branch.id === current) ? current : nextBranches[0].id);
-      setLoading(false);
-      return;
+    let workspace: WorkspaceResponse | null = null;
+    const { data: ownerWorkspace } = await supabase.functions.invoke("create-store-user", { body: { action: "get-company-workspace" } });
+    if (ownerWorkspace?.tenant && ownerWorkspace?.branches?.length) workspace = ownerWorkspace as WorkspaceResponse;
+
+    if (!workspace) {
+      const { data: databaseWorkspace } = await supabase.rpc("get_company_workspace");
+      if (databaseWorkspace?.tenant && databaseWorkspace?.branches?.length) workspace = databaseWorkspace as WorkspaceResponse;
     }
 
-    const { data: databaseWorkspace } = await supabase.rpc("get_company_workspace");
-    if (databaseWorkspace?.tenant && databaseWorkspace?.branches?.length) {
-      setTenant(databaseWorkspace.tenant as Tenant);
-      const nextBranches = databaseWorkspace.branches as Branch[];
-      setBranches(nextBranches);
-      setAccessRoles(workspaceAccessRoles(databaseWorkspace.access ?? { role: "owner" }));
-      setSelectedBranchId((current) => current && nextBranches.some((branch) => branch.id === current) ? current : nextBranches[0].id);
-      setLoading(false);
-      return;
-    }
-
-    const operationalCnpj = window.localStorage.getItem("catalogo-facil-operation-cnpj")
-      ?? window.localStorage.getItem("catalogo-facil-branch-cnpj")
-      ?? "";
-    if (operationalCnpj) {
-      const { data: operationalWorkspace, error: operationalError } = await supabase.rpc("get_operational_workspace", { p_cnpj: operationalCnpj });
-      if (operationalWorkspace?.tenant && operationalWorkspace?.branches?.length) {
-        setTenant(operationalWorkspace.tenant as Tenant);
-        const nextBranches = operationalWorkspace.branches as Branch[];
-        setBranches(nextBranches);
-        setAccessRoles(workspaceAccessRoles(operationalWorkspace.access));
-        setSelectedBranchId(nextBranches[0].id);
-        setLoading(false);
-        return;
+    if (!workspace) {
+      const cnpj = window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? window.localStorage.getItem("catalogo-facil-branch-cnpj") ?? "";
+      if (cnpj) {
+        const { data: operationalWorkspace, error: operationalError } = await supabase.rpc("get_operational_workspace", { p_cnpj: cnpj });
+        if (operationalWorkspace?.tenant && operationalWorkspace?.branches?.length) workspace = operationalWorkspace as WorkspaceResponse;
+        else if (operationalError) setError(workflowError(operationalError.message));
       }
-      if (operationalError) setError(operationalError.message);
     }
-    setError(databaseWorkspace?.error ?? workspace?.error ?? "Este login não está vinculado a uma empresa ou filial.");
+
+    if (!workspace?.tenant || !workspace.branches?.length) {
+      setLoading(false);
+      setError(workspace?.error ?? "Este login não está vinculado a uma empresa ou filial.");
+      return;
+    }
+
+    const nextRoles = workspaceRoles(workspace.access);
+    setTenant(workspace.tenant);
+    setRoles(nextRoles);
+    setBranches(workspace.branches);
+    setSelectedBranchId((current) => current && workspace!.branches!.some((branch) => branch.id === current) ? current : workspace!.branches![0].id);
+    if (workspace.operation?.flow) setFlow(workspace.operation.flow);
+    if (workspace.operation?.production_release_mode) setReleaseMode(workspace.operation.production_release_mode);
+    const permitted = allowedViews(nextRoles);
+    const requested = new URLSearchParams(window.location.search).get("visao") as OperationalView | null;
+    setView(requested && permitted.includes(requested) ? requested : permitted[0] ?? "atendimento");
     setLoading(false);
   }
 
-  async function loadOrders(branchId = selectedBranchId) {
+  async function loadOperationData(branchId = selectedBranchId, silent = false) {
     if (!supabase || !branchId) return;
-    setLoadingOrders(true);
-    const [orderResult, sessionResult] = await Promise.all([
-      supabase
-        .from("orders")
-        .select("id, store_id, order_code, status, order_channel, fulfillment_mode, customer_name, delivery_address, customer_reference, service_location, table_id, table_session_id, order_source, created_by_name, created_by_role, payment_method, payment_status, billing_status, notes, subtotal, delivery_fee, total, created_at, restaurant_tables(code, name), order_items(id, product_name, unit_price, quantity, total, selected_options)")
-        .eq("store_id", branchId)
-        .eq("order_channel", "internal")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("table_sessions")
-        .select("id, status, opened_at, restaurant_tables(code, name)")
-        .eq("store_id", branchId)
-        .in("status", ["open", "awaiting_payment"])
-        .order("opened_at", { ascending: true }),
-    ]);
-    setLoadingOrders(false);
-    if (orderResult.error) {
-      setError(orderResult.error.message);
+    if (!silent) setRefreshing(true);
+    const modernOrderSelect = "id, store_id, order_code, status, customer_name, table_id, table_session_id, order_source, created_by_name, created_by_role, payment_method, payment_status, billing_status, notes, total, created_at, restaurant_tables(code, name), order_items(id, product_name, unit_price, quantity, total, selected_options, production_status, delivery_status, ready_at, delivered_at)";
+    const legacyOrderSelect = "id, store_id, order_code, status, customer_name, table_id, table_session_id, order_source, created_by_name, created_by_role, payment_method, payment_status, billing_status, notes, total, created_at, restaurant_tables(code, name), order_items(id, product_name, unit_price, quantity, total, selected_options)";
+    const modernSessionSelect = "id, store_id, table_id, status, payment_status, payment_method, closing_requested_at, payment_confirmed_at, opened_at, restaurant_tables(code, name)";
+    const legacySessionSelect = "id, store_id, table_id, status, opened_at, restaurant_tables(code, name)";
+
+    const modernOrderResult = await supabase.from("orders").select(modernOrderSelect).eq("store_id", branchId).eq("order_channel", "internal").order("created_at", { ascending: false });
+    const modernSessionResult = await supabase.from("table_sessions").select(modernSessionSelect).eq("store_id", branchId).in("status", ["open", "awaiting_payment"]).order("opened_at", { ascending: true });
+    const orderResult = modernOrderResult.error && /production_status|delivery_status|schema cache/i.test(modernOrderResult.error.message)
+      ? await supabase.from("orders").select(legacyOrderSelect).eq("store_id", branchId).eq("order_channel", "internal").order("created_at", { ascending: false })
+      : modernOrderResult;
+    const sessionResult = modernSessionResult.error && /payment_status|closing_requested_at|schema cache/i.test(modernSessionResult.error.message)
+      ? await supabase.from("table_sessions").select(legacySessionSelect).eq("store_id", branchId).in("status", ["open", "awaiting_payment"]).order("opened_at", { ascending: true })
+      : modernSessionResult;
+
+    const parameterResult = await supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branchId).in("parameter_key", ["operation_flow", "production_release_mode"]);
+    setRefreshing(false);
+    if (orderResult.error || sessionResult.error) {
+      setError(workflowError(orderResult.error?.message ?? sessionResult.error?.message ?? "Não foi possível carregar a operação."));
       return;
     }
-    setOrders((orderResult.data ?? []) as InternalOrder[]);
-    setTableSessions(sessionResult.error ? [] : (sessionResult.data ?? []) as TableSession[]);
+
+    const nextOrders = normalizeOrders((orderResult.data ?? []) as unknown[]);
+    const nextSessions = ((sessionResult.data ?? []) as unknown[]).map((raw) => {
+      const value = raw as TableSession;
+      const accountOrders = nextOrders.filter((order) => order.table_session_id === value.id && order.status !== "cancelled");
+      const inferredPaid = accountOrders.length > 0 && accountOrders.every((order) => order.payment_status === "paid");
+      return { ...value, payment_status: value.payment_status ?? (inferredPaid ? "paid" : "pending"), payment_method: value.payment_method ?? null, closing_requested_at: value.closing_requested_at ?? null, payment_confirmed_at: value.payment_confirmed_at ?? null };
+    });
+    setOrders(nextOrders);
+    setTableSessions(nextSessions);
+    setError("");
+    if (!parameterResult.error) {
+      const parameters = new Map((parameterResult.data ?? []).map((item) => [item.parameter_key, item.parameter_value]));
+      setFlow(parameters.get("operation_flow") === "simplified" ? "simplified" : "complete");
+      setReleaseMode(parameters.get("production_release_mode") === "per_item" ? "per_item" : "whole_order");
+    }
   }
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      setError("Supabase não está configurado neste ambiente.");
-      return;
-    }
+    if (!supabase) { setLoading(false); setError("Supabase não está configurado neste ambiente."); return; }
     let mounted = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      if (!data.session) setLoading(false);
-    });
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!mounted) return;
-      setSession(nextSession);
-      if (!nextSession) setLoading(false);
-    });
-    return () => {
-      mounted = false;
-      data.subscription.unsubscribe();
-    };
+    void supabase.auth.getSession().then(({ data }) => { if (mounted) { setSession(data.session); if (!data.session) setLoading(false); } });
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => { if (mounted) { setSession(nextSession); if (!nextSession) setLoading(false); } });
+    return () => { mounted = false; data.subscription.unsubscribe(); };
   }, []);
 
-  useEffect(() => {
-    if (session) void loadWorkspace();
-  }, [session]);
+  useEffect(() => { if (session) void loadWorkspace(); }, [session]);
+  useEffect(() => { if (selectedBranchId) void loadOperationData(selectedBranchId); }, [selectedBranchId]);
 
-  useEffect(() => {
-    if (selectedBranchId) void loadOrders(selectedBranchId);
-  }, [selectedBranchId]);
-
-  async function updateOrder(orderId: string, changes: Partial<Pick<InternalOrder, "status" | "payment_status" | "billing_status">>) {
-    if (!supabase) return;
-    setSavingOrderId(orderId);
-    setError("");
-    const { error: updateError } = await supabase.rpc("update_internal_order", {
-      p_order_id: orderId,
-      p_status: changes.status ?? null,
-      p_payment_status: changes.payment_status ?? null,
-      p_billing_status: changes.billing_status ?? null,
-    });
-    setSavingOrderId("");
-    if (updateError) {
-      setError(/cannot update payment or billing/i.test(updateError.message)
-        ? "Sua função não possui permissão para alterar pagamento ou faturamento."
-        : /cannot update order status/i.test(updateError.message)
-          ? "Sua função não possui permissão para alterar o andamento."
-          : updateError.message);
-      return;
+  function signalOperator(message: string) {
+    setNotice(message);
+    window.setTimeout(() => setNotice((current) => current === message ? "" : current), 5500);
+    navigator.vibrate?.([120, 60, 120]);
+    try {
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = new AudioContextClass();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 740;
+      gain.gain.setValueAtTime(0.06, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.18);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.18);
+    } catch {
+      // The visual notification remains available when autoplay is blocked.
     }
-    setOrders((current) => current.map((order) => order.id === orderId ? { ...order, ...changes } : order));
   }
 
-  async function updateTableSession(sessionId: string, status: TableSession["status"]) {
-    if (!supabase) return;
-    setSavingOrderId(sessionId);
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !selectedBranchId) return;
+    let reloadTimer = 0;
+    const queueReload = () => { window.clearTimeout(reloadTimer); reloadTimer = window.setTimeout(() => void loadOperationData(selectedBranchId, true), 220); };
+    const channel = client.channel(`operation-${selectedBranchId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders", filter: `store_id=eq.${selectedBranchId}` }, () => { if (view === "cozinha") signalOperator("Nova comanda recebida na cozinha."); queueReload(); })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "order_items" }, (payload) => {
+        void payload;
+        queueReload();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_sessions", filter: `store_id=eq.${selectedBranchId}` }, queueReload)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "order_events", filter: `store_id=eq.${selectedBranchId}` }, (payload) => {
+        const eventType = (payload.new as { event_type?: string }).event_type;
+        if (view === "atendimento" && eventType === "mark_ready") signalOperator("A cozinha liberou um pedido para entrega.");
+        if (view === "caixa" && eventType === "request_closing") signalOperator("Uma mesa solicitou fechamento.");
+        queueReload();
+      })
+      .subscribe();
+    return () => { window.clearTimeout(reloadTimer); void client.removeChannel(channel); };
+  }, [selectedBranchId, view]);
+
+  async function runWorkflow(action: string, options: { orderId?: string; itemId?: string; sessionId?: string; paymentMethod?: string } = {}) {
+    if (!supabase || savingKey) return false;
+    const key = options.itemId ?? options.orderId ?? options.sessionId ?? action;
+    setSavingKey(key);
     setError("");
-    const { error: sessionError } = await supabase.rpc("update_table_session_status", { p_session_id: sessionId, p_status: status });
-    setSavingOrderId("");
-    if (sessionError) {
-      setError(/cannot close table sessions/i.test(sessionError.message) ? "Sua função não possui permissão para fechar mesas." : sessionError.message);
-      return;
+    const { error: actionError } = await supabase.rpc("run_internal_workflow_action", { p_action: action, p_order_id: options.orderId ?? null, p_item_id: options.itemId ?? null, p_session_id: options.sessionId ?? null, p_payment_method: options.paymentMethod ?? null });
+    setSavingKey("");
+    if (actionError) { setError(workflowError(actionError.message)); return false; }
+    await loadOperationData(selectedBranchId, true);
+    return true;
+  }
+
+  async function deliverSession(sessionId: string) {
+    if (!supabase || savingKey) return;
+    const eligible = orders.filter((order) => order.table_session_id === sessionId && order.status !== "cancelled" && order.order_items.some((item) => item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready")));
+    if (!eligible.length) { setError("Ainda não há item disponível para confirmar a entrega."); return; }
+    setSavingKey(sessionId);
+    setError("");
+    for (const order of eligible) {
+      const { error: actionError } = await supabase.rpc("run_internal_workflow_action", { p_action: "mark_delivered", p_order_id: order.id, p_item_id: null, p_session_id: sessionId, p_payment_method: null });
+      if (actionError) { setSavingKey(""); setError(workflowError(actionError.message)); return; }
     }
-    setTableSessions((current) => status === "closed" || status === "cancelled" ? current.filter((item) => item.id !== sessionId) : current.map((item) => item.id === sessionId ? { ...item, status } : item));
+    setSavingKey("");
+    await loadOperationData(selectedBranchId, true);
+  }
+
+  async function settleStandalone(order: InternalOrder) {
+    if (!supabase || savingKey) return;
+    setSavingKey(order.id);
+    const { error: updateError } = await supabase.rpc("update_internal_order", { p_order_id: order.id, p_status: order.status === "completed" ? null : "completed", p_payment_status: "paid", p_billing_status: "billed" });
+    setSavingKey("");
+    if (updateError) setError(workflowError(updateError.message)); else await loadOperationData(selectedBranchId, true);
   }
 
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
-  const canUpdateStatus = accessRoles.some((role) => ["owner", "branch_manager", "waiter", "kitchen", "supervisor"].includes(role));
-  const canUpdateFinancial = accessRoles.some((role) => ["owner", "branch_manager", "cashier", "supervisor"].includes(role));
-  const canCloseTables = accessRoles.some((role) => ["owner", "branch_manager", "cashier", "supervisor"].includes(role));
-  const visibleOrders = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("pt-BR");
-    return orders.filter((order) => {
-      if (statusFilter !== "all" && order.status !== statusFilter) return false;
-      if (!normalized) return true;
-      return [order.order_code, order.customer_name, order.service_location, order.created_by_name, order.restaurant_tables?.code, order.delivery_address]
-        .filter(Boolean)
-        .join(" ")
-        .toLocaleLowerCase("pt-BR")
-        .includes(normalized);
-    });
-  }, [orders, query, statusFilter]);
+  const views = useMemo(() => allowedViews(roles), [roles]);
+  const sessionsByPriority = useMemo(() => [...tableSessions].sort((a, b) => a.status !== b.status ? a.status === "awaiting_payment" ? -1 : 1 : new Date(a.opened_at).getTime() - new Date(b.opened_at).getTime()), [tableSessions]);
+  const branchOrders = orders.filter((order) => order.status !== "cancelled");
+  const standaloneOrders = branchOrders.filter((order) => !order.table_session_id);
 
-  const metrics = {
-    open: orders.filter((order) => ["accepted", "preparing", "ready"].includes(order.status)).length,
-    preparing: orders.filter((order) => order.status === "preparing").length,
-    ready: orders.filter((order) => order.status === "ready").length,
-    paid: orders.filter((order) => order.payment_status === "paid").length,
-  };
-  const sessionTotals = new Map(tableSessions.map((tableSession) => [
-    tableSession.id,
-    orders.filter((order) => order.table_session_id === tableSession.id).reduce((sum, order) => sum + Number(order.total), 0),
-  ]));
+  function changeView(nextView: OperationalView) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("visao", nextView);
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    setView(nextView);
+    setError("");
+  }
 
-  if (loading) return <main className="orders-page"><p>Carregando painel de pedidos...</p></main>;
-  if (!session) return <main className="orders-page"><section className="orders-empty"><ClipboardList size={30} /><h1>Entre no portal da empresa</h1><p>Faça login para acompanhar as comandas da sua empresa.</p><a className="admin-primary" href="/acesso">Ir para acesso</a></section></main>;
-  if (!tenant || !branches.length) return <main className="orders-page"><section className="orders-empty"><ClipboardList size={30} /><h1>Painel sem empresa vinculada</h1><p>{error || "Solicite ao administrador o acesso de uma empresa."}</p><a className="admin-secondary" href="/empresa">Voltar ao portal</a></section></main>;
+  if (loading) return <main className="workflow-page"><div className="operation-loading"><RefreshCw className="spinning" size={22} /><span>Preparando a operação...</span></div></main>;
+  if (!session) return <main className="workflow-page"><section className="workflow-empty"><UtensilsCrossed size={27} /><h1>Entre no portal operacional</h1><p>Use o acesso criado pela empresa para abrir sua área de trabalho.</p><a className="operation-primary" href="/operacao">Entrar</a></section></main>;
+  if (!tenant || !branches.length) return <main className="workflow-page"><section className="workflow-empty"><UtensilsCrossed size={27} /><h1>Acesso não encontrado</h1><p>{error || "Este usuário não está vinculado a uma filial."}</p><a className="operation-secondary" href="/operacao">Voltar</a></section></main>;
 
   return (
-    <main className="orders-page">
-      <header className="orders-topbar">
-        <a href={accessRoles.includes("owner") ? "/empresa" : accessRoles.includes("branch_manager") ? "/filial" : "/operacao"} className="admin-back"><ArrowLeft size={17} /> Voltar ao portal</a>
-        <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
-      </header>
-      <section className="orders-page-inner">
-        <header className="orders-heading">
-          <div><span>Painel operacional</span><h1>Pedidos e comandas</h1><p>Acompanhe os pedidos enviados pelo catálogo e atualize cada etapa.</p></div>
-          <div className="orders-heading-actions"><a className="admin-secondary" href={selectedBranch ? `/?loja=${encodeURIComponent(selectedBranch.slug)}` : "/"}><Store size={16} /> Ver catálogo</a><button className="admin-secondary" type="button" onClick={() => void loadOrders()} disabled={loadingOrders}><RefreshCw className={loadingOrders ? "spinning" : ""} size={16} /> Atualizar</button></div>
-        </header>
-
-        <section className="orders-toolbar">
-          <label><Store size={16} /><span>Filial</span><select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)}>{branches.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></label>
-          <label className="orders-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar comanda ou cliente" /></label>
-          <label><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | OrderStatus)}><option value="all">Todos os pedidos</option>{STATUS_OPTIONS.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select></label>
-        </section>
-
-        <div className="orders-metrics"><div><ClipboardList size={18} /><span>Em aberto</span><strong>{metrics.open}</strong></div><div><Clock3 size={18} /><span>Em preparo</span><strong>{metrics.preparing}</strong></div><div><CheckCircle2 size={18} /><span>Prontos</span><strong>{metrics.ready}</strong></div><div><DollarSign size={18} /><span>Pagos</span><strong>{metrics.paid}</strong></div></div>
-        {error ? <p className="orders-error" role="alert">{error}</p> : null}
-
-        {tableSessions.length ? <section className="open-table-sessions"><header><div><span>Contas em andamento</span><h2>Mesas abertas</h2></div><strong>{tableSessions.length}</strong></header><div>{tableSessions.map((tableSession) => <article key={tableSession.id}><span className="open-table-code">{tableSession.restaurant_tables?.code ?? "—"}</span><div><strong>{tableSession.restaurant_tables?.name?.trim() || `Mesa ${tableSession.restaurant_tables?.code ?? ""}`}</strong><small>Aberta em {dateLabel(tableSession.opened_at)}</small></div><b>{currency.format(sessionTotals.get(tableSession.id) ?? 0)}</b><select value={tableSession.status} disabled={savingOrderId === tableSession.id || !canCloseTables} title={canCloseTables ? "Alterar situação da mesa" : "Disponível para caixa, gerente ou supervisor"} onChange={(event) => void updateTableSession(tableSession.id, event.target.value as TableSession["status"])}><option value="open">Em atendimento</option><option value="awaiting_payment">Aguardando pagamento</option><option value="closed">Fechar mesa</option><option value="cancelled">Cancelar atendimento</option></select></article>)}</div></section> : null}
-
-        <section className="orders-list" aria-live="polite">
-          {loadingOrders ? <div className="orders-empty"><RefreshCw className="spinning" size={25} /><p>Atualizando pedidos...</p></div> : visibleOrders.length ? visibleOrders.map((order) => (
-            <article className="order-card" key={order.id}>
-              <header className="order-card-header"><div><span className="order-code">{order.order_code}</span><small>{dateLabel(order.created_at)}</small></div><span className={`order-status status-${order.status}`}>{statusLabel(order.status)}</span></header>
-              <div className="order-card-main">
-                <div className="order-customer"><UserRound size={17} /><div><strong>{order.restaurant_tables?.name?.trim() || (order.restaurant_tables?.code ? `Mesa ${order.restaurant_tables.code}` : order.customer_name || "Atendimento interno")}</strong><span>{order.created_by_name ? `Criada por ${order.created_by_name}${order.created_by_role ? ` · ${actorRoleLabel(order.created_by_role)}` : ""}` : order.order_source === "table_device" ? "Enviada pelo dispositivo da mesa" : "Responsável não identificado"}{order.customer_name ? ` · Cliente: ${order.customer_name}` : ""}</span></div></div>
-                <ul className="order-items">{(order.order_items ?? []).map((item) => <li key={item.id}><span><strong>{item.quantity}x</strong> {item.product_name}{optionLabel(item) ? <small>{optionLabel(item)}</small> : null}</span><b>{currency.format(Number(item.total))}</b></li>)}</ul>
-                <div className="order-summary"><span>Subtotal <b>{currency.format(Number(order.subtotal))}</b></span><span>Entrega <b>{Number(order.delivery_fee) ? currency.format(Number(order.delivery_fee)) : "Grátis"}</b></span><strong>Total <b>{currency.format(Number(order.total))}</b></strong></div>
-                <div className="order-details"><span><ReceiptText size={15} /> {order.billing_status === "billed" ? "Faturado" : "A faturar"}</span><span><DollarSign size={15} /> {order.payment_method || "Pagamento não informado"} · {order.payment_status === "paid" ? "Pago" : "Pendente"}</span>{order.delivery_address ? <span><Store size={15} /> {order.delivery_address}{order.customer_reference ? ` · ${order.customer_reference}` : ""}</span> : null}{order.notes ? <span>Observação: {order.notes}</span> : null}</div>
-              </div>
-              <footer className="order-card-actions"><label><span>Andamento</span><select value={order.status} disabled={savingOrderId === order.id || !canUpdateStatus} title={canUpdateStatus ? "Alterar andamento" : "Sua função possui acesso somente financeiro"} onChange={(event) => void updateOrder(order.id, { status: event.target.value as OrderStatus })}>{STATUS_OPTIONS.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select></label><label><span>Pagamento</span><select value={order.payment_status} disabled={savingOrderId === order.id || !canUpdateFinancial} title={canUpdateFinancial ? "Alterar pagamento" : "Disponível para caixa, gerente ou supervisor"} onChange={(event) => void updateOrder(order.id, { payment_status: event.target.value as PaymentStatus })}><option value="pending">Pendente</option><option value="paid">Pago</option><option value="refunded">Estornado</option></select></label><label><span>Faturamento</span><select value={order.billing_status} disabled={savingOrderId === order.id || !canUpdateFinancial} title={canUpdateFinancial ? "Alterar faturamento" : "Disponível para caixa, gerente ou supervisor"} onChange={(event) => void updateOrder(order.id, { billing_status: event.target.value as BillingStatus })}><option value="pending">A faturar</option><option value="billed">Faturado</option><option value="cancelled">Cancelado</option></select></label></footer>
-            </article>
-          )) : <div className="orders-empty"><ClipboardList size={28} /><h2>Nenhuma comanda encontrada</h2><p>Quando o modo Comanda interna ou Ambos estiver ativo, os pedidos enviados ao painel aparecerão aqui.</p></div>}
-        </section>
+    <main className="workflow-page">
+      <header className="workflow-topbar"><a href="/operacao"><ArrowLeft size={17} /> Mesas</a><div className="workflow-identity"><span><Store size={16} /></span><div><b>{tenant.name}</b><small>{selectedBranch?.name}</small></div></div><button type="button" title="Sair" aria-label="Sair" onClick={() => void supabase?.auth.signOut()}><LogOut size={17} /></button></header>
+      <section className="workflow-shell">
+        <header className="workflow-heading"><div><span>Operação em tempo real</span><h1>{viewLabels[view]}</h1><p>{view === "cozinha" ? flow === "complete" ? "Prepare e libere os pedidos na sequência." : "Acompanhe os pedidos; a baixa será feita pelo atendimento." : view === "caixa" ? "Receba, confirme e libere cada mesa." : "Acompanhe as mesas e confirme as entregas."}</p></div><button className="operation-secondary" type="button" onClick={() => void loadOperationData()} disabled={refreshing}><RefreshCw className={refreshing ? "spinning" : ""} size={16} /> Atualizar</button></header>
+        {views.length > 1 ? <nav className="workflow-view-switcher" aria-label="Área operacional">{views.map((item) => <button className={view === item ? "active" : ""} type="button" onClick={() => changeView(item)} key={item}>{item === "atendimento" ? <UtensilsCrossed size={16} /> : item === "cozinha" ? <ChefHat size={16} /> : <CreditCard size={16} />}{viewLabels[item]}</button>)}</nav> : null}
+        <div className="workflow-context-bar"><label><span>Filial</span><select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)}>{branches.map((branch) => <option value={branch.id} key={branch.id}>{branch.name}</option>)}</select></label><span className="workflow-live"><i /> Atualização automática</span><small>{flow === "complete" ? `Fluxo completo · ${releaseMode === "per_item" ? "liberação por item" : "pedido inteiro"}` : "Fluxo simplificado"}</small></div>
+        {notice ? <div className="workflow-notice" role="status"><BellRing size={17} /> {notice}</div> : null}
+        {error ? <div className="workflow-error" role="alert">{error}</div> : null}
+        {view === "atendimento" ? <WaiterView sessions={sessionsByPriority} orders={branchOrders} branch={selectedBranch} flow={flow} savingKey={savingKey} onDeliverItem={(orderId, itemId) => void runWorkflow("mark_delivered", { orderId, itemId })} onDeliverOrder={(orderId) => void runWorkflow("mark_delivered", { orderId })} onDeliverSession={(sessionId) => void deliverSession(sessionId)} onRequestClosing={(sessionId) => void runWorkflow("request_closing", { sessionId })} /> : null}
+        {view === "cozinha" ? <KitchenView orders={branchOrders} flow={flow} releaseMode={releaseMode} filter={kitchenFilter} onFilter={setKitchenFilter} savingKey={savingKey} onStart={(orderId) => void runWorkflow("start_preparation", { orderId })} onReady={(orderId, itemId) => void runWorkflow("mark_ready", { orderId, itemId })} /> : null}
+        {view === "caixa" ? <CashierView sessions={sessionsByPriority} orders={branchOrders} standaloneOrders={standaloneOrders} paymentBySession={paymentBySession} onPaymentChange={(sessionId, method) => setPaymentBySession((current) => ({ ...current, [sessionId]: method }))} savingKey={savingKey} onRequestClosing={(sessionId) => void runWorkflow("request_closing", { sessionId })} onReopen={(sessionId) => void runWorkflow("reopen_table", { sessionId })} onConfirmPayment={(sessionId, method) => void runWorkflow("confirm_payment", { sessionId, paymentMethod: method })} onRelease={(sessionId) => void runWorkflow("release_table", { sessionId })} onSettleStandalone={(order) => void settleStandalone(order)} /> : null}
+        <footer className="workflow-audit"><CheckCircle2 size={15} /> Todas as ações ficam registradas no histórico da comanda.</footer>
       </section>
     </main>
   );
+}
+
+function WaiterView({ sessions, orders, branch, flow, savingKey, onDeliverItem, onDeliverOrder, onDeliverSession, onRequestClosing }: { sessions: TableSession[]; orders: InternalOrder[]; branch: Branch | undefined; flow: OperationFlow; savingKey: string; onDeliverItem: (orderId: string, itemId: string) => void; onDeliverOrder: (orderId: string) => void; onDeliverSession: (sessionId: string) => void; onRequestClosing: (sessionId: string) => void }) {
+  return <section className="workflow-board"><header className="workflow-section-heading"><div><span>Salão</span><h2>Mesas em atendimento</h2></div><b>{sessions.length}</b></header><div className="waiter-session-grid">{sessions.map((tableSession) => {
+    const sessionOrders = orders.filter((order) => order.table_session_id === tableSession.id);
+    const items = sessionOrders.flatMap((order) => order.order_items.map((item) => ({ ...item, orderId: order.id })));
+    const available = items.filter((item) => item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready"));
+    const delivered = items.filter((item) => item.delivery_status === "delivered").length;
+    const total = sessionOrders.reduce((sum, order) => sum + Number(order.total), 0);
+    const isClosing = tableSession.status === "awaiting_payment";
+    return <article className={`waiter-session-card ${isClosing ? "closing" : available.length ? "has-ready" : ""}`} key={tableSession.id}><header><div><span>{tableSession.restaurant_tables?.code ?? "–"}</span><div><h3>{tableLabel(tableSession)}</h3><small>Aberta há {elapsedLabel(tableSession.opened_at)}</small></div></div><em>{isClosing ? tableSession.payment_status === "paid" ? "Pago" : "Fechamento" : available.length ? `${available.length} para entregar` : "Em atendimento"}</em></header><div className="waiter-account-summary"><span>{sessionOrders.length} comanda(s)</span><span>{delivered}/{items.length} itens entregues</span><b>{currency.format(total)}</b></div><div className="waiter-order-list">{sessionOrders.map((order) => <article key={order.id}><header><span>{order.order_code}</span><small>{time.format(new Date(order.created_at))}</small></header><ul>{order.order_items.map((item) => {
+      const canDeliver = item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready");
+      return <li className={item.delivery_status === "delivered" ? "delivered" : canDeliver ? "ready" : ""} key={item.id}><div><span>{item.quantity}x {item.product_name}</span>{optionLabel(item) ? <small>{optionLabel(item)}</small> : null}</div>{item.delivery_status === "delivered" ? <em><Check size={14} /> Entregue</em> : canDeliver ? <button type="button" onClick={() => onDeliverItem(order.id, item.id)} disabled={Boolean(savingKey)}>Entregar</button> : <em>{flow === "complete" ? "Na cozinha" : "Pendente"}</em>}</li>;
+    })}</ul>{order.notes ? <p>Observação: {order.notes}</p> : null}{order.order_items.some((item) => item.delivery_status === "pending" && (flow === "simplified" || item.production_status === "ready")) ? <button className="workflow-text-action" type="button" onClick={() => onDeliverOrder(order.id)} disabled={Boolean(savingKey)}>Confirmar itens disponíveis desta comanda</button> : null}</article>)}</div><footer>{!isClosing && branch ? <a className="operation-secondary" href={`/comanda?loja=${encodeURIComponent(branch.slug)}&filial=${encodeURIComponent(branch.id)}&mesa=${encodeURIComponent(tableSession.table_id)}`}>Adicionar pedido</a> : null}{!isClosing && available.length ? <button className="operation-primary" type="button" onClick={() => onDeliverSession(tableSession.id)} disabled={Boolean(savingKey)}>{savingKey === tableSession.id ? "Confirmando..." : `Entregar ${available.length} item(ns)`}</button> : null}{!isClosing && sessionOrders.length ? <button className="workflow-close-action" type="button" onClick={() => onRequestClosing(tableSession.id)} disabled={Boolean(savingKey)}>Solicitar fechamento</button> : isClosing ? <span className="workflow-waiting-label"><Clock3 size={15} /> Aguardando o caixa</span> : null}</footer></article>;
+  })}{!sessions.length ? <div className="workflow-empty"><UtensilsCrossed size={25} /><h2>Nenhuma mesa ocupada</h2><p>As mesas aparecem aqui assim que o primeiro pedido é enviado.</p></div> : null}</div></section>;
+}
+
+function KitchenView({ orders, flow, releaseMode, filter, onFilter, savingKey, onStart, onReady }: { orders: InternalOrder[]; flow: OperationFlow; releaseMode: ProductionReleaseMode; filter: "active" | "ready" | "all"; onFilter: (filter: "active" | "ready" | "all") => void; savingKey: string; onStart: (orderId: string) => void; onReady: (orderId: string, itemId?: string) => void }) {
+  const visible = [...orders].filter((order) => filter === "active" ? ["accepted", "preparing"].includes(order.status) : filter === "ready" ? order.status === "ready" : order.status !== "cancelled").sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  return <section className="workflow-board">{flow === "simplified" ? <div className="workflow-mode-note"><ChefHat size={18} /><div><b>Cozinha em modo de visualização</b><span>Prepare os pedidos na sequência. A equipe de atendimento fará as baixas.</span></div></div> : null}<header className="workflow-section-heading kitchen-heading"><div><span>Fila de produção</span><h2>Comandas</h2></div><nav>{([['active', 'Produção'], ['ready', 'Prontos'], ['all', 'Todos']] as const).map(([value, label]) => <button className={filter === value ? "active" : ""} type="button" onClick={() => onFilter(value)} key={value}>{label}</button>)}</nav></header><div className="kitchen-order-grid">{visible.map((order) => {
+    const readyCount = order.order_items.filter((item) => item.production_status === "ready").length;
+    const allReady = readyCount === order.order_items.length;
+    return <article className={`kitchen-ticket status-${order.status}`} key={order.id}><header><div><span>{tableLabel(order)}</span><small>{order.order_code} · {time.format(new Date(order.created_at))}</small></div><em>{allReady ? "Pronto" : readyCount ? `${readyCount}/${order.order_items.length} prontos` : order.status === "preparing" ? "Em preparo" : `há ${elapsedLabel(order.created_at)}`}</em></header><ol>{order.order_items.map((item) => <li className={item.production_status === "ready" ? "ready" : ""} key={item.id}><div><span><b>{item.quantity}x</b> {item.product_name}</span>{optionLabel(item) ? <small>{optionLabel(item)}</small> : null}</div>{item.production_status === "ready" ? <em><Check size={14} /> Pronto</em> : flow === "complete" && releaseMode === "per_item" ? <button type="button" onClick={() => onReady(order.id, item.id)} disabled={Boolean(savingKey)}>Pronto</button> : null}</li>)}</ol>{order.notes ? <p><b>Observação</b>{order.notes}</p> : null}{flow === "complete" && !allReady ? <footer>{order.status === "accepted" ? <button className="operation-secondary" type="button" onClick={() => onStart(order.id)} disabled={Boolean(savingKey)}>Iniciar preparo</button> : null}<button className="operation-primary" type="button" onClick={() => onReady(order.id)} disabled={Boolean(savingKey)}>{releaseMode === "per_item" ? "Marcar tudo pronto" : "Pedido pronto"}</button></footer> : null}</article>;
+  })}{!visible.length ? <div className="workflow-empty"><ChefHat size={25} /><h2>Fila vazia</h2><p>Novas comandas aparecerão automaticamente nesta tela.</p></div> : null}</div></section>;
+}
+
+function CashierView({ sessions, orders, standaloneOrders, paymentBySession, onPaymentChange, savingKey, onRequestClosing, onReopen, onConfirmPayment, onRelease, onSettleStandalone }: { sessions: TableSession[]; orders: InternalOrder[]; standaloneOrders: InternalOrder[]; paymentBySession: Record<string, string>; onPaymentChange: (sessionId: string, method: string) => void; savingKey: string; onRequestClosing: (sessionId: string) => void; onReopen: (sessionId: string) => void; onConfirmPayment: (sessionId: string, method: string) => void; onRelease: (sessionId: string) => void; onSettleStandalone: (order: InternalOrder) => void }) {
+  return <section className="workflow-board"><header className="workflow-section-heading"><div><span>Contas abertas</span><h2>Fechamento de mesas</h2></div><b>{sessions.filter((item) => item.status === "awaiting_payment").length} aguardando</b></header><div className="cashier-account-list">{sessions.map((tableSession) => {
+    const accountOrders = orders.filter((order) => order.table_session_id === tableSession.id);
+    const items = accountOrders.flatMap((order) => order.order_items);
+    const total = accountOrders.reduce((sum, order) => sum + Number(order.total), 0);
+    const undelivered = items.filter((item) => item.delivery_status === "pending").length;
+    const method = paymentBySession[tableSession.id] ?? tableSession.payment_method ?? accountOrders[0]?.payment_method ?? "Pix";
+    const waiting = tableSession.status === "awaiting_payment";
+    const paid = tableSession.payment_status === "paid";
+    return <article className={`cashier-account ${waiting ? "waiting" : ""} ${paid ? "paid" : ""}`} key={tableSession.id}><header><div><span>{tableSession.restaurant_tables?.code ?? "–"}</span><div><h3>{tableLabel(tableSession)}</h3><small>{accountOrders.length} comanda(s) · aberta há {elapsedLabel(tableSession.opened_at)}</small></div></div><em>{paid ? "Pagamento confirmado" : waiting ? "Aguardando pagamento" : "Em atendimento"}</em></header><div className="cashier-account-body"><div>{accountOrders.map((order) => <p key={order.id}><span>{order.order_code} · {order.order_items.length} item(ns)</span><b>{currency.format(Number(order.total))}</b></p>)}<small>{items.length - undelivered}/{items.length} itens entregues</small></div><strong>{currency.format(total)}</strong></div><footer>{!waiting ? accountOrders.length ? <button className="operation-primary" type="button" onClick={() => onRequestClosing(tableSession.id)} disabled={Boolean(savingKey)}>Iniciar fechamento</button> : <span className="cashier-release-status">Mesa aberta sem pedidos</span> : !paid ? <><label><span>Forma de pagamento</span><select value={method} onChange={(event) => onPaymentChange(tableSession.id, event.target.value)}>{paymentMethods.map((item) => <option value={item} key={item}>{item}</option>)}</select></label><button className="operation-primary" type="button" onClick={() => onConfirmPayment(tableSession.id, method)} disabled={Boolean(savingKey)}>Confirmar pagamento</button><button className="workflow-icon-action" type="button" title="Reabrir atendimento" aria-label="Reabrir atendimento" onClick={() => onReopen(tableSession.id)} disabled={Boolean(savingKey)}><RotateCcw size={17} /></button></> : <><div className="cashier-release-status">{undelivered ? `${undelivered} item(ns) aguardando entrega` : "Conta pronta para liberação"}</div><button className="operation-primary" type="button" onClick={() => onRelease(tableSession.id)} disabled={Boolean(savingKey) || undelivered > 0}>Liberar mesa</button></>}</footer></article>;
+  })}{!sessions.length ? <div className="workflow-empty"><CreditCard size={25} /><h2>Nenhuma conta aberta</h2><p>Contas solicitadas pelo atendimento serão priorizadas aqui.</p></div> : null}</div>{standaloneOrders.length ? <section className="standalone-accounts"><header><span>Sem mesa</span><h3>Comandas avulsas</h3></header>{standaloneOrders.map((order) => <article key={order.id}><div><b>{order.order_code}</b><span>{order.customer_name || "Atendimento avulso"}</span></div><strong>{currency.format(Number(order.total))}</strong><button className="operation-primary" type="button" disabled={Boolean(savingKey) || order.payment_status === "paid"} onClick={() => onSettleStandalone(order)}>{order.payment_status === "paid" ? "Recebido" : "Receber e concluir"}</button></article>)}</section> : null}</section>;
 }

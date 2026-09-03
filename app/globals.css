@@ -18,6 +18,964 @@
   --shadow: 0 10px 28px rgba(24, 26, 25, 0.07);
 }
 
+/* Operational workflow */
+.table-setting-row.disabled {
+  opacity: 0.52;
+}
+
+.table-mode-control button:disabled {
+  cursor: not-allowed;
+}
+
+.operation-table-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.operation-table-summary b {
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.operation-table-card.ready {
+  border-color: #9cc8af;
+  background: #f8fcf9;
+}
+
+.operation-table-card.ready .operation-table-card-heading > span {
+  background: #dcefe3;
+  color: #225d3d;
+}
+
+.operation-table-card.closing {
+  border-color: #e5c98e;
+  background: #fffdf7;
+}
+
+.operation-table-card.paid {
+  border-color: #9fb9d8;
+  background: #f8fbff;
+}
+
+.command-table-grid button.closing,
+.command-table-grid button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+}
+
+.command-table-grid button > small {
+  color: #8a6316;
+  font-size: 0.68rem;
+}
+
+.workflow-page {
+  min-height: 100vh;
+  background: #f5f6f4;
+  color: var(--foreground);
+}
+
+.workflow-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 64px;
+  padding: 0 clamp(16px, 3vw, 38px);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.workflow-topbar > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-self: start;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.workflow-topbar > button,
+.workflow-icon-action {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  justify-self: end;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.workflow-topbar > button:hover,
+.workflow-icon-action:hover {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+.workflow-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.workflow-identity > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--foreground);
+  color: #fff;
+}
+
+.workflow-identity > div {
+  display: grid;
+  gap: 1px;
+}
+
+.workflow-identity b {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.workflow-identity small {
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.workflow-shell {
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 30px 0 48px;
+}
+
+.workflow-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.workflow-heading > div > span,
+.workflow-section-heading > div > span,
+.standalone-accounts > header > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.workflow-heading h1 {
+  margin: 4px 0 0;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 580;
+  letter-spacing: 0;
+}
+
+.workflow-heading p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+
+.workflow-view-switcher {
+  display: inline-flex;
+  gap: 2px;
+  margin-top: 24px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.workflow-view-switcher button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.77rem;
+}
+
+.workflow-view-switcher button.active {
+  background: var(--foreground);
+  color: #fff;
+}
+
+.workflow-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 54px;
+  margin-top: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.workflow-context-bar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-context-bar label > span,
+.cashier-account footer label > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.workflow-context-bar select,
+.cashier-account footer select {
+  min-height: 34px;
+  padding: 0 30px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+
+.workflow-context-bar > small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.workflow-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #347052;
+  font-size: 0.71rem;
+}
+
+.workflow-live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3e9a6a;
+  box-shadow: 0 0 0 3px #e1f2e8;
+}
+
+.workflow-notice,
+.workflow-error,
+.workflow-mode-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #bddbc8;
+  border-radius: 6px;
+  background: #f6fcf8;
+  color: #275f40;
+  font-size: 0.77rem;
+}
+
+.operation-ready-notice a {
+  margin-left: auto;
+  color: inherit;
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.workflow-error {
+  border-color: #e7c7c7;
+  background: #fff8f8;
+  color: #913838;
+}
+
+.workflow-mode-note {
+  align-items: flex-start;
+  margin: 0 0 14px;
+  border-color: #d9dde0;
+  background: #f9fafb;
+  color: var(--foreground);
+}
+
+.workflow-mode-note > div {
+  display: grid;
+  gap: 2px;
+}
+
+.workflow-mode-note b {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.workflow-mode-note span {
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+
+.workflow-board {
+  margin-top: 22px;
+}
+
+.workflow-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.workflow-section-heading h2,
+.standalone-accounts h3 {
+  margin: 3px 0 0;
+  font-size: 1.02rem;
+  font-weight: 580;
+}
+
+.workflow-section-heading > b {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.waiter-session-grid,
+.kitchen-order-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.waiter-session-card,
+.kitchen-ticket,
+.cashier-account,
+.standalone-accounts {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.waiter-session-card.has-ready {
+  border-color: #9cc8af;
+}
+
+.waiter-session-card.closing,
+.cashier-account.waiting {
+  border-color: #ddc184;
+}
+
+.cashier-account.paid {
+  border-color: #9bb8d7;
+}
+
+.waiter-session-card > header,
+.cashier-account > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 67px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.waiter-session-card > header > div,
+.cashier-account > header > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.waiter-session-card > header > div > span,
+.cashier-account > header > div > span {
+  display: grid;
+  width: 39px;
+  height: 37px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--surface-strong);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.waiter-session-card h3,
+.cashier-account h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 590;
+}
+
+.waiter-session-card header small,
+.cashier-account header small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.waiter-session-card > header > em,
+.cashier-account > header > em,
+.kitchen-ticket > header > em {
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.waiter-session-card.has-ready > header > em {
+  background: #e1f2e8;
+  color: #286143;
+}
+
+.waiter-session-card.closing > header > em,
+.cashier-account.waiting > header > em {
+  background: #fff3d6;
+  color: #7a5713;
+}
+
+.cashier-account.paid > header > em {
+  background: #e7f0fa;
+  color: #315d86;
+}
+
+.waiter-account-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.waiter-account-summary b {
+  color: var(--foreground);
+  font-size: 0.77rem;
+  font-weight: 600;
+}
+
+.waiter-order-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.waiter-order-list > article {
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.waiter-order-list > article > header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.waiter-order-list ul,
+.kitchen-ticket ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.waiter-order-list li,
+.kitchen-ticket li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 0;
+  border-top: 1px solid #eff0ee;
+  font-size: 0.76rem;
+}
+
+.waiter-order-list li:first-child,
+.kitchen-ticket li:first-child {
+  border-top: 0;
+}
+
+.waiter-order-list li > div,
+.kitchen-ticket li > div {
+  display: grid;
+  gap: 2px;
+}
+
+.waiter-order-list li small,
+.kitchen-ticket li small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.waiter-order-list li > em,
+.kitchen-ticket li > em {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.waiter-order-list li.ready > em,
+.kitchen-ticket li.ready > em {
+  color: #2d6b4b;
+}
+
+.waiter-order-list li.delivered {
+  color: var(--muted);
+}
+
+.waiter-order-list li > button,
+.kitchen-ticket li > button,
+.workflow-text-action,
+.workflow-close-action {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #b9d6c4;
+  border-radius: 5px;
+  background: #f7fcf9;
+  color: #2d6849;
+  font-size: 0.69rem;
+}
+
+.workflow-text-action {
+  margin-top: 7px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.waiter-order-list article > p {
+  margin: 7px 0 0;
+  color: #704d16;
+  font-size: 0.69rem;
+}
+
+.waiter-session-card > footer,
+.kitchen-ticket > footer,
+.cashier-account > footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 57px;
+  padding: 9px 12px;
+  background: #fafbf9;
+}
+
+.waiter-session-card > footer > a,
+.waiter-session-card > footer > button,
+.kitchen-ticket > footer > button {
+  flex: 1;
+  min-height: 36px;
+  padding-inline: 10px;
+  font-size: 0.72rem;
+  text-decoration: none;
+}
+
+.workflow-close-action {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--foreground);
+}
+
+.workflow-waiting-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #7a5713;
+  font-size: 0.72rem;
+}
+
+.kitchen-heading nav {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.kitchen-heading nav button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.kitchen-heading nav button.active {
+  background: var(--foreground);
+  color: #fff;
+}
+
+.kitchen-order-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.kitchen-ticket > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.kitchen-ticket > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.kitchen-ticket > header span {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.kitchen-ticket > header small {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.kitchen-ticket.status-preparing {
+  border-color: #d8c590;
+}
+
+.kitchen-ticket.status-ready {
+  border-color: #9cc8af;
+}
+
+.kitchen-ticket ol {
+  padding: 6px 12px;
+}
+
+.kitchen-ticket li b {
+  font-weight: 650;
+}
+
+.kitchen-ticket > p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  background: #fffaf1;
+  color: #694912;
+  font-size: 0.71rem;
+}
+
+.kitchen-ticket > p b {
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.cashier-account-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cashier-account > header {
+  min-height: 62px;
+}
+
+.cashier-account-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: end;
+  padding: 11px 13px;
+}
+
+.cashier-account-body > div {
+  display: grid;
+  gap: 5px;
+}
+
+.cashier-account-body p {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  max-width: 480px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.cashier-account-body p b {
+  color: var(--foreground);
+  font-weight: 550;
+}
+
+.cashier-account-body small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.cashier-account-body > strong {
+  font-size: 1.2rem;
+  font-weight: 620;
+}
+
+.cashier-account > footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+}
+
+.cashier-account footer label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: auto;
+}
+
+.cashier-account footer .operation-primary {
+  min-width: 158px;
+}
+
+.cashier-release-status {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.standalone-accounts {
+  margin-top: 22px;
+}
+
+.standalone-accounts > header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.standalone-accounts > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.standalone-accounts > article:last-child {
+  border-bottom: 0;
+}
+
+.standalone-accounts > article > div {
+  display: grid;
+  gap: 2px;
+}
+
+.standalone-accounts > article b,
+.standalone-accounts > article span {
+  font-size: 0.73rem;
+}
+
+.standalone-accounts > article span {
+  color: var(--muted);
+}
+
+.standalone-accounts > article > strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.standalone-accounts .operation-primary {
+  min-height: 36px;
+  font-size: 0.72rem;
+}
+
+.workflow-empty {
+  display: grid;
+  grid-column: 1 / -1;
+  min-height: 210px;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+}
+
+.workflow-empty h1,
+.workflow-empty h2,
+.workflow-empty p {
+  margin: 0;
+}
+
+.workflow-empty h1,
+.workflow-empty h2 {
+  color: var(--foreground);
+  font-size: 1rem;
+  font-weight: 580;
+}
+
+.workflow-empty p {
+  max-width: 390px;
+  font-size: 0.77rem;
+}
+
+.workflow-empty > a {
+  margin-top: 8px;
+  text-decoration: none;
+}
+
+.workflow-audit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+@media (max-width: 980px) {
+  .kitchen-order-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .workflow-topbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .workflow-identity {
+    display: none;
+  }
+
+  .workflow-shell {
+    width: min(100% - 20px, 1240px);
+    padding-top: 20px;
+  }
+
+  .workflow-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workflow-heading > button {
+    align-self: flex-start;
+  }
+
+  .workflow-view-switcher {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .workflow-view-switcher button {
+    justify-content: center;
+    padding-inline: 7px;
+  }
+
+  .workflow-context-bar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .workflow-context-bar label {
+    justify-content: space-between;
+  }
+
+  .workflow-context-bar select {
+    flex: 1;
+  }
+
+  .workflow-context-bar > small {
+    margin-left: 0;
+  }
+
+  .waiter-session-grid,
+  .kitchen-order-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .waiter-session-card > header,
+  .cashier-account > header {
+    align-items: flex-start;
+  }
+
+  .waiter-account-summary {
+    grid-template-columns: 1fr auto;
+  }
+
+  .waiter-account-summary span:nth-child(2) {
+    display: none;
+  }
+
+  .waiter-session-card > footer,
+  .cashier-account > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cashier-account footer label {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .cashier-account footer select {
+    flex: 1;
+  }
+
+  .cashier-account footer .operation-primary {
+    width: 100%;
+  }
+
+  .workflow-icon-action {
+    align-self: flex-end;
+  }
+
+  .cashier-account-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cashier-account-body > strong {
+    font-size: 1.05rem;
+  }
+
+  .standalone-accounts > article {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .standalone-accounts > article > button {
+    grid-column: 1 / -1;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

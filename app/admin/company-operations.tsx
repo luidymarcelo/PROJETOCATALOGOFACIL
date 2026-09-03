@@ -56,6 +56,8 @@ type RestaurantTable = {
 };
 type EntryMode = "table" | "staff" | "both";
 type CustomerNameMode = "hidden" | "optional" | "required";
+type OperationFlow = "simplified" | "complete";
+type ProductionReleaseMode = "whole_order" | "per_item";
 
 const roleLabels: Record<CompanyUserRole, string> = {
   branch_manager: "Gerente de filial",
@@ -333,6 +335,8 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
   const [entryMode, setEntryMode] = useState<EntryMode>("staff");
   const [customerNameMode, setCustomerNameMode] = useState<CustomerNameMode>("optional");
   const [requireOpenSession, setRequireOpenSession] = useState(false);
+  const [operationFlow, setOperationFlow] = useState<OperationFlow>("complete");
+  const [productionReleaseMode, setProductionReleaseMode] = useState<ProductionReleaseMode>("whole_order");
   const [internalOrdersEnabled, setInternalOrdersEnabled] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -349,7 +353,7 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
     setFeedback("");
     const [tableResult, parameterResult, tenantParameterResult] = await Promise.all([
       supabase.from("restaurant_tables").select("id, store_id, code, name, access_token, sort_order, is_active").eq("store_id", branch.id).order("sort_order").order("code"),
-      supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branch.id).in("parameter_key", ["internal_order_entry_mode", "table_customer_name_mode", "require_open_table_session", "order_mode"]),
+      supabase.from("store_parameters").select("parameter_key, parameter_value").eq("store_id", branch.id).in("parameter_key", ["internal_order_entry_mode", "table_customer_name_mode", "require_open_table_session", "operation_flow", "production_release_mode", "order_mode"]),
       supabase.from("tenant_parameters").select("parameter_value").eq("tenant_id", branch.tenant_id).eq("parameter_key", "order_mode").maybeSingle(),
     ]);
     setLoading(false);
@@ -365,6 +369,8 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
     setEntryMode(savedEntryMode === "table" || savedEntryMode === "both" ? savedEntryMode : "staff");
     setCustomerNameMode(savedNameMode === "hidden" || savedNameMode === "required" ? savedNameMode : "optional");
     setRequireOpenSession(parameters.get("require_open_table_session") === true);
+    setOperationFlow(parameters.get("operation_flow") === "simplified" ? "simplified" : "complete");
+    setProductionReleaseMode(parameters.get("production_release_mode") === "per_item" ? "per_item" : "whole_order");
     const effectiveOrderMode = parameters.get("order_mode") ?? tenantParameterResult.data?.parameter_value ?? "whatsapp";
     setInternalOrdersEnabled(effectiveOrderMode === "internal" || effectiveOrderMode === "both");
   }
@@ -382,6 +388,8 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
       { store_id: branch.id, parameter_key: "internal_order_entry_mode", parameter_value: entryMode, is_public: false, updated_at: updatedAt },
       { store_id: branch.id, parameter_key: "table_customer_name_mode", parameter_value: customerNameMode, is_public: false, updated_at: updatedAt },
       { store_id: branch.id, parameter_key: "require_open_table_session", parameter_value: requireOpenSession, is_public: false, updated_at: updatedAt },
+      { store_id: branch.id, parameter_key: "operation_flow", parameter_value: operationFlow, is_public: false, updated_at: updatedAt },
+      { store_id: branch.id, parameter_key: "production_release_mode", parameter_value: productionReleaseMode, is_public: false, updated_at: updatedAt },
     ]);
     setSaving(false);
     setFeedback(error ? operationError(error, "Não foi possível salvar a operação.") : "Configuração da filial salva.");
@@ -487,6 +495,20 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
             <button className={entryMode === "table" ? "active" : ""} type="button" onClick={() => setEntryMode("table")}>Mesa</button>
             <button className={entryMode === "staff" ? "active" : ""} type="button" onClick={() => setEntryMode("staff")}>Funcionário</button>
             <button className={entryMode === "both" ? "active" : ""} type="button" onClick={() => setEntryMode("both")}>Ambos</button>
+          </div>
+        </div>
+        <div className="table-setting-row">
+          <div><strong>Fluxo do atendimento</strong><small>{operationFlow === "complete" ? "Cozinha confirma o preparo e a equipe confirma a entrega." : "A cozinha apenas visualiza; a equipe confirma o que foi entregue."}</small></div>
+          <div className="table-mode-control" role="radiogroup" aria-label="Fluxo do atendimento">
+            <button className={operationFlow === "simplified" ? "active" : ""} type="button" onClick={() => setOperationFlow("simplified")}>Simplificado</button>
+            <button className={operationFlow === "complete" ? "active" : ""} type="button" onClick={() => setOperationFlow("complete")}>Completo</button>
+          </div>
+        </div>
+        <div className={operationFlow === "complete" ? "table-setting-row" : "table-setting-row disabled"}>
+          <div><strong>Liberação da cozinha</strong><small>Defina se o garçom será avisado pelo pedido inteiro ou a cada item pronto.</small></div>
+          <div className="table-mode-control" role="radiogroup" aria-label="Liberação da cozinha">
+            <button className={productionReleaseMode === "whole_order" ? "active" : ""} type="button" onClick={() => setProductionReleaseMode("whole_order")} disabled={operationFlow !== "complete"}>Pedido inteiro</button>
+            <button className={productionReleaseMode === "per_item" ? "active" : ""} type="button" onClick={() => setProductionReleaseMode("per_item")} disabled={operationFlow !== "complete"}>Por item</button>
           </div>
         </div>
         <div className="table-setting-row">

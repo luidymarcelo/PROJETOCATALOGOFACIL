@@ -16,6 +16,7 @@ type TableCatalogContext = {
   customer_name_mode: "hidden" | "optional" | "required";
   require_open_session: boolean;
   session_open: boolean;
+  session_closing?: boolean;
   error?: string;
 };
 
@@ -55,6 +56,9 @@ export default function TableCatalogPage() {
 
   if (loading) return <main className="table-access-state"><RefreshCw className="spinning" size={25} /><span>Preparando a mesa...</span></main>;
   if (!context) return <main className="table-access-state error"><Store size={28} /><h1>Mesa indisponível</h1><p>{error}</p></main>;
+  if (context.session_closing) {
+    return <main className="table-access-state waiting"><ClipboardList size={28} /><h1>Conta em fechamento</h1><p>{context.table_name} está aguardando pagamento. Novos pedidos serão liberados se o caixa reabrir o atendimento.</p><button type="button" onClick={() => { setLoading(true); setReloadKey((current) => current + 1); }}><RefreshCw size={16} /> Verificar novamente</button></main>;
+  }
   if (context.require_open_session && !context.session_open) {
     return <main className="table-access-state waiting"><ClipboardList size={28} /><h1>Aguardando abertura</h1><p>Um funcionário precisa abrir {context.table_name} antes do primeiro pedido.</p><button type="button" onClick={() => { setLoading(true); setReloadKey((current) => current + 1); }}><RefreshCw size={16} /> Verificar novamente</button></main>;
   }

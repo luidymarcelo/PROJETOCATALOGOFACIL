@@ -10,10 +10,10 @@ type OperationalContext = {
   tenant: { id: string; name: string };
   branches: Array<{ id: string; name: string; slug: string }>;
   access: { role: string; roles?: string[]; name: string };
-  operation?: { entry_mode?: "table" | "staff" | "both" };
+  operation?: { entry_mode?: "table" | "staff" | "both"; customer_name_mode?: "hidden" | "optional" | "required" };
   error?: string;
 };
-type RestaurantTable = { id: string; code: string; name: string | null; is_active: boolean };
+type RestaurantTable = { id: string; code: string; name: string | null; is_active: boolean; session_status?: "open" | "awaiting_payment" | null };
 
 function commandError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String((error as { message?: string } | null)?.message ?? "");
@@ -66,8 +66,8 @@ export default function InternalCommandCatalogPage() {
       setLoading(false);
       return;
     }
-    const roles = Array.isArray(data.access?.roles) && data.access.roles.length
-      ? data.access.roles.map(String)
+    const roles: string[] = Array.isArray(data.access?.roles) && data.access.roles.length
+      ? data.access.roles.map((role: unknown) => String(role))
       : [String(data.access?.role ?? "")];
     if (!roles.some((role) => ["owner", "branch_manager", "waiter", "supervisor"].includes(role))) {
       setWorkspace(null);
@@ -90,9 +90,11 @@ export default function InternalCommandCatalogPage() {
       setLoading(false);
       return;
     }
-    const nextTables = (tableRows ?? []) as RestaurantTable[];
+    const { data: activeSessions } = await supabase.from("table_sessions").select("table_id, status").eq("store_id", resolvedStoreId).in("status", ["open", "awaiting_payment"]);
+    const sessionByTable = new Map((activeSessions ?? []).map((item) => [item.table_id, item.status]));
+    const nextTables = ((tableRows ?? []) as RestaurantTable[]).map((table) => ({ ...table, session_status: sessionByTable.get(table.id) as RestaurantTable["session_status"] ?? null }));
     setTables(nextTables);
-    setSelectedTable(nextTables.find((table) => table.id === requestedTableId) ?? null);
+    setSelectedTable(nextTables.find((table) => table.id === requestedTableId && table.session_status !== "awaiting_payment") ?? null);
     setSession(currentSession);
     setLoading(false);
   }
@@ -166,7 +168,7 @@ export default function InternalCommandCatalogPage() {
     return (
       <main className="command-table-page">
         <header><a href="/operacao"><ArrowLeft size={16} /> Operação</a><div><span><UserRound size={16} /></span><strong>{workspace.access.name}</strong><button type="button" title="Sair" aria-label="Sair" onClick={() => void supabase?.auth.signOut()}><LogOut size={16} /></button></div></header>
-        <section><div className="command-table-heading"><span>{workspace.tenant.name}</span><h1>Escolha a mesa</h1><p>A comanda será vinculada à conta aberta da mesa.</p></div><div className="command-table-grid">{tables.map((table) => <button type="button" key={table.id} onClick={() => chooseTable(table)}><span>{table.code}</span><strong>{table.name?.trim() || `Mesa ${table.code}`}</strong><ArrowRight size={17} /></button>)}</div></section>
+        <section><div className="command-table-heading"><span>{workspace.tenant.name}</span><h1>Escolha a mesa</h1><p>A comanda será vinculada à conta aberta da mesa.</p></div><div className="command-table-grid">{tables.map((table) => <button className={table.session_status === "awaiting_payment" ? "closing" : ""} type="button" key={table.id} onClick={() => chooseTable(table)} disabled={table.session_status === "awaiting_payment"}><span>{table.code}</span><strong>{table.name?.trim() || `Mesa ${table.code}`}</strong>{table.session_status === "awaiting_payment" ? <small>Em fechamento</small> : <ArrowRight size={17} />}</button>)}</div></section>
       </main>
     );
   }
@@ -179,7 +181,7 @@ export default function InternalCommandCatalogPage() {
     tableLabel: selectedTable ? selectedTable.name?.trim() || `Mesa ${selectedTable.code}` : null,
     actorName: workspace.access.name,
     actorRole: workspace.access.roles?.find((role) => ["waiter", "branch_manager", "supervisor", "owner"].includes(role)) ?? workspace.access.role,
-    customerNameMode: "optional",
+    customerNameMode: workspace.operation?.customer_name_mode ?? "optional",
   };
 
   return <CatalogApplication orderChannel="internal" internalOrderContext={internalOrderContext} />;

@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -61,6 +61,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/015_product_option_groups.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/017_internal_orders.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/022_multi_role_company_users.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/023_operational_workflow.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -235,7 +236,14 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /create_internal_order_v2/);
   assert.match(page, /internalOrderContext\.tableId/);
   assert.match(page, /internalOrderContext\.tableToken/);
-  assert.match(ordersPage, /Pedidos e comandas/);
+  assert.match(ordersPage, /type OperationalView = "atendimento" \| "cozinha" \| "caixa"/);
+  assert.match(ordersPage, /Operação em tempo real/);
+  assert.match(ordersPage, /function WaiterView/);
+  assert.match(ordersPage, /function KitchenView/);
+  assert.match(ordersPage, /function CashierView/);
+  assert.match(ordersPage, /run_internal_workflow_action/);
+  assert.match(ordersPage, /postgres_changes/);
+  assert.match(ordersPage, /Liberar mesa/);
   assert.match(ordersPage, /payment_status/);
   assert.match(ordersPage, /billing_status/);
   assert.match(internalOrdersSql, /create or replace function public\.create_internal_order/);
@@ -264,15 +272,20 @@ test("keeps the growth surfaces present", async () => {
   assert.match(companyOperationsPage, /form\.roles\.includes\(role\)/);
   assert.match(companyOperationsPage, /roles: normalizedUserRoles\(user\)/);
   assert.match(companyOperationsPage, /Origem da comanda/);
+  assert.match(companyOperationsPage, /Fluxo do atendimento/);
+  assert.match(companyOperationsPage, /Liberação da cozinha/);
+  assert.match(companyOperationsPage, /operation_flow/);
+  assert.match(companyOperationsPage, /production_release_mode/);
   assert.match(companyOperationsPage, /Exigir mesa aberta/);
   assert.match(companyOperationsPage, /QRCode\.toDataURL/);
   assert.match(branchPortalPage, /portalMode="branch"/);
   assert.match(operationPage, /open_table_session/);
   assert.match(operationPage, /Mesas da filial/);
   assert.match(operationPage, /hasOperationalRole/);
-  assert.match(ordersPage, /accessRoles\.some/);
+  assert.match(ordersPage, /allowedViews/);
   assert.match(tablePage, /get_table_catalog_context/);
   assert.match(tablePage, /Aguardando abertura/);
+  assert.match(tablePage, /Conta em fechamento/);
   assert.match(branchAccessSql, /create table if not exists public\.company_users/);
   assert.match(branchAccessSql, /create table if not exists public\.restaurant_tables/);
   assert.match(branchAccessSql, /create table if not exists public\.table_sessions/);
@@ -289,6 +302,15 @@ test("keeps the growth surfaces present", async () => {
   assert.match(multiRoleCompanyUsersSql, /create or replace function public\.company_user_has_any_role/);
   assert.match(multiRoleCompanyUsersSql, /actor_roles && array\['owner', 'branch_manager', 'cashier', 'supervisor'\]/);
   assert.match(multiRoleCompanyUsersSql, /v_actor_roles && array\['owner', 'branch_manager', 'waiter', 'supervisor'\]/);
+  assert.match(operationalWorkflowSql, /add column if not exists production_status/);
+  assert.match(operationalWorkflowSql, /add column if not exists payment_confirmed_at/);
+  assert.match(operationalWorkflowSql, /create or replace function public\.run_internal_workflow_action/);
+  assert.match(operationalWorkflowSql, /'start_preparation', 'mark_ready', 'mark_delivered'/);
+  assert.match(operationalWorkflowSql, /'request_closing', 'reopen_table', 'confirm_payment'/);
+  assert.match(operationalWorkflowSql, /confirm delivery of all items before releasing table/);
+  assert.match(operationalWorkflowSql, /block_orders_while_table_is_closing/);
+  assert.match(operationalWorkflowSql, /alter publication supabase_realtime add table public\.order_items/);
+  assert.match(operationalWorkflowSql, /alter publication supabase_realtime add table public\.order_events/);
   assert.doesNotMatch(adminPage, /tenant_members/);
   assert.match(adminPage, /branch-stock-control-mode/);
   assert.match(adminPage, /Layout do catálogo/);

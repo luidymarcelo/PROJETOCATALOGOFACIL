@@ -23,6 +23,8 @@ type OperationalWorkspace = {
     entry_mode: "table" | "staff" | "both";
     customer_name_mode: "hidden" | "optional" | "required";
     require_open_table_session: boolean;
+    flow: "simplified" | "complete";
+    production_release_mode: "whole_order" | "per_item";
   };
 };
 type RestaurantTable = {
@@ -32,6 +34,12 @@ type RestaurantTable = {
   is_active: boolean;
   session_id: string | null;
   session_status: "open" | "awaiting_payment" | null;
+  session_payment_status: "pending" | "paid" | "refunded" | null;
+  opened_at: string | null;
+  order_count: number;
+  total: number;
+  ready_items: number;
+  undelivered_items: number;
 };
 
 const roleLabels: Record<OperationalRole, string> = {
@@ -63,9 +71,13 @@ function formatCnpj(value: string) {
 
 function operationalError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String((error as { message?: string } | null)?.message ?? "");
+  if (/run_internal_workflow_action|production_status|payment_confirmed_at/i.test(message)) return "O fluxo operacional ainda não foi aplicado no Supabase. Execute a migration 023_operational_workflow.sql.";
   if (/get_operational_workspace|schema cache/i.test(message)) return "A estrutura operacional ainda não foi aplicada no Supabase. Execute a migration 021_branch_access_tables_and_audit.sql.";
+  if (/awaiting payment/i.test(message)) return "A mesa está em fechamento e não aceita novos pedidos.";
   return message || fallback;
 }
+
+const operationCurrency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 export default function OperationPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -78,8 +90,31 @@ export default function OperationPage() {
   const [submitting, setSubmitting] = useState(false);
   const [openingTableId, setOpeningTableId] = useState("");
   const [message, setMessage] = useState("");
+  const [notification, setNotification] = useState("");
 
-  async function loadWorkspace(currentSession: Session, selectedCnpj = cnpj || window.localStorage.getItem("catalogo-facil-operation-cnpj") || "") {
+  function notifyReadyOrder() {
+    const text = "A cozinha liberou um pedido para entrega.";
+    setNotification(text);
+    window.setTimeout(() => setNotification((current) => current === text ? "" : current), 5500);
+    navigator.vibrate?.([120, 60, 120]);
+    try {
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = new AudioContextClass();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 740;
+      gain.gain.setValueAtTime(0.06, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.18);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.18);
+    } catch {
+      // The in-app alert remains visible when browser audio is unavailable.
+    }
+  }
+
+  async function loadWorkspace(currentSession: Session, selectedCnpj = cnpj || window.localStorage.getItem("catalogo-facil-operation-cnpj") || "", silent = false) {
     if (!supabase) return;
     const normalizedCnpj = selectedCnpj.replace(/\D/g, "");
     if (normalizedCnpj.length !== 14) {
@@ -88,8 +123,8 @@ export default function OperationPage() {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setMessage("");
+    if (!silent) setLoading(true);
+    if (!silent) setMessage("");
     const { data, error } = await supabase.rpc("get_operational_workspace", { p_cnpj: normalizedCnpj });
     if (error || data?.error || !data?.tenant || !data?.branches?.length) {
       setWorkspace(null);
@@ -103,29 +138,53 @@ export default function OperationPage() {
         entry_mode: data.operation?.entry_mode === "table" || data.operation?.entry_mode === "both" ? data.operation.entry_mode : "staff",
         customer_name_mode: data.operation?.customer_name_mode === "hidden" || data.operation?.customer_name_mode === "required" ? data.operation.customer_name_mode : "optional",
         require_open_table_session: data.operation?.require_open_table_session === true,
+        flow: data.operation?.flow === "simplified" ? "simplified" : "complete",
+        production_release_mode: data.operation?.production_release_mode === "per_item" ? "per_item" : "whole_order",
       },
     } as OperationalWorkspace;
     setWorkspace(nextWorkspace);
     setCnpj(formatCnpj(normalizedCnpj));
     window.localStorage.setItem("catalogo-facil-operation-cnpj", normalizedCnpj);
     const branch = nextWorkspace.branches[0];
-    const [tableResult, sessionResult] = await Promise.all([
-      supabase.from("restaurant_tables").select("id, code, name, is_active").eq("store_id", branch.id).eq("is_active", true).order("sort_order").order("code"),
-      supabase.from("table_sessions").select("id, table_id, status").eq("store_id", branch.id).in("status", ["open", "awaiting_payment"]),
-    ]);
+    const tableResult = await supabase.from("restaurant_tables").select("id, code, name, is_active").eq("store_id", branch.id).eq("is_active", true).order("sort_order").order("code");
+    const modernSessionResult = await supabase.from("table_sessions").select("id, table_id, status, payment_status, opened_at").eq("store_id", branch.id).in("status", ["open", "awaiting_payment"]);
+    const sessionResult = modernSessionResult.error && /payment_status|schema cache/i.test(modernSessionResult.error.message)
+      ? await supabase.from("table_sessions").select("id, table_id, status, opened_at").eq("store_id", branch.id).in("status", ["open", "awaiting_payment"])
+      : modernSessionResult;
     if (tableResult.error) {
       setTables([]);
       setMessage(operationalError(tableResult.error, "Não foi possível carregar as mesas."));
       setLoading(false);
       return;
     }
-    const sessions = new Map((sessionResult.data ?? []).map((item) => [item.table_id, item]));
+    const activeSessions = sessionResult.data ?? [];
+    const sessionIds = activeSessions.map((item) => item.id);
+    let orderRows: Array<{ table_session_id: string | null; total: number; status: string; order_items?: Array<{ production_status?: string; delivery_status?: string }> }> = [];
+    if (sessionIds.length) {
+      const modernOrderResult = await supabase.from("orders").select("table_session_id, total, status, order_items(production_status, delivery_status)").in("table_session_id", sessionIds).neq("status", "cancelled");
+      const orderResult = modernOrderResult.error && /production_status|delivery_status|schema cache/i.test(modernOrderResult.error.message)
+        ? await supabase.from("orders").select("table_session_id, total, status, order_items(id)").in("table_session_id", sessionIds).neq("status", "cancelled")
+        : modernOrderResult;
+      orderRows = (orderResult.data ?? []) as unknown as typeof orderRows;
+    }
+    const sessions = new Map(activeSessions.map((item) => [item.table_id, item]));
     setTables((tableResult.data ?? []).map((table) => {
       const activeSession = sessions.get(table.id);
+      const sessionOrders = orderRows.filter((order) => order.table_session_id === activeSession?.id);
+      const sessionItems = sessionOrders.flatMap((order) => (order.order_items ?? []).map((item) => ({
+        production_status: item.production_status ?? (["ready", "completed"].includes(order.status) ? "ready" : "pending"),
+        delivery_status: item.delivery_status ?? (order.status === "completed" ? "delivered" : "pending"),
+      })));
       return {
         ...table,
         session_id: activeSession?.id ?? null,
         session_status: activeSession?.status === "open" || activeSession?.status === "awaiting_payment" ? activeSession.status : null,
+        session_payment_status: activeSession && "payment_status" in activeSession ? (activeSession.payment_status as RestaurantTable["session_payment_status"]) : null,
+        opened_at: activeSession?.opened_at ?? null,
+        order_count: sessionOrders.length,
+        total: sessionOrders.reduce((sum, order) => sum + Number(order.total), 0),
+        ready_items: sessionItems.filter((item) => item.production_status === "ready" && item.delivery_status === "pending").length,
+        undelivered_items: sessionItems.filter((item) => item.delivery_status === "pending").length,
       } as RestaurantTable;
     }));
     setLoading(false);
@@ -159,6 +218,30 @@ export default function OperationPage() {
       data.subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const branchId = workspace?.branches[0]?.id;
+    const client = supabase;
+    if (!client || !session || !branchId) return;
+    let reloadTimer = 0;
+    const refresh = () => {
+      window.clearTimeout(reloadTimer);
+      reloadTimer = window.setTimeout(() => void loadWorkspace(session, window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? "", true), 220);
+    };
+    const channel = client.channel(`table-map-${branchId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `store_id=eq.${branchId}` }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_sessions", filter: `store_id=eq.${branchId}` }, refresh)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "order_events", filter: `store_id=eq.${branchId}` }, (payload) => {
+        if ((payload.new as { event_type?: string }).event_type === "mark_ready" && hasOperationalRole(workspace, ["owner", "branch_manager", "waiter", "supervisor"])) notifyReadyOrder();
+        refresh();
+      })
+      .subscribe();
+    return () => {
+      window.clearTimeout(reloadTimer);
+      void client.removeChannel(channel);
+    };
+  }, [session, workspace?.branches[0]?.id]);
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -208,6 +291,26 @@ export default function OperationPage() {
     setMessage(`${table.name?.trim() || `Mesa ${table.code}`} aberta para atendimento.`);
   }
 
+  async function requestClosing(table: RestaurantTable) {
+    if (!supabase || !table.session_id || openingTableId) return;
+    setOpeningTableId(table.id);
+    setMessage("");
+    const { error } = await supabase.rpc("run_internal_workflow_action", {
+      p_action: "request_closing",
+      p_order_id: null,
+      p_item_id: null,
+      p_session_id: table.session_id,
+      p_payment_method: null,
+    });
+    setOpeningTableId("");
+    if (error) {
+      setMessage(operationalError(error, "Não foi possível solicitar o fechamento."));
+      return;
+    }
+    if (session) await loadWorkspace(session, window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? "", true);
+    setMessage(`${table.name?.trim() || `Mesa ${table.code}`} enviada ao caixa.`);
+  }
+
   const canCreateOrders = hasOperationalRole(workspace, ["owner", "branch_manager", "waiter", "supervisor"]);
   const canSeeProduction = hasOperationalRole(workspace, ["owner", "branch_manager", "kitchen", "supervisor"]);
   const canSeeCashier = hasOperationalRole(workspace, ["owner", "branch_manager", "cashier", "supervisor"]);
@@ -246,8 +349,10 @@ export default function OperationPage() {
       <div className="operation-shell">
         <header className="operation-heading"><div><span>Turno atual</span><h1>Operação da filial</h1><p>{branch?.name}</p></div><button className="operation-secondary" type="button" onClick={() => session && void loadWorkspace(session)}><RefreshCw size={16} /> Atualizar</button></header>
 
+        {notification ? <div className="workflow-notice operation-ready-notice" role="status"><ChefHat size={17} /> {notification}<a href="/pedidos?visao=atendimento">Ver pedido</a></div> : null}
+
         <section className="operation-role-actions">
-          {canCreateOrders && staffOrderingEnabled ? <article><span><ClipboardList size={20} /></span><div><strong>Nova comanda</strong><small>{tables.length ? "Selecione uma mesa abaixo" : "Atendimento sem mesas cadastradas"}</small></div>{!tables.length && branch ? <a href={`/comanda?loja=${encodeURIComponent(branch.slug)}&filial=${encodeURIComponent(branch.id)}`}>Abrir <ArrowRight size={15} /></a> : null}</article> : null}
+          {canCreateOrders ? <article><span><ClipboardList size={20} /></span><div><strong>Atendimento</strong><small>Mesas, entregas e solicitações de fechamento</small></div><a href={tables.length ? "/pedidos?visao=atendimento" : branch ? `/comanda?loja=${encodeURIComponent(branch.slug)}&filial=${encodeURIComponent(branch.id)}` : "/pedidos?visao=atendimento"}>Abrir <ArrowRight size={15} /></a></article> : null}
           {canSeeProduction ? <article><span><ChefHat size={20} /></span><div><strong>Produção</strong><small>Pedidos novos, em preparo e prontos</small></div><a href="/pedidos?visao=cozinha">Abrir <ArrowRight size={15} /></a></article> : null}
           {canSeeCashier ? <article><span><CreditCard size={20} /></span><div><strong>Caixa</strong><small>Contas abertas, pagamentos e fechamento</small></div><a href="/pedidos?visao=caixa">Abrir <ArrowRight size={15} /></a></article> : null}
         </section>
@@ -258,12 +363,30 @@ export default function OperationPage() {
             <div className="operation-table-grid">{tables.map((table) => {
               const tableName = table.name?.trim() || `Mesa ${table.code}`;
               const requiresOpening = Boolean(tableOrderingEnabled && workspace.operation.require_open_table_session && !table.session_id);
+              const isClosing = table.session_status === "awaiting_payment";
+              const isPaid = table.session_payment_status === "paid";
+              const tableStateClass = isPaid ? "paid" : isClosing ? "closing" : table.ready_items ? "ready" : table.session_id ? "active" : "";
+              const tableStateLabel = isPaid
+                ? "Pagamento confirmado"
+                : isClosing
+                  ? "Aguardando pagamento"
+                  : table.ready_items
+                    ? `${table.ready_items} item(ns) para entregar`
+                    : table.session_id
+                      ? "Em atendimento"
+                      : requiresOpening
+                        ? "Tablet aguardando abertura"
+                        : "Disponível";
               return (
-                <article className={table.session_id ? "operation-table-card active" : "operation-table-card"} key={table.id}>
-                  <div className="operation-table-card-heading"><span>{table.code}</span><div><strong>{tableName}</strong><small>{table.session_status === "awaiting_payment" ? "Aguardando pagamento" : table.session_id ? "Em atendimento" : requiresOpening ? "Tablet aguardando abertura" : "Disponível"}</small></div></div>
+                <article className={`operation-table-card ${tableStateClass}`} key={table.id}>
+                  <div className="operation-table-card-heading"><span>{table.code}</span><div><strong>{tableName}</strong><small>{tableStateLabel}</small></div></div>
+                  {table.session_id ? <div className="operation-table-summary"><span>{table.order_count} comanda(s)</span><b>{operationCurrency.format(table.total)}</b></div> : null}
                   <footer>
                     {!table.session_id && tableOrderingEnabled ? <button type="button" className="operation-secondary" disabled={Boolean(openingTableId)} onClick={() => void openTable(table)}>{openingTableId === table.id ? <RefreshCw className="spinning" size={15} /> : <Store size={15} />} Abrir mesa</button> : null}
-                    {staffOrderingEnabled ? <a className="operation-primary compact" href={`/comanda?loja=${encodeURIComponent(branch?.slug ?? "")}&filial=${encodeURIComponent(branch?.id ?? "")}&mesa=${encodeURIComponent(table.id)}`}>{table.session_id ? "Adicionar pedido" : "Nova comanda"} <ArrowRight size={15} /></a> : null}
+                    {staffOrderingEnabled && !isClosing ? <a className="operation-primary compact" href={`/comanda?loja=${encodeURIComponent(branch?.slug ?? "")}&filial=${encodeURIComponent(branch?.id ?? "")}&mesa=${encodeURIComponent(table.id)}`}>{table.session_id ? "Adicionar" : "Nova comanda"} <ArrowRight size={15} /></a> : null}
+                    {table.session_id && !isClosing && table.ready_items ? <a className="operation-secondary" href="/pedidos?visao=atendimento">Entregar</a> : null}
+                    {table.session_id && !isClosing && table.order_count ? <button type="button" className="operation-secondary" disabled={Boolean(openingTableId)} onClick={() => void requestClosing(table)}>Fechar conta</button> : null}
+                    {isClosing ? <a className="operation-secondary" href={canSeeCashier ? "/pedidos?visao=caixa" : "/pedidos?visao=atendimento"}>{isPaid && canSeeCashier ? "Liberar" : "Ver conta"}</a> : null}
                     {!staffOrderingEnabled && table.session_id ? <span className="operation-table-ready">Tablet liberado</span> : null}
                   </footer>
                 </article>

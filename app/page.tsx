@@ -1616,6 +1616,8 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
     if (error) {
       const translatedError = /select a table/i.test(error.message)
         ? "Selecione uma mesa antes de enviar a comanda."
+        : /awaiting payment|session is not open/i.test(error.message)
+          ? "Esta mesa está em fechamento e não aceita novos pedidos. Solicite ao caixa que reabra o atendimento."
         : /must be opened/i.test(error.message)
           ? "Esta mesa precisa ser aberta por um funcionário antes de receber pedidos."
           : /authenticated staff access/i.test(error.message)
