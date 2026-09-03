@@ -9,7 +9,7 @@ import { CatalogApplication, type InternalOrderContext } from "../page";
 type OperationalContext = {
   tenant: { id: string; name: string };
   branches: Array<{ id: string; name: string; slug: string }>;
-  access: { role: string; name: string };
+  access: { role: string; roles?: string[]; name: string };
   operation?: { entry_mode?: "table" | "staff" | "both" };
   error?: string;
 };
@@ -66,8 +66,10 @@ export default function InternalCommandCatalogPage() {
       setLoading(false);
       return;
     }
-    const role = String(data.access?.role ?? "");
-    if (!["owner", "branch_manager", "waiter", "supervisor"].includes(role)) {
+    const roles = Array.isArray(data.access?.roles) && data.access.roles.length
+      ? data.access.roles.map(String)
+      : [String(data.access?.role ?? "")];
+    if (!roles.some((role) => ["owner", "branch_manager", "waiter", "supervisor"].includes(role))) {
       setWorkspace(null);
       setError("Sua função não possui permissão para criar comandas.");
       setLoading(false);
@@ -176,7 +178,7 @@ export default function InternalCommandCatalogPage() {
     tableId: selectedTable?.id ?? null,
     tableLabel: selectedTable ? selectedTable.name?.trim() || `Mesa ${selectedTable.code}` : null,
     actorName: workspace.access.name,
-    actorRole: workspace.access.role,
+    actorRole: workspace.access.roles?.find((role) => ["waiter", "branch_manager", "supervisor", "owner"].includes(role)) ?? workspace.access.role,
     customerNameMode: "optional",
   };
 

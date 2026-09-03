@@ -18,7 +18,7 @@ type OperationalRole = "owner" | "branch_manager" | "waiter" | "cashier" | "kitc
 type OperationalWorkspace = {
   tenant: { id: string; name: string; slug: string };
   branches: Array<{ id: string; name: string; slug: string; cnpj?: string | null }>;
-  access: { role: OperationalRole; name: string };
+  access: { role: OperationalRole; roles?: OperationalRole[]; name: string };
   operation: {
     entry_mode: "table" | "staff" | "both";
     customer_name_mode: "hidden" | "optional" | "required";
@@ -42,6 +42,15 @@ const roleLabels: Record<OperationalRole, string> = {
   kitchen: "Cozinha",
   supervisor: "Supervisor",
 };
+
+function accessRoles(access: OperationalWorkspace["access"] | undefined) {
+  const roles = Array.isArray(access?.roles) ? access.roles.filter((role) => role in roleLabels) : [];
+  return roles.length ? roles : access?.role ? [access.role] : [];
+}
+
+function hasOperationalRole(workspace: OperationalWorkspace | null, allowed: OperationalRole[]) {
+  return accessRoles(workspace?.access).some((role) => allowed.includes(role));
+}
 
 function formatCnpj(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 14);
@@ -199,9 +208,9 @@ export default function OperationPage() {
     setMessage(`${table.name?.trim() || `Mesa ${table.code}`} aberta para atendimento.`);
   }
 
-  const canCreateOrders = workspace && ["owner", "branch_manager", "waiter", "supervisor"].includes(workspace.access.role);
-  const canSeeProduction = workspace && ["owner", "branch_manager", "kitchen", "supervisor"].includes(workspace.access.role);
-  const canSeeCashier = workspace && ["owner", "branch_manager", "cashier", "supervisor"].includes(workspace.access.role);
+  const canCreateOrders = hasOperationalRole(workspace, ["owner", "branch_manager", "waiter", "supervisor"]);
+  const canSeeProduction = hasOperationalRole(workspace, ["owner", "branch_manager", "kitchen", "supervisor"]);
+  const canSeeCashier = hasOperationalRole(workspace, ["owner", "branch_manager", "cashier", "supervisor"]);
   const branch = workspace?.branches[0];
   const staffOrderingEnabled = workspace?.operation.entry_mode === "staff" || workspace?.operation.entry_mode === "both";
   const tableOrderingEnabled = workspace?.operation.entry_mode === "table" || workspace?.operation.entry_mode === "both";
@@ -232,7 +241,7 @@ export default function OperationPage() {
     <main className="operation-page">
       <header className="operation-topbar">
         <div className="operation-brand"><span><Store size={18} /></span><div><strong>{workspace.tenant.name}</strong><small>{branch?.name}</small></div></div>
-        <div className="operation-user"><span>{operatorInitials}</span><div><strong>{workspace.access.name}</strong><small>{roleLabels[workspace.access.role]}</small></div><button type="button" title="Sair" aria-label="Sair" onClick={() => void signOut()}><LogOut size={17} /></button></div>
+        <div className="operation-user"><span>{operatorInitials}</span><div><strong>{workspace.access.name}</strong><small>{accessRoles(workspace.access).map((role) => roleLabels[role]).join(" · ")}</small></div><button type="button" title="Sair" aria-label="Sair" onClick={() => void signOut()}><LogOut size={17} /></button></div>
       </header>
       <div className="operation-shell">
         <header className="operation-heading"><div><span>Turno atual</span><h1>Operação da filial</h1><p>{branch?.name}</p></div><button className="operation-secondary" type="button" onClick={() => session && void loadWorkspace(session)}><RefreshCw size={16} /> Atualizar</button></header>

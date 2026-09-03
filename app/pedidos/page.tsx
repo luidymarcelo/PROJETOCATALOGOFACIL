@@ -93,10 +93,15 @@ function actorRoleLabel(role: string | null) {
   return ({ owner: "Proprietário", branch_manager: "Gerente", waiter: "Garçom", cashier: "Caixa", kitchen: "Cozinha", supervisor: "Supervisor", table_device: "Mesa" } as Record<string, string>)[role ?? ""] ?? role;
 }
 
+function workspaceAccessRoles(access: { role?: string; roles?: unknown } | null | undefined) {
+  const roles = Array.isArray(access?.roles) ? access.roles.map(String).filter(Boolean) : [];
+  return roles.length ? roles : access?.role ? [access.role] : [];
+}
+
 export default function InternalOrdersPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [accessRole, setAccessRole] = useState("");
+  const [accessRoles, setAccessRoles] = useState<string[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [orders, setOrders] = useState<InternalOrder[]>([]);
@@ -117,7 +122,7 @@ export default function InternalOrdersPage() {
       setTenant(workspace.tenant as Tenant);
       const nextBranches = workspace.branches as Branch[];
       setBranches(nextBranches);
-      setAccessRole(workspace.access?.role ?? "owner");
+      setAccessRoles(workspaceAccessRoles(workspace.access ?? { role: "owner" }));
       setSelectedBranchId((current) => current && nextBranches.some((branch) => branch.id === current) ? current : nextBranches[0].id);
       setLoading(false);
       return;
@@ -128,7 +133,7 @@ export default function InternalOrdersPage() {
       setTenant(databaseWorkspace.tenant as Tenant);
       const nextBranches = databaseWorkspace.branches as Branch[];
       setBranches(nextBranches);
-      setAccessRole(databaseWorkspace.access?.role ?? "owner");
+      setAccessRoles(workspaceAccessRoles(databaseWorkspace.access ?? { role: "owner" }));
       setSelectedBranchId((current) => current && nextBranches.some((branch) => branch.id === current) ? current : nextBranches[0].id);
       setLoading(false);
       return;
@@ -143,7 +148,7 @@ export default function InternalOrdersPage() {
         setTenant(operationalWorkspace.tenant as Tenant);
         const nextBranches = operationalWorkspace.branches as Branch[];
         setBranches(nextBranches);
-        setAccessRole(operationalWorkspace.access?.role ?? "");
+        setAccessRoles(workspaceAccessRoles(operationalWorkspace.access));
         setSelectedBranchId(nextBranches[0].id);
         setLoading(false);
         return;
@@ -247,9 +252,9 @@ export default function InternalOrdersPage() {
   }
 
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
-  const canUpdateStatus = ["owner", "branch_manager", "waiter", "kitchen", "supervisor"].includes(accessRole);
-  const canUpdateFinancial = ["owner", "branch_manager", "cashier", "supervisor"].includes(accessRole);
-  const canCloseTables = ["owner", "branch_manager", "cashier", "supervisor"].includes(accessRole);
+  const canUpdateStatus = accessRoles.some((role) => ["owner", "branch_manager", "waiter", "kitchen", "supervisor"].includes(role));
+  const canUpdateFinancial = accessRoles.some((role) => ["owner", "branch_manager", "cashier", "supervisor"].includes(role));
+  const canCloseTables = accessRoles.some((role) => ["owner", "branch_manager", "cashier", "supervisor"].includes(role));
   const visibleOrders = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     return orders.filter((order) => {
@@ -281,7 +286,7 @@ export default function InternalOrdersPage() {
   return (
     <main className="orders-page">
       <header className="orders-topbar">
-        <a href={accessRole === "owner" ? "/empresa" : accessRole === "branch_manager" ? "/filial" : "/operacao"} className="admin-back"><ArrowLeft size={17} /> Voltar ao portal</a>
+        <a href={accessRoles.includes("owner") ? "/empresa" : accessRoles.includes("branch_manager") ? "/filial" : "/operacao"} className="admin-back"><ArrowLeft size={17} /> Voltar ao portal</a>
         <div className="admin-user"><span>{session.user.email}</span><button onClick={() => supabase?.auth.signOut()}><LogOut size={16} /> Sair</button></div>
       </header>
       <section className="orders-page-inner">

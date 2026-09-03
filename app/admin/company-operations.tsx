@@ -40,6 +40,7 @@ type CompanyUser = {
   phone: string;
   email: string;
   role: CompanyUserRole;
+  roles?: CompanyUserRole[];
   is_active: boolean;
   branch_ids: string[];
   branch_names: string[];
@@ -64,13 +65,23 @@ const roleLabels: Record<CompanyUserRole, string> = {
   supervisor: "Supervisor",
 };
 
+const roleDescriptions: Record<CompanyUserRole, string> = {
+  branch_manager: "Administra o catálogo e os dados das filiais permitidas.",
+  waiter: "Abre mesas e cria comandas para atendimento.",
+  cashier: "Controla pagamentos, faturamento e fechamento de mesas.",
+  kitchen: "Acompanha e atualiza o andamento dos pedidos.",
+  supervisor: "Acessa toda a operação, sem alterar as configurações da empresa.",
+};
+
+const selectableRoles = Object.keys(roleLabels) as CompanyUserRole[];
+
 const emptyUserForm = {
   userId: "",
   name: "",
   phone: "",
   email: "",
   password: "",
-  role: "waiter" as CompanyUserRole,
+  roles: ["waiter"] as CompanyUserRole[],
   branchIds: [] as string[],
   isActive: true,
 };
@@ -96,10 +107,23 @@ function operationError(error: unknown, fallback: string) {
   if (/somente o administrador da plataforma pode gerenciar empresas/i.test(message)) {
     return "A função create-store-user está desatualizada no Supabase. Republice a função para liberar a gestão da equipe pelo proprietário.";
   }
+  if (/company_users.*roles|roles.*company_users|company_users_roles_check|multi_role/i.test(message)) {
+    return "As funções múltiplas ainda não foram aplicadas no Supabase. Execute a migration 022_multi_role_company_users.sql e republique a função create-store-user.";
+  }
   if (/company_users|restaurant_tables|internal_order_entry_mode|schema cache/i.test(message)) {
     return "A estrutura de operação ainda não foi aplicada no Supabase. Execute a migration 021_branch_access_tables_and_audit.sql.";
   }
   return message || fallback;
+}
+
+function normalizedUserRoles(user: Pick<CompanyUser, "role" | "roles">) {
+  const assigned = Array.isArray(user.roles) ? user.roles.filter((role) => selectableRoles.includes(role)) : [];
+  return assigned.length ? assigned : [user.role];
+}
+
+function orderedRoles(roles: CompanyUserRole[]) {
+  const selected = new Set(roles);
+  return selectableRoles.filter((role) => selected.has(role));
 }
 
 export function CompanyPortalNav({ section, onChange }: { section: CompanyPortalSection; onChange: (section: CompanyPortalSection) => void }) {
@@ -171,7 +195,7 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
       phone: formatPhone(user.phone),
       email: user.email,
       password: "",
-      role: user.role,
+      roles: normalizedUserRoles(user),
       branchIds: user.branch_ids,
       isActive: user.is_active,
     });
@@ -186,6 +210,11 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
       setFeedback("Selecione pelo menos uma filial.");
       return;
     }
+    if (!form.roles.length) {
+      setFeedback("Selecione pelo menos uma função.");
+      return;
+    }
+    const roles = orderedRoles(form.roles);
     setSaving(true);
     setFeedback("");
     const { data, error } = await supabase.functions.invoke("create-store-user", {
@@ -197,7 +226,8 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
         phone: form.phone.replace(/\D/g, ""),
         email: form.email.trim(),
         password: form.password,
-        role: form.role,
+        role: roles[0],
+        roles,
         branch_ids: form.branchIds,
         is_active: form.isActive,
       },
@@ -205,6 +235,12 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
     setSaving(false);
     if (error || data?.error) {
       setFeedback(operationError(error ?? new Error(data?.error), "Não foi possível salvar o usuário."));
+      return;
+    }
+    const savedRoles = orderedRoles(normalizedUserRoles(data.user as CompanyUser));
+    if (savedRoles.join("|") !== roles.join("|")) {
+      await loadUsers();
+      setFeedback("O Supabase salvou apenas uma função. Execute a migration 022 e republique a função create-store-user antes de continuar.");
       return;
     }
     setShowEditor(false);
@@ -225,7 +261,8 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
         phone: user.phone,
         email: user.email,
         password: "",
-        role: user.role,
+        role: normalizedUserRoles(user)[0],
+        roles: normalizedUserRoles(user),
         branch_ids: user.branch_ids,
         is_active: !user.is_active,
       },
@@ -241,7 +278,7 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
   const visibleUsers = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     if (!normalized) return users;
-    return users.filter((user) => [user.name, user.email, roleLabels[user.role], ...user.branch_names].join(" ").toLocaleLowerCase("pt-BR").includes(normalized));
+    return users.filter((user) => [user.name, user.email, ...normalizedUserRoles(user).map((role) => roleLabels[role]), ...user.branch_names].join(" ").toLocaleLowerCase("pt-BR").includes(normalized));
   }, [query, users]);
 
   return (
@@ -260,7 +297,7 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
           <article className={user.is_active ? "company-user-row" : "company-user-row inactive"} key={user.user_id}>
             <span className="company-user-avatar"><UserRound size={18} /></span>
             <div className="company-user-main"><strong>{user.name}</strong><span>{user.email}</span><small>{user.branch_names.join(" · ")}</small></div>
-            <span className="company-user-role">{roleLabels[user.role]}</span>
+            <span className="company-user-roles">{normalizedUserRoles(user).map((role) => <span className="company-user-role" key={role}>{roleLabels[role]}</span>)}</span>
             <span className={user.is_active ? "operation-status active" : "operation-status"}>{user.is_active ? "Ativo" : "Desativado"}</span>
             <div className="company-user-actions">
               <button className="icon-button" type="button" title="Editar acesso" aria-label={`Editar ${user.name}`} onClick={() => editUser(user)}><Pencil size={16} /></button>
@@ -278,7 +315,7 @@ function CompanyTeam({ tenant, branches }: { tenant: OperationsTenant; branches:
             <form onSubmit={saveUser}>
               <div className="admin-form-grid"><label>Nome<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label>WhatsApp opcional<input value={form.phone} onChange={(event) => setForm({ ...form, phone: formatPhone(event.target.value) })} inputMode="tel" /></label></div>
               <div className="admin-form-grid"><label>E-mail<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>{form.userId ? "Nova senha opcional" : "Senha inicial"}<input type="password" minLength={6} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required={!form.userId} /></label></div>
-              <label>Função<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as CompanyUserRole })}>{Object.entries(roleLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+              <fieldset className="operation-role-selector"><legend>Funções permitidas</legend><p>Selecione uma ou mais áreas para este mesmo login.</p><div>{selectableRoles.map((role) => <label className={form.roles.includes(role) ? "selected" : ""} key={role}><input type="checkbox" checked={form.roles.includes(role)} onChange={(event) => setForm((current) => ({ ...current, roles: event.target.checked ? orderedRoles([...current.roles, role]) : current.roles.filter((item) => item !== role) }))} /><span><strong>{roleLabels[role]}</strong><small>{roleDescriptions[role]}</small></span></label>)}</div></fieldset>
               <fieldset className="operation-branch-selector"><legend>Filiais permitidas</legend>{branches.map((branch) => <label key={branch.id}><input type="checkbox" checked={form.branchIds.includes(branch.id)} onChange={(event) => setForm((current) => ({ ...current, branchIds: event.target.checked ? [...current.branchIds, branch.id] : current.branchIds.filter((id) => id !== branch.id) }))} /><span><strong>{branch.name}</strong><small>{formatCnpj(branch.cnpj) || "CNPJ não informado"}</small></span></label>)}</fieldset>
               {form.userId ? <label className="operation-active-check"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /><span>Usuário ativo</span></label> : null}
               {feedback ? <p className="operation-feedback" role="alert">{feedback}</p> : null}

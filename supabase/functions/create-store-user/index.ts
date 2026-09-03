@@ -7,6 +7,8 @@ const corsHeaders = {
 
 type ManagedUser = { id: string; wasCreated: boolean };
 
+const companyUserRoles = ["branch_manager", "waiter", "cashier", "kitchen", "supervisor"] as const;
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -134,7 +136,7 @@ Deno.serve(async (request) => {
       const { data: authUser, error: authUserError } = await adminClient.auth.admin.getUserById(managedUser.id);
       if (authUserError || !authUser.user) throw authUserError ?? new Error("Não foi possível confirmar o acesso da empresa.");
       const { error: metadataError } = await adminClient.auth.admin.updateUserById(managedUser.id, {
-        app_metadata: { ...authUser.user.app_metadata, company_tenant_id: tenant.id },
+        app_metadata: { ...authUser.user.app_metadata, company_tenant_id: tenant.id, company_role: "owner", company_roles: ["owner"] },
       });
       if (metadataError) throw metadataError;
 
@@ -245,7 +247,7 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
   if (branchError) throw branchError;
   if (!branches?.length) return json({ error: "Esta empresa ainda não possui filial.", code: "company_branch_not_found" });
 
-  return json({ tenant, branches, access: { role: "owner" } });
+  return json({ tenant, branches, access: { role: "owner", roles: ["owner"] } });
 }
 
 async function assertCompanyOwner(adminClient: SupabaseClient, userId: string, tenantId: string) {
@@ -259,7 +261,7 @@ async function listCompanyUsers(adminClient: SupabaseClient, callerUserId: strin
   const [{ data: accessRows, error: accessError }, { data: storeRows, error: storeError }] = await Promise.all([
     adminClient
       .from("company_users")
-      .select("tenant_id, user_id, role, is_active, created_at, company_user_stores(store_id)")
+      .select("tenant_id, user_id, role, roles, is_active, created_at, company_user_stores(store_id)")
       .eq("tenant_id", tenantId)
       .neq("role", "owner")
       .order("created_at", { ascending: true }),
@@ -283,6 +285,7 @@ async function listCompanyUsers(adminClient: SupabaseClient, callerUserId: strin
       phone: profile?.phone ?? "",
       email: authUser.user.email ?? "",
       role: access.role,
+      roles: Array.isArray(access.roles) && access.roles.length ? access.roles : [access.role],
       is_active: access.is_active,
       branch_ids: branchIds,
       branch_names: branchIds.map((branchId: string) => storeNames.get(branchId)).filter(Boolean),
@@ -298,17 +301,21 @@ async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string
   const phone = String(body.phone ?? "").replace(/\D/g, "");
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
-  const role = String(body.role ?? "");
+  const requestedRoles = Array.isArray(body.roles) ? body.roles.map(String) : [String(body.role ?? "")];
+  const roles = companyUserRoles.filter((role) => requestedRoles.includes(role));
+  const role = roles[0] ?? "";
   const isActive = body.is_active !== false;
   const branchIds = Array.from(new Set(Array.isArray(body.branch_ids) ? body.branch_ids.map(String).filter(Boolean) : []));
-  const allowedRoles = new Set(["branch_manager", "waiter", "cashier", "kitchen", "supervisor"]);
 
   await assertCompanyOwner(adminClient, callerUserId, tenantId);
-  if (!name || !email || !allowedRoles.has(role) || !branchIds.length) {
-    throw new Error("Preencha nome, e-mail, função e pelo menos uma filial.");
+  if (!name || !email || !roles.length || roles.length !== new Set(requestedRoles).size || !branchIds.length) {
+    throw new Error("Preencha nome, e-mail, pelo menos uma função e uma filial.");
   }
   if (!existingUserId && password.length < 6) throw new Error("A senha inicial deve ter pelo menos 6 caracteres.");
   if (password && password.length < 6) throw new Error("A nova senha deve ter pelo menos 6 caracteres.");
+
+  const { error: rolesSchemaError } = await adminClient.from("company_users").select("roles").limit(1);
+  if (rolesSchemaError) throw new Error(`multi_role_schema_missing: ${rolesSchemaError.message}`);
 
   const { data: validBranches, error: branchError } = await adminClient
     .from("stores")
@@ -323,19 +330,19 @@ async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string
   if (userId) {
     const { data: existingAccess, error: accessError } = await adminClient
       .from("company_users")
-      .select("role")
+      .select("role, roles")
       .eq("tenant_id", tenantId)
       .eq("user_id", userId)
       .maybeSingle();
     if (accessError) throw accessError;
-    if (!existingAccess || existingAccess.role === "owner") throw new Error("Usuário não encontrado ou protegido.");
+    if (!existingAccess || existingAccess.role === "owner" || existingAccess.roles?.includes("owner")) throw new Error("Usuário não encontrado ou protegido.");
     const { data: currentUser, error: currentUserError } = await adminClient.auth.admin.getUserById(userId);
     if (currentUserError || !currentUser.user) throw currentUserError ?? new Error("Usuário não encontrado.");
     const { error: updateError } = await adminClient.auth.admin.updateUserById(userId, {
       email,
       email_confirm: true,
       user_metadata: { ...currentUser.user.user_metadata, full_name: name },
-      app_metadata: { ...currentUser.user.app_metadata, company_tenant_id: tenantId, company_role: role },
+      app_metadata: { ...currentUser.user.app_metadata, company_tenant_id: tenantId, company_role: role, company_roles: roles },
       ...(password ? { password } : {}),
     });
     if (updateError) throw updateError;
@@ -347,7 +354,7 @@ async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string
       password,
       email_confirm: true,
       user_metadata: { full_name: name },
-      app_metadata: { company_tenant_id: tenantId, company_role: role },
+      app_metadata: { company_tenant_id: tenantId, company_role: role, company_roles: roles },
     });
     if (createError || !created.user) throw createError ?? new Error("Não foi possível criar o usuário.");
     userId = created.user.id;
@@ -361,6 +368,7 @@ async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string
       tenant_id: tenantId,
       user_id: userId,
       role,
+      roles,
       is_active: isActive,
       created_by: callerUserId,
       updated_at: new Date().toISOString(),
@@ -382,7 +390,7 @@ async function saveCompanyUser(adminClient: SupabaseClient, callerUserId: string
     throw databaseError;
   }
 
-  return json({ user: { user_id: userId, name, email, phone, role, is_active: isActive, branch_ids: branchIds } });
+  return json({ user: { user_id: userId, name, email, phone, role, roles, is_active: isActive, branch_ids: branchIds } });
 }
 
 async function getCompanySettings(adminClient: SupabaseClient, tenantId: string) {

@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -60,6 +60,7 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("supabase/014_branch_cover_notes.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/015_product_option_groups.sql", projectRoot), "utf8"),
     readFile(new URL("supabase/017_internal_orders.sql", projectRoot), "utf8"),
+    readFile(new URL("supabase/022_multi_role_company_users.sql", projectRoot), "utf8"),
     readFile(new URL("app/layout.tsx", projectRoot), "utf8"),
     readFile(new URL("package.json", projectRoot), "utf8"),
     readFile(new URL("supabase/schema.sql", projectRoot), "utf8"),
@@ -258,12 +259,18 @@ test("keeps the growth surfaces present", async () => {
   ]);
   assert.match(companyOperationsPage, /Controle de acesso/);
   assert.match(companyOperationsPage, /Filiais permitidas/);
+  assert.match(companyOperationsPage, /Funções permitidas/);
+  assert.match(companyOperationsPage, /Selecione uma ou mais áreas para este mesmo login/);
+  assert.match(companyOperationsPage, /form\.roles\.includes\(role\)/);
+  assert.match(companyOperationsPage, /roles: normalizedUserRoles\(user\)/);
   assert.match(companyOperationsPage, /Origem da comanda/);
   assert.match(companyOperationsPage, /Exigir mesa aberta/);
   assert.match(companyOperationsPage, /QRCode\.toDataURL/);
   assert.match(branchPortalPage, /portalMode="branch"/);
   assert.match(operationPage, /open_table_session/);
   assert.match(operationPage, /Mesas da filial/);
+  assert.match(operationPage, /hasOperationalRole/);
+  assert.match(ordersPage, /accessRoles\.some/);
   assert.match(tablePage, /get_table_catalog_context/);
   assert.match(tablePage, /Aguardando abertura/);
   assert.match(branchAccessSql, /create table if not exists public\.company_users/);
@@ -277,6 +284,11 @@ test("keeps the growth surfaces present", async () => {
   assert.match(branchAccessSql, /create or replace function public\.can_manage_tenant_catalog/);
   assert.match(branchAccessSql, /branch managers update assigned stores/);
   assert.match(branchAccessSql, /using \(public\.can_manage_tenant_catalog\(tenant_id\)\)/);
+  assert.match(multiRoleCompanyUsersSql, /add column if not exists roles text\[\]/);
+  assert.match(multiRoleCompanyUsersSql, /set roles = array\[role\]/);
+  assert.match(multiRoleCompanyUsersSql, /create or replace function public\.company_user_has_any_role/);
+  assert.match(multiRoleCompanyUsersSql, /actor_roles && array\['owner', 'branch_manager', 'cashier', 'supervisor'\]/);
+  assert.match(multiRoleCompanyUsersSql, /v_actor_roles && array\['owner', 'branch_manager', 'waiter', 'supervisor'\]/);
   assert.doesNotMatch(adminPage, /tenant_members/);
   assert.match(adminPage, /branch-stock-control-mode/);
   assert.match(adminPage, /Layout do catálogo/);
@@ -352,6 +364,9 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /company_user_stores/);
   assert.match(createCompanyFunction, /list-company-users/);
   assert.match(createCompanyFunction, /save-company-user/);
+  assert.match(createCompanyFunction, /company_roles: roles/);
+  assert.match(createCompanyFunction, /role, roles, is_active/);
+  assert.match(createCompanyFunction, /rolesSchemaError/);
   assert.match(createCompanyFunction, /resolveCompanyOwnerTenantId/);
   assert.match(createCompanyFunction, /legacyOwnerId !== userId/);
   assert.match(createCompanyFunction, /whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active/);

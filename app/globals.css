@@ -8154,7 +8154,7 @@ img {
 
 .company-user-row {
   display: grid;
-  grid-template-columns: 38px minmax(190px, 1.4fr) minmax(130px, 0.7fr) 92px auto;
+  grid-template-columns: 38px minmax(190px, 1.35fr) minmax(170px, 0.85fr) 92px auto;
   gap: 13px;
   align-items: center;
   min-height: 74px;
@@ -8209,6 +8209,22 @@ img {
 .company-user-role,
 .operation-status {
   font-size: 0.8rem;
+}
+
+.company-user-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.company-user-role {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--foreground);
+  line-height: 1.15;
 }
 
 .operation-status {
@@ -8268,6 +8284,71 @@ img {
 .table-editor form {
   display: grid;
   gap: 14px;
+}
+
+.operation-role-selector {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.operation-role-selector legend {
+  padding: 0 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.operation-role-selector > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.operation-role-selector > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.operation-role-selector label {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 9px;
+  min-height: 58px;
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--surface-strong);
+  cursor: pointer;
+}
+
+.operation-role-selector label.selected {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--line));
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+}
+
+.operation-role-selector input {
+  margin-top: 2px;
+}
+
+.operation-role-selector label > span {
+  display: grid;
+  gap: 2px;
+}
+
+.operation-role-selector strong {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.operation-role-selector small {
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.35;
 }
 
 .operation-branch-selector {
@@ -9321,7 +9402,7 @@ img {
     grid-template-columns: 38px minmax(0, 1fr) auto;
   }
 
-  .company-user-role,
+  .company-user-roles,
   .company-user-row > .operation-status {
     grid-column: 2;
   }
@@ -9382,9 +9463,13 @@ img {
     gap: 9px;
   }
 
-  .company-user-role,
+  .company-user-roles,
   .company-user-row > .operation-status {
     grid-column: 2;
+  }
+
+  .operation-role-selector > div {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .company-user-actions {
