@@ -352,6 +352,8 @@ test("keeps the growth surfaces present", async () => {
   assert.match(createCompanyFunction, /company_user_stores/);
   assert.match(createCompanyFunction, /list-company-users/);
   assert.match(createCompanyFunction, /save-company-user/);
+  assert.match(createCompanyFunction, /resolveCompanyOwnerTenantId/);
+  assert.match(createCompanyFunction, /legacyOwnerId !== userId/);
   assert.match(createCompanyFunction, /whatsapp_phone, address, cover_image_url, cover_note, cover_note_position, latitude, longitude, minimum_order, delivery_fee, delivery_time_label, is_active/);
   assert.match(adminPage, /get_company_workspace/);
   assert.match(adminPage, /async function createBranch/);

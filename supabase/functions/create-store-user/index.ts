@@ -149,18 +149,89 @@ Deno.serve(async (request) => {
   }
 });
 
-async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) {
-  const { data: memberships, error: membershipError } = await adminClient
+async function resolveCompanyOwnerTenantId(adminClient: SupabaseClient, userId: string, requestedTenantId = "") {
+  let ownerQuery = adminClient
     .from("company_users")
     .select("tenant_id")
     .eq("user_id", userId)
     .eq("role", "owner")
     .eq("is_active", true)
-    .order("created_at", { ascending: true })
-    .limit(1);
-  if (membershipError) throw membershipError;
+    .order("created_at", { ascending: true });
+  if (requestedTenantId) ownerQuery = ownerQuery.eq("tenant_id", requestedTenantId);
+  const { data: owners, error: ownerError } = await ownerQuery.limit(1);
+  if (ownerError) throw ownerError;
+  if (owners?.[0]?.tenant_id) return String(owners[0].tenant_id);
 
-  const tenantId = memberships?.[0]?.tenant_id as string | undefined;
+  const { data: platformAdmin, error: platformAdminError } = await adminClient
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (platformAdminError) throw platformAdminError;
+  if (platformAdmin) return undefined;
+
+  let legacyQuery = adminClient
+    .from("tenant_members")
+    .select("tenant_id, role, created_at")
+    .eq("user_id", userId)
+    .in("role", ["manager", "staff"])
+    .order("created_at", { ascending: true });
+  if (requestedTenantId) legacyQuery = legacyQuery.eq("tenant_id", requestedTenantId);
+  const { data: legacyMemberships, error: legacyError } = await legacyQuery;
+  if (legacyError) throw legacyError;
+
+  for (const membership of legacyMemberships ?? []) {
+    const tenantId = String(membership.tenant_id);
+    const { data: registeredOwner, error: registeredOwnerError } = await adminClient
+      .from("company_users")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("role", "owner")
+      .limit(1)
+      .maybeSingle();
+    if (registeredOwnerError) throw registeredOwnerError;
+    if (registeredOwner) continue;
+
+    const { data: managers, error: managerError } = await adminClient
+      .from("tenant_members")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .eq("role", "manager")
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (managerError) throw managerError;
+
+    let legacyOwnerId = managers?.[0]?.user_id as string | undefined;
+    if (!legacyOwnerId) {
+      const { data: staff, error: staffError } = await adminClient
+        .from("tenant_members")
+        .select("user_id")
+        .eq("tenant_id", tenantId)
+        .eq("role", "staff")
+        .order("created_at", { ascending: true })
+        .limit(1);
+      if (staffError) throw staffError;
+      legacyOwnerId = staff?.[0]?.user_id as string | undefined;
+    }
+    if (legacyOwnerId !== userId) continue;
+
+    const { error: migrationError } = await adminClient.from("company_users").upsert({
+      tenant_id: tenantId,
+      user_id: userId,
+      role: "owner",
+      is_active: true,
+      created_by: userId,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "tenant_id,user_id" });
+    if (migrationError) throw migrationError;
+    return tenantId;
+  }
+
+  return undefined;
+}
+
+async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) {
+  const tenantId = await resolveCompanyOwnerTenantId(adminClient, userId);
 
   if (!tenantId) {
     return json({ error: "Este login não possui acesso de proprietário.", code: "company_owner_access_not_found" });
@@ -179,16 +250,8 @@ async function getCompanyWorkspace(adminClient: SupabaseClient, userId: string) 
 
 async function assertCompanyOwner(adminClient: SupabaseClient, userId: string, tenantId: string) {
   if (!tenantId) throw new Error("Empresa não informada.");
-  const { data: owner, error } = await adminClient
-    .from("company_users")
-    .select("user_id")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", userId)
-    .eq("role", "owner")
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) throw error;
-  if (!owner) throw new Error("Somente o proprietário pode gerenciar a equipe da empresa.");
+  const ownedTenantId = await resolveCompanyOwnerTenantId(adminClient, userId, tenantId);
+  if (ownedTenantId !== tenantId) throw new Error("Somente o proprietário pode gerenciar a equipe da empresa.");
 }
 
 async function listCompanyUsers(adminClient: SupabaseClient, callerUserId: string, tenantId: string) {

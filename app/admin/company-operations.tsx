@@ -93,6 +93,9 @@ function formatPhone(value: string) {
 
 function operationError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : String((error as { message?: string } | null)?.message ?? "");
+  if (/somente o administrador da plataforma pode gerenciar empresas/i.test(message)) {
+    return "A função create-store-user está desatualizada no Supabase. Republice a função para liberar a gestão da equipe pelo proprietário.";
+  }
   if (/company_users|restaurant_tables|internal_order_entry_mode|schema cache/i.test(message)) {
     return "A estrutura de operação ainda não foi aplicada no Supabase. Execute a migration 021_branch_access_tables_and_audit.sql.";
   }
