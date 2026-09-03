@@ -3712,8 +3712,8 @@ function PlatformAdminSidebar({
     <aside className="admin-console-sidebar">
       <div className="admin-sidebar-brand"><span className="admin-sidebar-mark"><Building2 size={19} /></span><div><strong>Catálogo Fácil</strong><small>Administração</small></div></div>
       <nav className="admin-sidebar-nav" aria-label="Navegação administrativa">
-        <button className={section !== "new" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
-        <button className={section === "new" ? "active" : ""} type="button" onClick={onNew}><Plus size={18} /><span><strong>Nova empresa</strong><small>Criar acesso e filial</small></span><ChevronRight size={16} /></button>
+        <button aria-current={section !== "new" ? "page" : undefined} className={section !== "new" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
+        <button aria-current={section === "new" ? "page" : undefined} className={section === "new" ? "active" : ""} type="button" onClick={onNew}><Plus size={18} /><span><strong>Nova empresa</strong><small>Criar acesso e filial</small></span><ChevronRight size={16} /></button>
       </nav>
     </aside>
   );
@@ -3733,7 +3733,7 @@ function CompanySettingsNav({ isCompanyPortal, section, onChange }: { isCompanyP
     <nav className="company-settings-nav" aria-label="Configurações da empresa">
       {options.map((option) => {
         const Icon = option.icon;
-        return <button className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={17} /><span>{option.label}</span></button>;
+        return <button aria-current={section === option.id ? "page" : undefined} className={section === option.id ? "active" : ""} type="button" key={option.id} onClick={() => onChange(option.id)}><Icon size={17} /><span>{option.label}</span></button>;
       })}
     </nav>
   );

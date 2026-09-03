@@ -131,9 +131,9 @@ function orderedRoles(roles: CompanyUserRole[]) {
 export function CompanyPortalNav({ section, onChange }: { section: CompanyPortalSection; onChange: (section: CompanyPortalSection) => void }) {
   return (
     <nav className="company-portal-nav" aria-label="Áreas da empresa">
-      <button className={section === "catalog" ? "active" : ""} type="button" onClick={() => onChange("catalog")}><Store size={17} /><span>Catálogo</span></button>
-      <button className={section === "team" ? "active" : ""} type="button" onClick={() => onChange("team")}><UsersRound size={17} /><span>Equipe</span></button>
-      <button className={section === "tables" ? "active" : ""} type="button" onClick={() => onChange("tables")}><QrCode size={17} /><span>Mesas</span></button>
+      <button aria-current={section === "catalog" ? "page" : undefined} className={section === "catalog" ? "active" : ""} type="button" onClick={() => onChange("catalog")}><Store size={17} /><span>Catálogo</span></button>
+      <button aria-current={section === "team" ? "page" : undefined} className={section === "team" ? "active" : ""} type="button" onClick={() => onChange("team")}><UsersRound size={17} /><span>Equipe</span></button>
+      <button aria-current={section === "tables" ? "page" : undefined} className={section === "tables" ? "active" : ""} type="button" onClick={() => onChange("tables")}><QrCode size={17} /><span>Mesas</span></button>
     </nav>
   );
 }
@@ -488,6 +488,10 @@ function CompanyTables({ branches, activeBranchId, onBranchChange }: { branches:
       </header>
 
       <section className="table-operation-settings">
+        <header className="table-operation-settings-heading">
+          <div><span>Parâmetros da filial</span><strong>Fluxo de atendimento</strong><small>Configure como as comandas desta unidade entram, avançam e são liberadas.</small></div>
+          <span>{branch.name}</span>
+        </header>
         {!internalOrdersEnabled ? <p className="table-operation-prerequisite"><ClipboardList size={17} /><span><strong>Comanda interna desativada</strong><small>Ative “Comanda interna” ou “Ambos” nos parâmetros da filial. Mesas e acessos configurados aqui serão preservados.</small></span></p> : null}
         <div className="table-setting-row">
           <div><strong>Origem da comanda</strong><small>Define os caminhos permitidos nesta filial.</small></div>
