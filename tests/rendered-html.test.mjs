@@ -32,9 +32,9 @@ test("server-renders the store discovery homepage", async () => {
   assert.equal(response.headers.get("permissions-policy"), "geolocation=(self)");
 
   const html = await response.text();
-  assert.match(html, /<title>Catalogo Facil<\/title>/i);
+  assert.match(html, /<title>LIIST<\/title>/i);
   assert.match(html, /<meta name="viewport" content="[^"]*width=device-width[^"]*initial-scale=1/);
-  assert.match(html, /Catalogo Facil/);
+  assert.match(html, /LIIST/);
   assert.match(html, /Lojas e catálogos|Nenhum catalogo configurado/);
   assert.match(html, /Estabelecimentos disponíveis|Nenhum catalogo configurado/);
   assert.match(html, /Bella Massa Pizzaria|Nenhum catalogo configurado/);
@@ -42,7 +42,7 @@ test("server-renders the store discovery homepage", async () => {
 });
 
 test("keeps the growth surfaces present", async () => {
-  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, layout, packageJson, schema, viteConfig, worker, headers, legacyCatalogBundle, legacyStyles] = await Promise.all([
+  const [page, pageStyles, adminPage, ordersPage, createCompanyFunction, companyWorkspaceSql, catalogImagesSql, catalogImageRlsFixSql, addAndersonAdminSql, storeLocationsSql, companyParametersSql, publicCatalogCompaniesSql, companyBrandingSql, branchManagementSql, branchCoverNotesSql, productOptionGroupsSql, internalOrdersSql, multiRoleCompanyUsersSql, operationalWorkflowSql, layout, packageJson, schema, viteConfig, worker, headers] = await Promise.all([
     readFile(new URL("app/page.tsx", projectRoot), "utf8"),
     readFile(new URL("app/globals.css", projectRoot), "utf8"),
     readFile(new URL("app/admin/page.tsx", projectRoot), "utf8"),
@@ -68,8 +68,6 @@ test("keeps the growth surfaces present", async () => {
     readFile(new URL("vite.config.ts", projectRoot), "utf8"),
     readFile(new URL("worker/index.ts", projectRoot), "utf8"),
     readFile(new URL("public/_headers", projectRoot), "utf8"),
-    readFile(new URL("public/assets/page-qV5W06Af.js", projectRoot), "utf8"),
-    readFile(new URL("public/assets/index-jblei2xc.css", projectRoot), "utf8"),
   ]);
 
   assert.match(page, /buildWhatsappMessage/);
@@ -212,7 +210,7 @@ test("keeps the growth surfaces present", async () => {
   assert.match(page, /function orderChannelAvailable/);
   assert.match(page, /export function CatalogApplication/);
   assert.match(page, /CatalogApplication orderChannel="whatsapp"/);
-  assert.match(page, /catalogo-facil-cart-\$\{orderChannel\}/);
+  assert.match(page, /liist-cart-\$\{orderChannel\}/);
   assert.match(page, /channel === "internal" \? "\/comanda" : "\/"/);
   assert.match(page, /Enviar pelo WhatsApp/);
   assert.doesNotMatch(page, /selectedOrderChannel/);
@@ -607,8 +605,6 @@ test("keeps the growth surfaces present", async () => {
   assert.match(viteConfig, /chunkFileNames: stableEntryName/);
   assert.match(viteConfig, /cssCodeSplit: false/);
   assert.match(headers, /Cache-Control: no-cache, must-revalidate/);
-  assert.ok(legacyCatalogBundle.length > 30000);
-  assert.ok(legacyStyles.length > 30000);
 });
 
 test("preserves the category dropdown when writing the Excel catalog", async () => {

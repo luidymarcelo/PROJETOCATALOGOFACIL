@@ -124,6 +124,9 @@ type CatalogImportOptionRow = {
   sortOrder: number;
 };
 
+const BRANCH_CNPJ_STORAGE_KEY = "liist-branch-cnpj";
+const LEGACY_BRANCH_CNPJ_STORAGE_KEY = "catalogo-facil-branch-cnpj";
+
 type CatalogImportAdditionGroup = {
   name: string;
   required: boolean;
@@ -673,7 +676,9 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
   async function loadWorkspace(userId: string, preferredTenantId?: string) {
     if (!supabase) return;
     if (isBranchPortal) {
-      const savedCnpj = window.localStorage.getItem("catalogo-facil-branch-cnpj") ?? "";
+      const savedCnpj = window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY)
+        ?? window.localStorage.getItem(LEGACY_BRANCH_CNPJ_STORAGE_KEY)
+        ?? "";
       const { data: branchWorkspace, error: branchWorkspaceError } = await supabase.rpc("get_branch_workspace", { p_cnpj: savedCnpj });
       if (branchWorkspace?.tenant && branchWorkspace?.branches?.length) {
         const portalBranches = await hydrateBranchDetails(branchWorkspace.branches as Branch[]);
@@ -2398,7 +2403,7 @@ function AdminPage({ portalMode = "admin" }: { portalMode?: PortalMode }) {
 
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
-      workbook.creator = "Catálogo Fácil";
+      workbook.creator = "LIIST";
       workbook.created = new Date();
       workbook.subject = `Catálogo de ${activeBranch?.name ?? "filial"}`;
 
@@ -3710,7 +3715,7 @@ function PlatformAdminSidebar({
 }) {
   return (
     <aside className="admin-console-sidebar">
-      <div className="admin-sidebar-brand"><span className="admin-sidebar-mark"><Building2 size={19} /></span><div><strong>Catálogo Fácil</strong><small>Administração</small></div></div>
+      <div className="admin-sidebar-brand"><span className="admin-sidebar-mark"><Building2 size={19} /></span><div><strong>LIIST</strong><small>Administração</small></div></div>
       <nav className="admin-sidebar-nav" aria-label="Navegação administrativa">
         <button aria-current={section !== "new" ? "page" : undefined} className={section !== "new" ? "active" : ""} type="button" onClick={onCompanies}><Building2 size={18} /><span><strong>Empresas</strong><small>{companyCount} cadastrada(s)</small></span><ChevronRight size={16} /></button>
         <button aria-current={section === "new" ? "page" : undefined} className={section === "new" ? "active" : ""} type="button" onClick={onNew}><Plus size={18} /><span><strong>Nova empresa</strong><small>Criar acesso e filial</small></span><ChevronRight size={16} /></button>
@@ -4394,7 +4399,7 @@ function AdminLogin({ portalMode }: { portalMode: PortalMode }) {
       setMessage("Informe o CNPJ válido da filial.");
       return;
     }
-    if (isBranchPortal) window.localStorage.setItem("catalogo-facil-branch-cnpj", cnpj.replace(/\D/g, ""));
+    if (isBranchPortal) window.localStorage.setItem(BRANCH_CNPJ_STORAGE_KEY, cnpj.replace(/\D/g, ""));
     const result = await supabase.auth.signInWithPassword({ email, password });
     if (result.error) setMessage(result.error.message);
   }

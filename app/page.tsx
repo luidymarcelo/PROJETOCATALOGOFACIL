@@ -885,8 +885,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
   const manualCategoryScrollRef = useRef<{ category: string; timeout: number } | null>(null);
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const internalContextKey = internalOrderContext ? `${internalOrderContext.source}-${internalOrderContext.tableId ?? internalOrderContext.storeId}` : "default";
-  const cartStorageKey = `catalogo-facil-cart-${orderChannel}-${internalContextKey}`;
-  const checkoutStorageKey = `catalogo-facil-checkout-${orderChannel}-${internalContextKey}`;
+  const cartStorageKey = `liist-cart-${orderChannel}-${internalContextKey}`;
+  const checkoutStorageKey = `liist-checkout-${orderChannel}-${internalContextKey}`;
+  const legacyCartStorageKey = `catalogo-facil-cart-${orderChannel}-${internalContextKey}`;
+  const legacyCheckoutStorageKey = `catalogo-facil-checkout-${orderChannel}-${internalContextKey}`;
   const [syncLog, setSyncLog] = useState<Record<StoreId, string>>({
     "bella-massa": fallbackMerchants[0].integration.lastSync,
     "farmacia-vida": fallbackMerchants[1].integration.lastSync,
@@ -1141,8 +1143,10 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
 
   useEffect(() => {
     const savedCart = window.localStorage.getItem(cartStorageKey)
+      ?? window.localStorage.getItem(legacyCartStorageKey)
       ?? (orderChannel === "whatsapp" ? window.localStorage.getItem("catalogo-facil-cart") : null);
     const savedCheckout = window.localStorage.getItem(checkoutStorageKey)
+      ?? window.localStorage.getItem(legacyCheckoutStorageKey)
       ?? (orderChannel === "whatsapp" ? window.localStorage.getItem("catalogo-facil-checkout") : null);
 
     if (savedCart) {
@@ -1160,7 +1164,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         setLocationStatus(`Localização ativa · lojas em até ${STORE_RADIUS_KM} km`);
       }
     }
-  }, [cartStorageKey, checkoutStorageKey, orderChannel]);
+  }, [cartStorageKey, checkoutStorageKey, legacyCartStorageKey, legacyCheckoutStorageKey, orderChannel]);
 
   useEffect(() => {
     window.localStorage.setItem(cartStorageKey, JSON.stringify(cart));
@@ -1702,7 +1706,7 @@ export function CatalogApplication({ orderChannel, internalOrderContext }: { ord
         >
           <span className="brand-mark"><Store size={20} /></span>
           <span>
-            <strong>Catalogo Facil</strong>
+            <strong>LIIST</strong>
             <small>{orderChannel === "internal" ? "Comandas internas" : "Catálogos e pedidos"}</small>
           </span>
         </button>
@@ -2054,7 +2058,7 @@ function StoreDiscovery({
   return (
     <section className="store-discovery">
       <header className="discovery-heading">
-        <div><span>Catálogo Fácil</span><h1>{orderChannel === "internal" ? "Catálogos para comanda" : "Lojas e catálogos"}</h1><p>{orderChannel === "internal" ? "Selecione a filial para iniciar uma nova comanda interna." : "Restaurantes, farmácias, materiais de construção e comércios da sua região."}</p></div>
+        <div><span>LIIST</span><h1>{orderChannel === "internal" ? "Catálogos para comanda" : "Lojas e catálogos"}</h1><p>{orderChannel === "internal" ? "Selecione a filial para iniciar uma nova comanda interna." : "Restaurantes, farmácias, materiais de construção e comércios da sua região."}</p></div>
         {hasLocation ? <div className="discovery-radius"><MapPin size={17} /><span>{showingAll ? "Todas as lojas" : `Lojas em até ${STORE_RADIUS_KM} km`}</span><button type="button" onClick={onToggleAll}>{showingAll ? "Ver próximas" : "Ver todas"}</button></div> : null}
       </header>
 

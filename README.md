@@ -1,4 +1,4 @@
-# Catalogo Facil
+# LIIST
 
 Aplicacao web de catalogo com carrinho e envio de pedido pelo WhatsApp. A primeira versao usa dados locais para validar a experiencia de compra e um painel interno para preparar integracoes por planilha, banco legado ou API.
 

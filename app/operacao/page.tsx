@@ -78,6 +78,14 @@ function operationalError(error: unknown, fallback: string) {
 }
 
 const operationCurrency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const OPERATION_CNPJ_STORAGE_KEY = "liist-operation-cnpj";
+const LEGACY_OPERATION_CNPJ_STORAGE_KEY = "catalogo-facil-operation-cnpj";
+
+function storedOperationCnpj() {
+  return window.localStorage.getItem(OPERATION_CNPJ_STORAGE_KEY)
+    ?? window.localStorage.getItem(LEGACY_OPERATION_CNPJ_STORAGE_KEY)
+    ?? "";
+}
 
 export default function OperationPage() {
   const [session, setSession] = useState<Session | null>(null);
@@ -114,7 +122,7 @@ export default function OperationPage() {
     }
   }
 
-  async function loadWorkspace(currentSession: Session, selectedCnpj = cnpj || window.localStorage.getItem("catalogo-facil-operation-cnpj") || "", silent = false) {
+  async function loadWorkspace(currentSession: Session, selectedCnpj = cnpj || storedOperationCnpj(), silent = false) {
     if (!supabase) return;
     const normalizedCnpj = selectedCnpj.replace(/\D/g, "");
     if (normalizedCnpj.length !== 14) {
@@ -144,7 +152,7 @@ export default function OperationPage() {
     } as OperationalWorkspace;
     setWorkspace(nextWorkspace);
     setCnpj(formatCnpj(normalizedCnpj));
-    window.localStorage.setItem("catalogo-facil-operation-cnpj", normalizedCnpj);
+    window.localStorage.setItem(OPERATION_CNPJ_STORAGE_KEY, normalizedCnpj);
     const branch = nextWorkspace.branches[0];
     const tableResult = await supabase.from("restaurant_tables").select("id, code, name, is_active").eq("store_id", branch.id).eq("is_active", true).order("sort_order").order("code");
     const modernSessionResult = await supabase.from("table_sessions").select("id, table_id, status, payment_status, opened_at").eq("store_id", branch.id).in("status", ["open", "awaiting_payment"]);
@@ -196,7 +204,7 @@ export default function OperationPage() {
       setMessage("Supabase não está configurado neste ambiente.");
       return;
     }
-    setCnpj(formatCnpj(window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? ""));
+    setCnpj(formatCnpj(storedOperationCnpj()));
     let mounted = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
@@ -226,7 +234,7 @@ export default function OperationPage() {
     let reloadTimer = 0;
     const refresh = () => {
       window.clearTimeout(reloadTimer);
-      reloadTimer = window.setTimeout(() => void loadWorkspace(session, window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? "", true), 220);
+      reloadTimer = window.setTimeout(() => void loadWorkspace(session, storedOperationCnpj(), true), 220);
     };
     const channel = client.channel(`table-map-${branchId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `store_id=eq.${branchId}` }, refresh)
@@ -307,7 +315,7 @@ export default function OperationPage() {
       setMessage(operationalError(error, "Não foi possível solicitar o fechamento."));
       return;
     }
-    if (session) await loadWorkspace(session, window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? "", true);
+    if (session) await loadWorkspace(session, storedOperationCnpj(), true);
     setMessage(`${table.name?.trim() || `Mesa ${table.code}`} enviada ao caixa.`);
   }
 

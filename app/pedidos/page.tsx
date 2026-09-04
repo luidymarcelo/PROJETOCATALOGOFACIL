@@ -87,6 +87,8 @@ const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "
 const time = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const viewLabels: Record<OperationalView, string> = { atendimento: "Atendimento", cozinha: "Cozinha", caixa: "Caixa" };
 const paymentMethods = ["Pix", "Dinheiro", "Cartão de crédito", "Cartão de débito"];
+const OPERATION_CNPJ_STORAGE_KEY = "liist-operation-cnpj";
+const BRANCH_CNPJ_STORAGE_KEY = "liist-branch-cnpj";
 
 function workspaceRoles(access: WorkspaceResponse["access"]) {
   const roles = Array.isArray(access?.roles) ? access.roles.filter(Boolean) : [];
@@ -175,7 +177,11 @@ export default function InternalOrdersPage() {
     }
 
     if (!workspace) {
-      const cnpj = window.localStorage.getItem("catalogo-facil-operation-cnpj") ?? window.localStorage.getItem("catalogo-facil-branch-cnpj") ?? "";
+      const cnpj = window.localStorage.getItem(OPERATION_CNPJ_STORAGE_KEY)
+        ?? window.localStorage.getItem(BRANCH_CNPJ_STORAGE_KEY)
+        ?? window.localStorage.getItem("catalogo-facil-operation-cnpj")
+        ?? window.localStorage.getItem("catalogo-facil-branch-cnpj")
+        ?? "";
       if (cnpj) {
         const { data: operationalWorkspace, error: operationalError } = await supabase.rpc("get_operational_workspace", { p_cnpj: cnpj });
         if (operationalWorkspace?.tenant && operationalWorkspace?.branches?.length) workspace = operationalWorkspace as WorkspaceResponse;

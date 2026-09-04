@@ -1,4 +1,4 @@
--- Usuarios e permissoes do Catalogo Facil.
+-- Usuarios e permissoes da LIIST.
 do $$
 begin
   create type public.member_role as enum ('owner', 'admin', 'manager', 'staff');

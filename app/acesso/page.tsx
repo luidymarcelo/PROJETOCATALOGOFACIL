@@ -7,7 +7,7 @@ export default function AccessPage() {
   return (
     <main className="access-page">
       <section className="access-shell">
-        <span className="access-kicker">Catálogo Fácil</span>
+        <span className="access-kicker">LIIST</span>
         <h1>Como você deseja entrar?</h1>
         <p>Escolha o acesso correspondente ao seu perfil.</p>
         <div className="access-options">
